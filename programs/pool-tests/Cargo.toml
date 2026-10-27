@@ -1,0 +1,26 @@
+[package]
+name = "pool-tests"
+version = "0.1.0"
+edition = "2021"
+description = "Runs the compiled pool program inside LiteSVM, with the real Token-2022."
+publish = false
+# Lets Cargo pick dependency versions that build on the installed Rust.
+resolver = "3"
+
+# Kept out of the program's own crate so its dependency tree stays as small as it is.
+[dev-dependencies]
+dex = { path = "../pool", features = ["no-entrypoint"] }
+anchor-lang = "=1.2.0"
+bytemuck = "1"
+litesvm = "0.16"
+solana-account = "4"
+solana-address = { version = "2", features = ["curve25519"] }
+solana-clock = "3"
+solana-instruction = "3"
+solana-instruction-error = "2"
+solana-keypair = "3"
+solana-message = "4"
+solana-signer = "3"
+solana-system-interface = { version = "3", features = ["bincode"] }
+solana-transaction = "4"
+solana-transaction-error = "3"

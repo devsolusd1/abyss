@@ -1,0 +1,443 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>forma</title>
+<meta name="description" content="forma (working name): a Solana DEX where every coin keeps one pool for life. Design prototype, round 7: the black hole.">
+<script>window.__errors = []; addEventListener('error', function (e) { __errors.push(String(e.message || e)); }); addEventListener('unhandledrejection', function (e) { __errors.push('promise: ' + String(e.reason && e.reason.message || e.reason)); });</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anybody:wdth,wght@50..150,100..900&family=Martian+Mono:wdth,wght@75..112.5,100..800&display=swap">
+<style>
+/* ===== forma, round 7: the pool is a black hole drawn on a few pixels, dark purple and light yellow ===== */
+:root {
+  --void: #07040d; --bg: #120a1f; --deep: #22123b; --pur: #3b1e60; --vio: #67378d; --lil: #b296cf; --yel: #f4e4a1; --cream: #fffbe6;
+  --line: rgba(244, 228, 161, .22); --line2: rgba(244, 228, 161, .4); --mute: rgba(255, 251, 230, .6);
+  --gut: clamp(16px, 4.4vw, 64px);
+  --head: 'Anybody', system-ui, sans-serif; --mono: 'Martian Mono', ui-monospace, Menlo, monospace;
+  /* stepped pixel corners: two steps of --s */
+  --step: polygon(0 calc(var(--s) * 2), var(--s) calc(var(--s) * 2), var(--s) var(--s), calc(var(--s) * 2) var(--s), calc(var(--s) * 2) 0,
+    calc(100% - var(--s) * 2) 0, calc(100% - var(--s) * 2) var(--s), calc(100% - var(--s)) var(--s), calc(100% - var(--s)) calc(var(--s) * 2), 100% calc(var(--s) * 2),
+    100% calc(100% - var(--s) * 2), calc(100% - var(--s)) calc(100% - var(--s) * 2), calc(100% - var(--s)) calc(100% - var(--s)), calc(100% - var(--s) * 2) calc(100% - var(--s)), calc(100% - var(--s) * 2) 100%,
+    calc(var(--s) * 2) 100%, calc(var(--s) * 2) calc(100% - var(--s)), var(--s) calc(100% - var(--s)), var(--s) calc(100% - var(--s) * 2), 0 calc(100% - var(--s) * 2));
+}
+* { box-sizing: border-box; }
+html { background: var(--bg); -webkit-text-size-adjust: 100%; color-scheme: dark; }
+body { margin: 0; background: var(--bg); color: var(--cream); font: 400 13px/1.65 var(--mono); font-stretch: 87.5%; overflow-x: hidden; }
+a { color: inherit; }
+canvas { display: block; image-rendering: pixelated; }
+button { font: inherit; color: inherit; background: none; border: 0; padding: 0; margin: 0; cursor: pointer; border-radius: 0; }
+h1, h2, h3 { font-family: var(--head); font-weight: 850; font-stretch: 118%; margin: 0; line-height: .98; text-transform: uppercase; letter-spacing: .005em; }
+p { margin: 0; }
+.wrap { max-width: 1240px; margin: 0 auto; padding: 0 var(--gut); }
+:focus-visible { outline: 2px solid var(--yel); outline-offset: 4px; }
+.mute { color: var(--mute); }
+.y { color: var(--yel); }
+
+/* ----- the strip of trades along the top ----- */
+.tick { display: flex; align-items: center; height: 34px; border-bottom: 1px solid var(--line); font-size: 11px; white-space: nowrap; overflow: hidden; background: var(--void); }
+.tick .tag { flex: none; display: flex; align-items: center; gap: 8px; padding: 0 14px 0 var(--gut); height: 100%; border-right: 1px solid var(--line); color: var(--yel); text-transform: uppercase; letter-spacing: .08em; font-size: 10px; }
+.tick .tag i { width: 6px; height: 6px; background: var(--yel); animation: blink 1.6s steps(1) infinite; }
+@keyframes blink { 50% { opacity: .15; } }
+.tape { flex: 1; display: flex; gap: 28px; padding-left: 18px; overflow: hidden; -webkit-mask-image: linear-gradient(90deg, #000 85%, transparent); mask-image: linear-gradient(90deg, #000 85%, transparent); }
+.tape span { flex: none; display: inline-flex; align-items: center; gap: 7px; color: var(--mute); }
+.tape span b { font-weight: 500; color: var(--cream); }
+.tape span i { width: 5px; height: 5px; background: var(--lil); }
+.tape span.buy i { background: var(--yel); }
+.tape span.grad { color: var(--yel); }
+.tape span.grad i { background: var(--cream); box-shadow: 0 5px 0 var(--yel), 0 -5px 0 var(--yel); height: 3px; }
+.tape span.new { animation: slidein .5s steps(5) both; }
+@keyframes slidein { from { transform: translateX(-30px); opacity: 0; } }
+
+/* ----- header ----- */
+.top { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding-top: 18px; padding-bottom: 18px; }
+.brand { display: inline-flex; align-items: center; gap: 12px; text-decoration: none; }
+.brand b { font: 850 22px/1 var(--head); font-stretch: 125%; letter-spacing: -.01em; }
+.nav { display: flex; align-items: center; gap: clamp(14px, 3vw, 34px); font-size: 12px; }
+.nav a { text-decoration: none; color: var(--mute); }
+.nav a:hover { color: var(--cream); }
+.nav .short { display: none; }
+
+/* ----- buttons with pixel corners ----- */
+.btn { --s: 3px; display: inline-flex; align-items: center; gap: 12px; padding: 15px 22px 14px; font: 850 13px/1 var(--head); font-stretch: 125%; text-transform: uppercase; letter-spacing: .06em; text-decoration: none; background: var(--yel); color: var(--bg); clip-path: var(--step); }
+.btn:hover { background: var(--cream); }
+.btn.sm { padding: 11px 15px 10px; font-size: 11px; }
+.btn.ghost { position: relative; background: var(--line2); color: var(--cream); }
+.btn.ghost::before { content: ''; position: absolute; inset: 2px; background: var(--bg); clip-path: var(--step); z-index: -1; }
+.btn.ghost { isolation: isolate; }
+.btn.ghost:hover { background: var(--yel); }
+.nav .btn { color: var(--bg); }
+.nav .btn:hover { color: var(--bg); }
+
+/* ----- hero ----- */
+.hero { position: relative; padding: clamp(18px, 4vh, 44px) 0 clamp(36px, 7vh, 72px); text-align: center; background-repeat: repeat; image-rendering: pixelated; }
+.hero::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 120px; background: linear-gradient(transparent, var(--bg)); pointer-events: none; }
+.hero > * { position: relative; z-index: 1; }
+.hero > .title { z-index: 2; }
+.kick { font-size: 11px; text-transform: uppercase; letter-spacing: .14em; color: var(--yel); margin-bottom: 14px; }
+.hero h1 { font-size: clamp(34px, 5.6vw, 84px); position: relative; z-index: 2; text-wrap: balance; }
+.stage { position: relative; z-index: 1; display: flex; justify-content: center; margin: 0 auto; cursor: pointer; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+.stage button { position: absolute; inset: 0; }
+.read { display: flex; justify-content: center; flex-wrap: wrap; gap: 6px 18px; margin-top: 6px; font-size: 12px; }
+.read b { font-weight: 500; color: var(--yel); }
+.read .bar { --s: 2px; display: inline-block; width: 120px; height: 10px; background: var(--deep); clip-path: var(--step); vertical-align: -1px; position: relative; overflow: hidden; }
+.read .bar i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--yel); width: 0; }
+.cta { display: flex; justify-content: center; flex-wrap: wrap; gap: 12px; margin-top: 26px; }
+
+/* ----- sections ----- */
+.sec { padding: clamp(64px, 11vw, 132px) 0 0; }
+.sec h2 { font-size: clamp(30px, 4.2vw, 58px); }
+.lead { margin-top: 16px; max-width: 58ch; color: var(--mute); font-size: 13px; }
+.head { display: flex; justify-content: space-between; align-items: flex-end; gap: 24px; flex-wrap: wrap; }
+
+/* outlined pixel cards */
+.card { --s: 4px; position: relative; isolation: isolate; background: var(--line); clip-path: var(--step); padding: 22px 22px 24px; }
+.card::before { content: ''; position: absolute; inset: 2px; background: var(--bg); clip-path: var(--step); z-index: -1; }
+.card .no { font-size: 11px; color: var(--yel); letter-spacing: .1em; }
+.card h3 { font-size: 22px; margin: 8px 0 10px; }
+.card p { color: var(--mute); font-size: 12px; }
+.card canvas { margin: 0 auto 18px; }
+
+.flow { display: grid; grid-template-columns: 1fr 44px 1fr 44px 1fr; align-items: stretch; margin-top: 40px; }
+.flow .link { align-self: center; height: 0; border-top: 2px dashed var(--line2); margin: 0 6px; }
+
+.setups { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-top: 40px; }
+.setup { text-align: left; display: block; width: 100%; }
+.setup .card { padding: 16px 16px 18px; }
+.setup .card canvas { margin-bottom: 14px; }
+.setup dl { display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; margin: 0; font-size: 11px; }
+.setup dt { color: var(--mute); }
+.setup dd { margin: 0; text-align: right; }
+.setup[aria-pressed="true"] .card { background: var(--yel); }
+.setup:hover .card { background: var(--line2); }
+.setup[aria-pressed="true"]:hover .card { background: var(--yel); }
+.legend { margin-top: 18px; font-size: 11px; color: var(--mute); }
+
+.hooks { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: stretch; margin-top: 40px; }
+.hooks .card p + p { margin-top: 10px; }
+.card .tag, .tag { display: inline-block; margin-top: 18px; color: var(--yel); font-size: 12px; }
+.code { font-size: 11px; line-height: 1.9; color: var(--mute); }
+.code b { color: var(--yel); font-weight: 500; }
+.code s { text-decoration: none; color: var(--lil); }
+
+.foot { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; margin-top: clamp(72px, 12vw, 140px); padding-top: 26px; padding-bottom: 40px; border-top: 1px solid var(--line); font-size: 11px; color: var(--mute); }
+
+@media (max-width: 860px) {
+  .flow { grid-template-columns: 1fr; gap: 0; }
+  .flow .link { width: 0; height: 26px; border-top: 0; border-left: 2px dashed var(--line2); margin: 0 auto; }
+  .setups { grid-template-columns: repeat(2, 1fr); }
+  .hooks { grid-template-columns: 1fr; }
+}
+@media (max-width: 560px) {
+  .nav .long { display: none; }
+  .nav .short { display: inline; }
+  .tick .tag { padding-left: 16px; }
+  .setups { gap: 10px; }
+  .setup .card { padding: 12px 12px 14px; }
+  .setup dl { font-size: 10px; gap: 2px 6px; }
+}
+@media (prefers-reduced-motion: reduce) { .tick .tag i, .tape span.new { animation: none; } }
+</style>
+<script defer src="bh.js"></script>
+</head>
+<body>
+
+<div class="tick" aria-label="Trades in the simulation">
+  <span class="tag"><i></i>simulation</span>
+  <div class="tape" id="tape" aria-live="off"></div>
+</div>
+
+<header class="top wrap">
+  <a class="brand" href="#top" aria-label="forma, top of the page"><canvas id="sym" aria-hidden="true"></canvas><b>forma</b></a>
+  <nav class="nav" aria-label="Sections">
+    <a href="#how"><span class="long">how it works</span><span class="short">how</span></a>
+    <a href="#coins">coins</a>
+    <a class="btn sm" href="/launch">launch</a>
+  </nav>
+</header>
+
+<main>
+<!-- ===== hero: the hole is a coin's pool; every buy is matter falling in, the disk is the SOL in it, the jets are graduation ===== -->
+<section class="hero" id="top">
+  <div class="wrap title">
+    <p class="kick">a new dex on solana</p>
+    <h1>Every coin,<br> <span class="y">its own way.</span></h1>
+  </div>
+  <div class="stage" id="stage">
+    <canvas id="hole" aria-hidden="true"></canvas>
+    <button type="button" id="hit" aria-label="Buy 5 SOL of the simulated coin"></button>
+  </div>
+  <div class="wrap">
+    <p class="read" aria-live="polite">
+      <span><b id="rName">MOTE</b> <span class="mute">simulated</span></span>
+      <span><span id="rCap">◎ 0</span> <span class="mute" id="rGoal">of 420 market cap</span> <span class="bar" aria-hidden="true"><i id="rBar"></i></span></span>
+      <span class="mute" id="rHint">tap the hole to buy</span>
+    </p>
+    <div class="cta">
+      <a class="btn" href="/launch">Launch a coin <span aria-hidden="true">→</span></a>
+      <a class="btn ghost" href="/coins">Browse coins</a>
+    </div>
+  </div>
+</section>
+
+<!-- ===== how a coin lives ===== -->
+<section class="sec" id="how">
+  <div class="wrap">
+    <h2>Every trade falls in.</h2>
+    <p class="lead">A coin here is a black hole. Its disk is the SOL in its pool.</p>
+    <div class="flow">
+      <div class="card"><canvas id="h1" aria-hidden="true"></canvas><p class="no">01</p><h3>Buy</h3><p>Your SOL goes into the coin's pool. The disk grows with every buy.</p></div>
+      <div class="link" aria-hidden="true"></div>
+      <div class="card"><canvas id="h2" aria-hidden="true"></canvas><p class="no">02</p><h3>Graduate</h3><p>At its market cap goal the virtual SOL drops away and tokens burn, so the price holds. The jets light up.</p></div>
+      <div class="link" aria-hidden="true"></div>
+      <div class="card"><canvas id="h3" aria-hidden="true"></canvas><p class="no">03</p><h3>Trade for life</h3><p>The same pool keeps trading. No migration, and nobody can pull the liquidity.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== settings ===== -->
+<section class="sec" id="set">
+  <div class="wrap">
+    <h2>Set at launch.</h2>
+    <p class="lead">Each coin picks where its price starts, when it graduates and its fee. Tap one to try it above.</p>
+    <div class="setups" id="setups"></div>
+    <p class="legend">The more it has to grow to graduate, the wider its disk. The higher the fee, the hotter it glows.</p>
+  </div>
+</section>
+
+<!-- ===== hooks next ===== -->
+<section class="sec" id="hooks">
+  <div class="wrap">
+    <h2>Hooks next.</h2>
+    <div class="hooks">
+      <div class="card">
+        <p>A hook is code that runs on every transfer of a coin. Hooks are not in this version.</p>
+        <p>The pool's trading path already carries their accounts, so they can come without a new pool.</p>
+        <p class="tag">Settings now. Hooks next.</p>
+      </div>
+      <div class="card code" aria-label="What a buy carries">
+        <p><b>buy</b> ( sol_in, min_tokens_out )</p>
+        <p>&nbsp; trader · pool · mint · vault · trader_tokens</p>
+        <p>&nbsp; <s>+ a hook's accounts, after these</s> &nbsp;<span class="y">← none in this version</span></p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== devnet ===== -->
+<section class="sec" id="coins">
+  <div class="wrap head">
+    <div>
+      <h2>On devnet.</h2>
+      <p class="lead">Real coins, read from devnet. Only the team launches for now; a launchpad for creators comes later.</p>
+    </div>
+    <a class="btn ghost" href="/coins">Browse coins <span aria-hidden="true">→</span></a>
+  </div>
+</section>
+</main>
+
+<footer class="wrap foot">
+  <a class="brand" href="#top" aria-label="forma"><canvas id="sym1" aria-hidden="true"></canvas><b>forma</b></a>
+  <p>forma is a working name · devnet only · the black hole at the top is a simulation</p>
+</footer>
+
+<script>
+addEventListener('DOMContentLoaded', function () {
+'use strict';
+var $ = function (s) { return document.querySelector(s); };
+var BH = window.BH, HEX = BH.HEX, reduced = BH.reduced, TAU = Math.PI * 2;
+var qs = location.search;
+
+function devPx(px) { var r = window.devicePixelRatio || 1; return Math.max(1, Math.round(px * r)) / r; }
+function fit(cv, px) { var d = devPx(px); cv.style.width = cv.width * d + 'px'; cv.style.height = cv.height * d + 'px'; return d; }
+
+/* ---------- the mark: drawn by hand from the render ---------- */
+var PAL = { k: HEX[0], d: HEX[2], p: HEX[3], v: HEX[4], l: HEX[5], y: HEX[6], w: HEX[7] };
+var MARK = ['.........llv.........', '.......ylyylvv.......', '......ywykkkllv......', '.....ywkkkkkkklp.....', '.....ywkkkkkkklp.....', '.....wkkkkkkkkkv.....',
+  '.....wkkkkkkkkkv.....', 'yyywwwyyyyyllllllvvvv', '......wkkkkkkkl......', '......wkkkkkkkl......', '.......wykkkll.......', '.........yyl.........'];
+var FAV = ['......lllvv......', '.....ylyylvv.....', '....ywykkkllp....', '...yywkkkkklpp...', '...ywkkkkkkkvp...', '...ywkkkkkkkvp...',
+  'yywwwyyyylllllvvv', '.....wkkkkkl.....', '.....wykkkll.....', '.......yyl.......'];
+function sprite(cv, rows, oy) {
+  var c = cv.getContext('2d');
+  rows.forEach(function (r, y) { for (var x = 0; x < r.length; x++) { var col = PAL[r[x]]; if (col) { c.fillStyle = col; c.fillRect(x, y + (oy || 0), 1, 1); } } });
+}
+[$('#sym'), $('#sym1')].forEach(function (cv) { cv.width = MARK[0].length; cv.height = MARK.length; sprite(cv, MARK); fit(cv, 2); });
+(function () {
+  var cv = document.createElement('canvas'); cv.width = 17; cv.height = 17; sprite(cv, FAV, 3);
+  var l = document.createElement('link'); l.rel = 'icon'; l.href = cv.toDataURL(); document.head.appendChild(l);
+})();
+
+/* ---------- the coins' settings, and what each looks like ---------- */
+var SETUPS = [{ V: 30, M: 420, fee: 100 }, { V: 20, M: 180, fee: 200 }, { V: 200, M: 800, fee: 150 }, { V: 60, M: 420, fee: 300 }];
+function grad(p) { return Math.sqrt(p.M * p.V) - p.V; }            // real SOL in at graduation
+function mcap(p, x) { return (p.V + x) * (p.V + x) / p.V; }        // market cap with x real SOL in
+function burn(p) { return 1e9 * p.V / p.M; }                       // tokens burned at graduation, out of 1B
+function reach(p) { return 8 + 4.9 * Math.log(p.M / p.V); }         // the disk's edge at graduation, M
+function heat(p) { return 1.5 + p.fee / 100 * .22; }               // exposure
+function spanOf(p) { return 2 * (reach(p) + 2.4); }
+function rAt(p, x) { var f = Math.max(0, Math.min(1, x / grad(p))); return 8.6 + (reach(p) - 8.6) * Math.pow(f, .7); }
+function sol(n, d) { return n.toLocaleString('en-US', { maximumFractionDigits: d == null ? 2 : d, minimumFractionDigits: d == null ? 2 : d }); }
+function fee(p) { return (p.fee / 100).toLocaleString('en-US', { maximumFractionDigits: 1 }) + '%'; }
+function big(n) { return n >= 1e6 ? sol(n / 1e6) + 'M' : sol(n, 0); }
+
+/* ---------- the star field behind the hero, the same stars as the hole's sky ---------- */
+var PX = 4;
+function heroPx() {
+  var vw = document.documentElement.clientWidth, vh = innerHeight;
+  var byW = Math.floor((Math.min(vw, 1240) - 24) / 168), byH = Math.floor((vh - 300) / 80);
+  return Math.max(2, Math.min(5, byW, Math.max(3, byH)));
+}
+function starTile(n) {
+  var c = document.createElement('canvas'); c.width = c.height = n; var g = c.getContext('2d');
+  g.fillStyle = HEX[1]; g.fillRect(0, 0, n, n);
+  for (var y = 0; y < n; y++) for (var x = 0; x < n; x++) {
+    if (BH.hash(x * 7 + 3, y * 13 + 5 + 9000) < .011) {
+      var l = BH.hash(x + 101, y - 77 + 9000);
+      g.fillStyle = l < .62 ? HEX[3] : l < .9 ? HEX[4] : l < .975 ? HEX[5] : HEX[6]; g.fillRect(x, y, 1, 1);
+    }
+  }
+  return c.toDataURL();
+}
+var tileUrl = starTile(128);
+function sky() { var d = devPx(PX); var h = $('.hero'); h.style.backgroundImage = 'url(' + tileUrl + ')'; h.style.backgroundSize = 128 * d + 'px'; }
+
+/* ---------- the hero ---------- */
+var NAMES = ['MOTE', 'HALO', 'DUSK', 'ORBY', 'LUMA', 'PIXL', 'NOVA', 'EMBR'];
+var sim = { p: SETUPS[0], k: 0, name: NAMES[0], x: 0, grad: false, at: 0 };
+var m0 = /[?&]sol=([\d.]+)/.exec(qs); sim.x = m0 ? +m0[1] : grad(sim.p) * .52;
+var cv = $('#hole');
+var hole = new BH.Hole(cv, { w: 168, h: 92, span: spanOf(sim.p), rOut: rAt(sim.p, sim.x), theta: 1.43, glow: heat(sim.p) });
+var jetGoal = 0, tiltOff = 0, tiltGoal = 0, clock = 0;
+
+function size() { PX = heroPx(); var d = fit(cv, PX); sky(); $('#stage').style.marginTop = -Math.round(cv.height * d * .2) + 'px'; }
+size();
+var rz = 0; addEventListener('resize', function () { clearTimeout(rz); rz = setTimeout(size, 120); });
+matchMedia('(resolution: ' + (window.devicePixelRatio || 1) + 'dppx)').addEventListener('change', size);
+
+function readout() {
+  var p = sim.p, g = grad(p), cap = sim.grad ? p.M : mcap(p, Math.min(sim.x, g));
+  $('#rName').textContent = sim.name;
+  $('#rCap').textContent = '◎ ' + sol(cap, 0);
+  $('#rGoal').textContent = sim.grad ? 'market cap · graduated' : 'of ' + sol(p.M, 0) + ' market cap';
+  $('#rBar').style.width = Math.min(100, sim.x / g * 100) + '%';
+  $('#rHint').textContent = sim.grad ? 'one pool, trading for life' : 'tap the hole to buy';
+}
+readout();
+
+/* the strip of trades */
+var tape = $('#tape');
+function say(html, cls) {
+  var s = document.createElement('span'); s.className = (cls || '') + (reduced ? '' : ' new'); s.innerHTML = '<i></i>' + html;
+  tape.insertBefore(s, tape.firstChild);
+  while (tape.children.length > 14) tape.removeChild(tape.lastChild);
+}
+
+function eat(amount) {
+  if (sim.grad) { readout(); return; }
+  sim.x += amount;
+  if (sim.x >= grad(sim.p)) {
+    sim.grad = true; sim.at = clock; jetGoal = 1; hole.flash = 1;
+    say('<b>' + sim.name + '</b> graduated · ' + big(burn(sim.p)) + ' tokens burned', 'grad');
+  }
+  readout();
+  if (reduced) paintStill();
+}
+hole.onEat = function (c) { eat(c.amount); };
+function buy(amount, who) {
+  say('◎' + sol(amount) + ' <b>bought</b> ' + sim.name + (who ? ' · ' + who : ''), 'buy');
+  if (reduced) eat(amount); else hole.drop(amount);
+}
+function sell(amount) {
+  amount = Math.min(amount, sim.x * .25);
+  if (amount < .05) return;
+  say('◎' + sol(amount) + ' sold ' + sim.name, 'sell');
+  if (!sim.grad) sim.x -= amount;
+  readout();
+  if (reduced) paintStill();
+}
+function next() {
+  sim.k = (sim.k + 1) % NAMES.length; sim.name = NAMES[sim.k];
+  sim.x = grad(sim.p) * (.12 + Math.random() * .25); sim.grad = false; jetGoal = 0;
+  say('<b>' + sim.name + '</b> launched · ' + sol(sim.p.V, 0) + ' SOL virtual, graduates at ' + sol(sim.p.M, 0) + ', fee ' + fee(sim.p));
+  readout();
+  if (reduced) paintStill();
+}
+function pick(i) {
+  sim.p = SETUPS[i]; hole.span = spanOf(sim.p); hole.size(168, 92);
+  hole.blobs.length = 0; hole.rOut = rAt(sim.p, 0);
+  next();
+  [].forEach.call(document.querySelectorAll('.setup'), function (b, j) { b.setAttribute('aria-pressed', String(i === j)); });
+  if (reduced) paintStill();
+}
+
+/* the simulated market: mostly buys, some sells; a graduated coin keeps trading, then a new coin opens */
+function market() {
+  var wait = 1300 + Math.random() * 1700;
+  setTimeout(function () {
+    if (!document.hidden) {
+      if (sim.grad && clock - sim.at > 16) next();
+      else if (Math.random() < .78) { var r = Math.random(); buy(Math.round((.15 + r * r * r * 7.5) * 100) / 100); }
+      else sell(Math.round((.2 + Math.random() * 2) * 100) / 100);
+    }
+    market();
+  }, wait);
+}
+say('<b>' + sim.name + '</b> launched · 30 SOL virtual, graduates at 420, fee 1%');
+market();
+
+/* the hand on the hole: a tap buys; a mouse over it tilts the view a little */
+var stage = $('#stage');
+$('#hit').addEventListener('click', function () { buy(5, 'you'); });
+stage.addEventListener('pointermove', function (e) {
+  if (e.pointerType !== 'mouse') return;
+  var r = cv.getBoundingClientRect(); tiltGoal = ((e.clientY - r.top) / r.height - .5) * .22;
+});
+stage.addEventListener('pointerleave', function () { tiltGoal = 0; });
+
+function paintStill() { hole.rOut = rAt(sim.p, sim.x); hole.jet = sim.grad ? 1 : 0; hole.glow = heat(sim.p); hole.theta = 1.43; hole.paint(); }
+function frame(dt) {
+  clock += dt;
+  tiltOff += (tiltGoal - tiltOff) * Math.min(1, dt * 2.5);
+  hole.theta = Math.max(1.18, Math.min(1.53, 1.43 + .085 * Math.sin(clock * TAU / 24) + tiltOff));
+  var rg = rAt(sim.p, sim.x); hole.rOut += (rg - hole.rOut) * Math.min(1, dt * 1.2);
+  var gg = heat(sim.p) * (sim.grad ? 1.18 : 1); hole.glow += (gg - hole.glow) * Math.min(1, dt * 1.5);
+  hole.jet += (jetGoal - hole.jet) * Math.min(1, dt * (jetGoal > hole.jet ? 1.1 : .5));
+  hole.step(dt); hole.paint();
+}
+var loop = null;
+if (reduced) paintStill(); else { hole.paint(); loop = BH.run(hole, frame); }
+
+/* ---------- stills: the three steps, and one hole per setting ---------- */
+function still(c, o, px) {
+  var h = new BH.Hole(c, { w: o.w || 64, h: o.h || 40, span: o.span || 52, rOut: o.rOut || 20, theta: o.theta || 1.43, glow: o.glow || 1.4, jet: o.jet || 0, t: o.t || 4 });
+  (o.blobs || []).forEach(function (f) { h.drop(2); var b = h.blobs[h.blobs.length - 1]; b.age = b.life * f; b.psi = f * 5; });
+  h.step(0); h.flash = o.flash || 0; h.paint(); fit(c, px);
+  return h;
+}
+var spx = innerWidth < 560 ? 2 : 3;
+still($('#h1'), { rOut: 13, blobs: [.15, .45, .75], glow: 1.35 }, spx);
+still($('#h2'), { rOut: 20.5, jet: .55, flash: .8, glow: 1.6, t: 7 }, spx);
+still($('#h3'), { rOut: 20.5, jet: 1, glow: 1.5, t: 11, theta: 1.4 }, spx);
+
+var box = $('#setups');
+SETUPS.forEach(function (p, i) {
+  var b = document.createElement('button'); b.type = 'button'; b.className = 'setup'; b.setAttribute('aria-pressed', String(i === 0));
+  b.setAttribute('aria-label', 'Try ' + sol(p.V, 0) + ' SOL virtual, graduating at ' + sol(p.M, 0) + ' SOL market cap, fee ' + fee(p));
+  b.innerHTML = '<div class="card"><canvas aria-hidden="true"></canvas><dl><dt>start</dt><dd>' + sol(p.V, 0) + ' SOL virtual</dd><dt>graduates</dt><dd>' + sol(p.M, 0) + ' SOL cap</dd><dt>fee</dt><dd>' + fee(p) + '</dd></dl></div>';
+  box.appendChild(b);
+  still(b.querySelector('canvas'), { span: spanOf(p) * 1.08, rOut: reach(p), glow: heat(p), theta: 1.36 + i * .045, t: 3 + i * 2.5 }, innerWidth < 560 ? 2 : 3);
+  b.addEventListener('click', function () { pick(i); var top = $('#top'); top.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth' }); });
+});
+
+/* ---------- test handles ---------- */
+window.__forma = {
+  hole: hole, sim: sim, buy: buy, sell: sell, pick: pick, next: next, readout: readout,
+  graduate: function () { buy(Math.max(1, grad(sim.p) - sim.x + .5)); },
+  freeze: function (t, theta) { if (loop) loop.stop(); loop = null; if (t != null) hole.t = t; if (theta != null) hole.theta = theta; hole.paint(); },
+  perf: function () { var n = 40, t0 = performance.now(); for (var i = 0; i < n; i++) hole.paint(); return (performance.now() - t0) / n; }
+};
+});
+</script>
+</body>
+</html>

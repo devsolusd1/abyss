@@ -1,0 +1,962 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>forma</title>
+<meta name="description" content="forma (working name): a Solana DEX where every coin keeps one pool for life. Design prototype, round 6.">
+<script>window.__errors = []; addEventListener('error', function (e) { __errors.push(String(e.message || e)); }); addEventListener('unhandledrejection', function (e) { __errors.push('promise: ' + String(e.reason && e.reason.message || e.reason)); });</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anybody:wdth,wght@50..150,100..900&family=Martian+Mono:wdth,wght@75..112.5,100..800&display=swap">
+<style>
+/* ===== forma, round 6: the pool is a thick triangle drawn on a few pixels, in the brief's seven colours and nothing else ===== */
+:root {
+  --f-bg: #111315; --f-surface: #1D2228; --f-deep: #102C60; --f-blue: #398BFF; --f-ice: #B9E6FF; --f-paper: #F2EFE7; --f-orange: #FF7852;
+  --f-mute: rgba(242, 239, 231, .58); --f-mute-ink: rgba(17, 19, 21, .58);
+  --f-gut: clamp(16px, 4.4vw, 64px);
+  --f-head: 'Anybody', system-ui, sans-serif; --f-mono: 'Martian Mono', ui-monospace, Menlo, monospace;
+}
+* { box-sizing: border-box; }
+html { background: var(--f-bg); -webkit-text-size-adjust: 100%; scroll-padding-top: 8px; }
+body { margin: 0; background: var(--f-bg); color: var(--f-paper); font: 400 13px/1.65 var(--f-mono); font-stretch: 87.5%; overflow-x: hidden; }
+a { color: inherit; }
+canvas { display: block; image-rendering: pixelated; }
+button { font: inherit; color: inherit; background: none; border: 0; padding: 0; margin: 0; cursor: pointer; border-radius: 0; }
+h1, h2 { font-family: var(--f-head); font-weight: 800; font-stretch: 125%; margin: 0; line-height: 1; letter-spacing: -.005em; }
+p { margin: 0; }
+.wrap { max-width: 1240px; margin: 0 auto; padding: 0 var(--f-gut); }
+:focus-visible { outline: 2px solid var(--f-blue); outline-offset: 4px; }
+.paper { background: var(--f-paper); color: var(--f-bg); }
+.mute { color: var(--f-mute); }
+.paper .mute { color: var(--f-mute-ink); }
+
+/* ---------- header (on warm white, with the hero) ---------- */
+.top { display: flex; align-items: center; justify-content: space-between; height: 84px; max-width: 1240px; margin: 0 auto; padding: 0 var(--f-gut); }
+.brand { display: flex; align-items: flex-end; gap: calc(var(--cell, 8px) * 2); text-decoration: none; }
+.nav { display: flex; gap: 32px; font-size: 12px; }
+.nav a { text-decoration: none; color: var(--f-mute-ink); text-underline-offset: 6px; text-decoration-thickness: 2px; }
+.nav a:hover, .nav a:focus-visible { color: var(--f-bg); text-decoration: underline; text-decoration-color: var(--f-blue); }
+.nav .short { display: none; }
+
+/* ---------- hero ---------- */
+.hero { padding-top: 8px; padding-bottom: clamp(56px, 8vh, 96px); text-align: center; }
+.kick { color: var(--f-mute-ink); font-size: 12px; margin-bottom: 14px; }
+.hero h1 { font-size: clamp(34px, 4.55vw, 66px); font-stretch: 122%; }
+.stagegrid { display: grid; grid-template-columns: 1fr auto 1fr; align-items: end; margin-top: clamp(4px, 1.4vh, 16px); }
+.stage { position: relative; justify-self: center; }
+/* a still press buys; a vertical swipe still scrolls the page (the browser then cancels the press) */
+.hit { position: absolute; left: 0; top: 0; touch-action: pan-y; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
+.hit:focus-visible { outline-offset: 2px; }
+.n { position: relative; padding-bottom: var(--padb, 16px); }
+/* before the first buy, one quiet line under the real SOL says what the half-tone is; out of the flow, so nothing moves */
+.n .vnote { position: absolute; left: clamp(16px, 3.2vw, 52px); top: calc(100% - var(--padb, 16px)); font-size: 11px; font-stretch: 75%; color: var(--f-mute-ink); pointer-events: none; transition: opacity .16s; }
+.n .vnote.off { opacity: 0; }
+.n b { display: block; font-size: clamp(22px, 2.3vw, 32px); font-weight: 500; letter-spacing: -.02em; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.n span { display: block; font-size: 11px; line-height: 1.55; white-space: nowrap; }
+.n .l1 { margin-top: 6px; }
+.n.l { text-align: right; padding-right: clamp(16px, 3.2vw, 52px); }
+.n.r { text-align: left; padding-left: clamp(16px, 3.2vw, 52px); }
+/* one line under the triangle: the hint ends at the centre, the two buttons start there, so nothing moves when the hint changes */
+.ctl { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: 26px; height: 22px; align-items: center; margin-top: 8px; font-size: 12px; white-space: nowrap; }
+.ctl .hint { text-align: right; overflow: hidden; text-overflow: ellipsis; }
+.ctl .btns { display: flex; gap: 24px; justify-content: flex-start; }
+.q { color: var(--f-mute-ink); text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 5px; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; touch-action: manipulation; }
+.q:hover, .q:focus-visible, .q.on { color: var(--f-bg); }
+
+/* ---------- sections ---------- */
+.sec { padding: clamp(80px, 11vw, 150px) 0; }
+.sec h2 { font-size: clamp(30px, 3.8vw, 54px); }
+.lead { max-width: 31em; margin-top: 20px; color: var(--f-mute); font-size: 13px; }
+.paper .lead { color: var(--f-mute-ink); }
+
+/* set-ups: each one drawn as its own triangle, full at graduation */
+.setups { display: grid; grid-template-columns: repeat(4, 1fr); align-items: start; gap: 48px clamp(20px, 3vw, 44px); margin-top: clamp(48px, 6vw, 80px); }
+.setup { display: block; text-align: left; }
+.setup canvas { margin-bottom: 22px; }
+.setup .nm { display: flex; align-items: center; gap: 12px; font-family: var(--f-head); font-weight: 800; font-stretch: 125%; font-size: 22px; line-height: 1; }
+.slot { position: relative; display: inline-block; flex: none; width: 10px; height: 10px; box-shadow: inset 0 0 0 2px var(--f-mute); }
+.slot::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 0; background: var(--f-blue); transition: height .18s steps(2, end); }
+.setup.on .slot, .setup:hover .slot { box-shadow: inset 0 0 0 2px var(--f-blue); }
+.setup.on .slot::after { height: 10px; }
+.setup .pr { margin-top: 14px; font-size: 12px; line-height: 1.75; }
+.setup .pr span { display: block; }
+.setup .pr .mute { font-size: 11px; margin-top: 4px; }
+
+/* one pool, hooks */
+.split { display: grid; grid-template-columns: auto 1fr; gap: clamp(36px, 8vw, 128px); align-items: center; }
+.split.rev { grid-template-columns: 1fr auto; }
+#poolCv { cursor: pointer; }
+.tag { margin-top: 26px; font-size: 12px; font-weight: 500; }
+
+/* coins */
+.coinhead { display: flex; justify-content: space-between; align-items: flex-end; gap: 24px; flex-wrap: wrap; }
+.note { font-size: 11px; color: var(--f-mute); }
+.coins { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 48px 28px; margin-top: 56px; }
+.coin { display: block; text-decoration: none; }
+.coin canvas { margin-bottom: 16px; }
+.coin b { display: block; font-family: var(--f-head); font-weight: 700; font-stretch: 115%; font-size: 17px; line-height: 1.2; overflow-wrap: anywhere; }
+.coin span { display: block; font-size: 11px; color: var(--f-mute); margin-top: 3px; }
+.coin:hover b { text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 4px; }
+
+/* footer */
+.foot { display: flex; justify-content: space-between; align-items: flex-end; flex-wrap: wrap; gap: 22px 40px; padding-top: 40px; padding-bottom: 60px; font-size: 11px; color: var(--f-mute); }
+.foot a { text-underline-offset: 4px; }
+
+@media (max-width: 900px) {
+  .setups { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 760px) {
+  .top { height: 64px; }
+  .nav { gap: 16px; font-size: 11px; }
+  .nav .long { display: none; }
+  .nav .short { display: inline; }
+  .hero { padding-top: 4px; }
+  .kick { font-size: 11px; margin-bottom: 10px; }
+  .hero h1 { font-size: clamp(30px, 9.4vw, 44px); line-height: 1.02; }
+  .n.r { padding-bottom: 17px; }
+  .n .vnote { left: auto; right: 0; top: auto; bottom: 0; font-size: 10px; }
+  .stagegrid { grid-template-columns: 1fr 1fr; align-items: start; margin-top: 10px; }
+  .stage { grid-column: 1 / -1; order: -1; }
+  .n { padding-bottom: 0; margin-top: 10px; }
+  .n.l { text-align: left; padding-right: 8px; }
+  .n.r { text-align: right; padding-left: 8px; }
+  .n b { font-size: 22px; }
+  .ctl { column-gap: 16px; margin-top: 16px; font-size: 11px; }
+  .ctl .btns { gap: 16px; }
+  .setup .pr { font-size: 11px; }
+  .setup .nm { font-size: 20px; }
+  .split, .split.rev { grid-template-columns: 1fr; }
+  .split.rev .art { order: -1; }
+  .coins { grid-template-columns: repeat(2, 1fr); gap: 36px 18px; }
+  .foot { padding-bottom: 44px; }
+}
+</style>
+<script defer src="/assets/palettes.js"></script>
+<script defer src="/assets/block.js"></script>
+<script defer src="/net.js"></script>
+<script defer src="/vendor/chain.js"></script>
+</head>
+<body>
+
+<div class="paper">
+<header class="top">
+  <a class="brand" href="#top" aria-label="forma, top of the page"><canvas id="sym" aria-hidden="true"></canvas><canvas id="wm" aria-hidden="true"></canvas></a>
+  <nav class="nav" aria-label="Sections">
+    <a href="#how"><span class="long">how it works</span><span class="short">how</span></a>
+    <a href="#coins">coins</a>
+    <a href="/launch">launch</a>
+  </nav>
+</header>
+
+<main>
+<!-- ===== hero: the triangle is the pool, the blue in it is real SOL, the half-tone under it is virtual SOL ===== -->
+<section class="hero wrap" id="top">
+  <p class="kick">a new dex on solana</p>
+  <h1>Every coin, its own way.</h1>
+  <div class="stagegrid" id="stagegrid">
+    <div class="n l"><b id="nPx">0.0300</b><span class="l1">SOL per 1M tokens</span><span class="mute">simulated</span></div>
+    <div class="stage" id="stage">
+      <canvas id="heroCv" aria-hidden="true"></canvas>
+      <button class="hit" id="hit" type="button" aria-label="Hold to buy in the simulation"></button>
+    </div>
+    <div class="n r"><b id="nSol">0.00</b><span class="l1">real SOL in</span><span class="mute" id="nSolL">of 82.25 to graduate</span><span class="vnote" id="vnote" aria-hidden="true">checkered: 30 virtual SOL, not in the vault</span></div>
+  </div>
+  <div class="ctl">
+    <span class="hint" id="hint" aria-live="polite">hold the triangle to buy</span>
+    <span class="btns"><button class="q" id="sell" type="button" aria-label="Hold to sell">hold to sell</button><button class="q" id="reset" type="button">start over</button></span>
+  </div>
+</section>
+</div>
+
+<!-- ===== settings ===== -->
+<section class="sec" id="how">
+  <div class="wrap">
+    <h2>Set at launch.</h2>
+    <p class="lead">Each coin picks where its price starts, when it graduates and its fee. Tap one to try it above.</p>
+    <div class="setups" id="setups"></div>
+  </div>
+</section>
+
+<!-- ===== one pool for life ===== -->
+<section class="sec paper" id="pool">
+  <div class="wrap split">
+    <div class="art"><canvas id="poolCv" aria-hidden="true" title="Play again"></canvas></div>
+    <div>
+      <h2>One pool for life.</h2>
+      <p class="lead">Launch, graduation and every trade after: one pool. No migration, and nobody can pull the liquidity.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ===== hooks next ===== -->
+<section class="sec" id="hooks">
+  <div class="wrap split rev">
+    <div>
+      <h2>Hooks next.</h2>
+      <p class="lead">A hook is code that runs on every transfer of a coin. Hooks are not in this version. The pool's trading path already carries their accounts.</p>
+      <p class="tag">Settings now. Hooks next.</p>
+    </div>
+    <div class="art"><canvas id="hookCv" aria-hidden="true"></canvas></div>
+  </div>
+</section>
+
+<!-- ===== real devnet coins ===== -->
+<section class="sec" id="coins">
+  <div class="wrap">
+    <div class="coinhead">
+      <div>
+        <h2>On devnet.</h2>
+        <p class="lead" id="coinLead">Real coins, read from devnet. Only the team launches for now; a launchpad for creators comes later.</p>
+      </div>
+      <p class="note" id="coinNote">reading devnet</p>
+    </div>
+    <div class="coins" id="coinGrid"></div>
+  </div>
+</section>
+</main>
+
+<footer class="wrap foot">
+  <a class="brand" href="#top" aria-label="forma"><canvas id="sym1" aria-hidden="true"></canvas><canvas id="wm1" aria-hidden="true"></canvas></a>
+  <p>forma is a working name · devnet only · the triangle at the top is a simulation · <a id="progLink" href="#" target="_blank" rel="noopener">program</a></p>
+</footer>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+'use strict';
+var $ = function (s) { return document.querySelector(s); };
+var reduce = false;
+try { reduce = matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) {}
+var Q; try { Q = new URLSearchParams(location.search); } catch (e) { Q = { get: function () { return null; } }; }
+if (Q.get('motion') === 'reduce') reduce = true;     // lets a screenshot check the reduced-motion path
+// palettes.js (loaded only so block.js can run) writes the old palette onto <html>; this page uses its own --f-* names
+window.__frames = 0;
+var dpr = Math.min(2, window.devicePixelRatio || 1);
+var CELL = 8, PX = 5, PHONE = false;                  // CELL: the marks' grid (8 css px, 5 on a phone); PX: one pixel of every triangle (5, 4 on a phone)
+
+/* ================= palette as indices (0 = the canvas background) ================= */
+var HEX = [null, '#1D2228', '#111315', '#102C60', '#398BFF', '#B9E6FF', '#F2EFE7', '#FF7852'];
+var GR = 1, INK = 2, DEEP = 3, BLUE = 4, ICE = 5, PAPER = 6, ORANGE = 7;
+// the same colours as 32-bit pixels for ImageData; 0 stays transparent, so the section shows through
+var RGBA = HEX.map(function (h) { if (!h) return 0; var v = parseInt(h.slice(1), 16); return ((255 << 24) | ((v & 255) << 16) | (v & 0xff00) | (v >> 16)) >>> 0; });
+
+/* ================= a raster of grid cells, blitted as merged runs (the marks) ================= */
+function Raster(w, h) { this.w = w; this.h = h; this.b = new Uint8Array(w * h); }
+Raster.prototype.px = function (x, y, c) { if (x >= 0 && y >= 0 && x < this.w && y < this.h) this.b[y * this.w + x] = c; };
+function blit(cv, r, gd, bgHex, mono) {
+  var ctx = cv.getContext('2d'); if (!ctx) return;
+  ctx.imageSmoothingEnabled = false;
+  if (bgHex) { ctx.fillStyle = bgHex; ctx.fillRect(0, 0, cv.width, cv.height); } else ctx.clearRect(0, 0, cv.width, cv.height);
+  var W = r.w, B = r.b, cur = '';
+  for (var y = 0; y < r.h; y++) {
+    var row = y * W, x = 0;
+    while (x < W) {
+      var c = B[row + x], e = x + 1;
+      while (e < W && B[row + e] === c) e++;
+      if (c) { var col = mono || HEX[c]; if (col !== cur) { ctx.fillStyle = col; cur = col; } ctx.fillRect(x * gd, y * gd, (e - x) * gd, gd); }
+      x = e;
+    }
+  }
+}
+// whole device pixels per cell, so every cell edge lands on a device pixel
+function sizeCanvas(cv, cols, rows) {
+  var gd = Math.max(1, Math.round(CELL * dpr));
+  if (cv.width !== cols * gd || cv.height !== rows * gd) { cv.width = cols * gd; cv.height = rows * gd; }
+  cv.style.width = (cols * gd / dpr) + 'px'; cv.style.height = (rows * gd / dpr) + 'px';
+  return gd;
+}
+
+/* ================= the pool's math, for any set-up (same rules as Block for the house settings) ================= */
+function Pool(V, M, feeBps) {
+  var G = Math.sqrt(M * V) - V, fee = feeBps / 1e4;
+  var P = {
+    V: V, M: M, fee: fee, G: G,
+    fresh: function () { return { R: 0, T: 1e9, grad: false, burned: 0, held: 0 }; },
+    x: function (s) { return s.grad ? s.R : V + s.R; },
+    price: function (s) { return P.x(s) / s.T; },
+    buy: function (s, d) {
+      var rest = d - d * fee, out = 0, info = { graduated: false, burn: 0 };
+      if (!s.grad) {
+        var on = Math.min(rest, G - s.R);
+        if (on > 0) { var x = V + s.R, T2 = x * s.T / (x + on); out += s.T - T2; s.T = T2; s.R += on; rest -= on; }
+        if (s.R >= G - 1e-9) { s.R = G; var burn = s.T * V / (V + s.R); s.T -= burn; s.burned += burn; s.grad = true; info.graduated = true; info.burn = burn; }
+      }
+      if (s.grad && rest > 0) { var x2 = s.R, T3 = x2 * s.T / (x2 + rest); out += s.T - T3; s.T = T3; s.R += rest; }
+      s.held += out; return info;
+    },
+    sellTokens: function (s, tok) {
+      if (!(tok > 0)) return 0;
+      var x = P.x(s), nx = x * s.T / (s.T + tok), gross = x - nx;
+      s.T += tok; s.held -= tok; s.R = Math.max(0, s.grad ? nx : nx - V);
+      return gross - gross * fee;
+    },
+    sellSol: function (s, d) {
+      var x = P.x(s); d = Math.min(d, x * 0.4);
+      var tok = Math.min(s.T * d / (x - d), s.held);
+      if (!(tok > 1)) return 0;
+      P.sellTokens(s, tok); return tok;
+    }
+  };
+  return P;
+}
+function fSol(v) { return v >= 100 ? v.toFixed(1) : v >= 1 || v <= 0 ? v.toFixed(2) : v.toFixed(3); }
+function fPx(p) { return window.Block ? Block.fPx(p) : (p * 1e6).toFixed(4); }
+function fTok(v) { return window.Block ? Block.fTok(v) : (v / 1e6).toFixed(2) + 'M'; }
+function fNum(v) { return String(Math.round(v)).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
+
+/* the set-ups: real launch parameters inside the program's bounds (1-1,000 virtual SOL, 2-100x, fee up to 3%).
+   Each gives the triangle its own form, in hero pixels with y up: base left c, base right b, apex a, the corner
+   radius rc and how far the right side bows out. The cavity holds the virtual SOL plus the real SOL that
+   graduates the coin; the virtual part is the bottom share by volume: house 27%, curve 33%, tray 50%, L cut 38%.
+   The L cut's card turns the other way and less (cardAng), so its right angle does not point like a play sign. */
+var SETUPS = [
+  { id: 'house', name: 'house', V: 30, M: 420, fee: 100, form: { c: [-31.5, 0], b: [31.5, 0], a: [0, 54.6], rc: 4, bow: 0 } },
+  { id: 'curve', name: 'curve', V: 20, M: 180, fee: 200, form: { c: [-25, 0], b: [25, 0], a: [0, 40], rc: 10, bow: 7 } },
+  { id: 'tray', name: 'tray', V: 200, M: 800, fee: 150, form: { c: [-32, 0], b: [32, 0], a: [0, 28], rc: 4, bow: 0 } },
+  { id: 'ell', name: 'L cut', V: 60, M: 420, fee: 300, form: { c: [-29, 0], b: [29, 0], a: [-29, 52], rc: 4, bow: 0 }, cardAng: -0.35 }
+];
+
+/* ================= the triangle: a thick tube along a rounded triangle, drawn on a few pixels ================= */
+// The tube's path is the form's triangle grown by rc; the tube is TUBE thick around it. It stands in a vertical
+// plane and turns about the vertical axis, so a height on it is a height in the world: the level stays level.
+// It is drawn by splatting points of its surface into a small depth buffer, then shading each pixel from the
+// nearest point with a few tones and a 4 x 4 Bayer dither between neighbours.
+var TUBE = 7.5, STEP = 0.62;                          // tube radius; surface sample spacing (under 1/√2 pixel, so the near side leaves no gaps)
+var ELEV = 15 * Math.PI / 180, CE = Math.cos(ELEV), SE = Math.sin(ELEV);   // we look down at it a little, so the base bar shows its top
+var LIGHT = [-0.45, 0.78, 0.45], ANG34 = 0.62;        // one light, up and to the left; the fixed three-quarter view (35 degrees)
+LIGHT = LIGHT.map(function (v) { return v / Math.hypot(LIGHT[0], LIGHT[1], LIGHT[2]); });
+var B4 = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];   // 4 x 4 Bayer order
+var R_INK = [INK, GR], R_BLUE = [DEEP, BLUE, ICE], R_LIGHT = [GR, PAPER];   // graphite stays two dark tones: solid, no gloss
+
+function polyOf(f, sc) {                              // the triangle, counter-clockwise; a bowed right side becomes a run of points
+  var P = [[f.c[0] * sc, f.c[1] * sc], [f.b[0] * sc, f.b[1] * sc]], i;
+  if (f.bow > 0.05) {
+    var bx = f.b[0] * sc, by = f.b[1] * sc, dx = (f.a[0] - f.b[0]) * sc, dy = (f.a[1] - f.b[1]) * sc, L = Math.hypot(dx, dy), nx = dy / L, ny = -dx / L;
+    for (i = 1; i < 12; i++) { var t = i / 12, k = 4 * t * (1 - t) * f.bow * sc; P.push([bx + dx * t + nx * k, by + dy * t + ny * k]); }
+  }
+  P.push([f.a[0] * sc, f.a[1] * sc]);
+  return P;
+}
+function lerpForm(A, B, t) {
+  function l(p, q) { return [p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t]; }
+  return { a: l(A.a, B.a), b: l(A.b, B.b), c: l(A.c, B.c), rc: A.rc + (B.rc - A.rc) * t, bow: A.bow + (B.bow - A.bow) * t };
+}
+// the surface as points with normals, centred on the turning axis, its lowest point at height 0
+function surfOf(f, sc, reuse) {
+  var Q = polyOf(f, sc), n = Q.length, r = TUBE * sc, rc = Math.max(0, f.rc) * sc, X = [], Y = [], NX = [], NY = [], i, j, k;
+  for (i = 0; i < n; i++) {                           // each corner an arc of radius rc around it, each side a straight run
+    var p0 = Q[(i + n - 1) % n], p1 = Q[i], p2 = Q[(i + 1) % n], ex = p2[0] - p1[0], ey = p2[1] - p1[1];
+    var a0 = Math.atan2(-(p1[0] - p0[0]), p1[1] - p0[1]), a1 = Math.atan2(-ex, ey), da = a1 - a0;
+    while (da < 0) da += 2 * Math.PI;
+    var m = Math.max(1, Math.ceil(da * (rc + r) / STEP));          // spaced for the outside of the bend
+    for (k = 0; k < m; k++) { var an = a0 + da * k / m, ca = Math.cos(an), sa = Math.sin(an); X.push(p1[0] + rc * ca); Y.push(p1[1] + rc * sa); NX.push(ca); NY.push(sa); }
+    var len = Math.hypot(ex, ey), c1 = Math.cos(a1), s1 = Math.sin(a1), cnt = Math.max(1, Math.ceil(len / STEP));
+    for (k = 0; k < cnt; k++) { var t = k / cnt; X.push(p1[0] + ex * t + rc * c1); Y.push(p1[1] + ey * t + rc * s1); NX.push(c1); NY.push(s1); }
+  }
+  var x0 = Infinity, x1 = -Infinity, y0 = Infinity;
+  for (i = 0; i < X.length; i++) { x0 = Math.min(x0, X[i]); x1 = Math.max(x1, X[i]); y0 = Math.min(y0, Y[i]); }
+  var sx = -(x0 + x1) / 2, sy = r - y0;
+  var Na = Math.max(8, Math.ceil(2 * Math.PI * r / STEP)), N = X.length * Na, o = 0, top = 0, rho = 0, uLo = Infinity, uHi = -Infinity;
+  var p = reuse && reuse.p.length >= N * 3 ? reuse.p : new Float32Array(N * 3), q = reuse && reuse.q.length >= N * 3 ? reuse.q : new Float32Array(N * 3);
+  var cs = new Float32Array(Na), sn = new Float32Array(Na);
+  for (j = 0; j < Na; j++) { cs[j] = Math.cos(2 * Math.PI * j / Na); sn[j] = Math.sin(2 * Math.PI * j / Na); }
+  for (i = 0; i < X.length; i++) {
+    var px = X[i] + sx, py = Y[i] + sy, nx = NX[i], ny = NY[i];
+    for (j = 0; j < Na; j++, o += 3) {
+      var dx = cs[j] * nx, dy = cs[j] * ny, dz = sn[j], x = px + r * dx, y = py + r * dy, z = r * dz, rh = Math.sqrt(x * x + z * z);
+      p[o] = x; p[o + 1] = y; p[o + 2] = z; q[o] = dx; q[o + 1] = dy; q[o + 2] = dz;
+      if (rh > rho) rho = rh; if (y > top) top = y;
+      if (y * CE + rh * SE > uHi) uHi = y * CE + rh * SE; if (y * CE - rh * SE < uLo) uLo = y * CE - rh * SE;   // its reach through a whole turn
+    }
+  }
+  return { n: N, p: p, q: q, top: top, rho: rho, uLo: uLo, uHi: uHi, sx: sx, sy: sy, Q: Q, r: r, rc: rc };
+}
+function sdPoly(Q, x, y) {                            // signed distance to a convex counter-clockwise polygon, negative inside
+  var n = Q.length, inside = true, d2 = Infinity;
+  for (var i = 0; i < n; i++) {
+    var a = Q[i], b = Q[(i + 1) % n], ex = b[0] - a[0], ey = b[1] - a[1], wx = x - a[0], wy = y - a[1];
+    var t = Math.max(0, Math.min(1, (wx * ex + wy * ey) / (ex * ex + ey * ey))), qx = wx - ex * t, qy = wy - ey * t;
+    d2 = Math.min(d2, qx * qx + qy * qy);
+    if (ex * wy - ey * wx < 0) inside = false;
+  }
+  return inside ? -Math.sqrt(d2) : Math.sqrt(d2);
+}
+// the ring's volume below each height, measured on a half-pixel grid of its plane: once per shape
+function volOf(S) {
+  var h = 0.5, rows = Math.ceil((S.top + 1) / h), cum = new Float64Array(rows + 1), r = S.r, tot = 0;
+  for (var j = 0; j < rows; j++) {
+    var y = (j + 0.5) * h - S.sy, row = 0;
+    for (var x = -S.rho + h / 2; x < S.rho; x += h) {
+      var d = Math.abs(sdPoly(S.Q, x - S.sx, y) - S.rc);           // distance to the path (the polygon grown by rc)
+      if (d < r) row += 2 * Math.sqrt(r * r - d * d);              // the tube's thickness there
+    }
+    tot += row * h * h; cum[j + 1] = tot;
+  }
+  return { h: h, cum: cum, tot: tot, top: S.top };
+}
+function heightOf(vol, f) {                           // the height under which the ring holds a share f of its volume
+  if (f <= 0) return 0;
+  if (f >= 1) return vol.top * 1.05 + 2;              // full: above the top, at any scale
+  var want = f * vol.tot, C = vol.cum, lo = 0, hi = C.length - 1;
+  while (hi - lo > 1) { var mid = (lo + hi) >> 1; if (C[mid] < want) lo = mid; else hi = mid; }
+  return (lo + (want - C[lo]) / Math.max(1e-9, C[hi] - C[lo])) * vol.h;
+}
+function shareBelow(vol, h) {                         // the other way round: the share of its volume under a height
+  var C = vol.cum, j = h / vol.h, i = Math.max(0, Math.min(C.length - 2, Math.floor(j)));
+  return Math.min(1, (C[i] + (C[i + 1] - C[i]) * Math.max(0, Math.min(1, j - i))) / vol.tot);
+}
+
+/* a depth buffer of the nearest surface point per pixel: its height, its x and how much light it takes */
+function GBuf(w, h) { var n = w * h; this.w = w; this.h = h; this.dep = new Float32Array(n); this.idx = new Int32Array(n); this.y = new Float32Array(n); this.x = new Float32Array(n); this.lit = new Float32Array(n); this.out = new Uint8Array(n); }
+function splat(G, S, th, cx, oy) {
+  var c = Math.cos(th), s = Math.sin(th), W = G.w, Hh = G.h, dep = G.dep, idx = G.idx, P = S.p, N = S.q, n = S.n * 3, j, k;
+  dep.fill(-1e9); idx.fill(-1);
+  for (j = 0; j < n; j += 3) {
+    var nx = N[j], nz = N[j + 2];
+    if (N[j + 1] * SE + (nz * c - nx * s) * CE <= 0) continue;      // faces away from us
+    var x = P[j], y = P[j + 1], z = P[j + 2], zr = z * c - x * s;
+    var col = Math.floor(cx + x * c + z * s), row = Math.floor(oy - y * CE + zr * SE);
+    if (col < 0 || col >= W || row < 0 || row >= Hh) continue;
+    k = row * W + col;
+    var d = y * SE + zr * CE;
+    if (d > dep[k]) { dep[k] = d; idx[k] = j; }
+  }
+  var L0 = LIGHT[0], L1 = LIGHT[1], L2 = LIGHT[2];
+  for (k = 0; k < W * Hh; k++) {
+    j = idx[k]; if (j < 0) continue;
+    var mx = N[j] * c + N[j + 2] * s, mz = N[j + 2] * c - N[j] * s;
+    G.y[k] = P[j + 1]; G.x[k] = P[j]; G.lit[k] = Math.max(0, mx * L0 + N[j + 1] * L1 + mz * L2);
+  }
+}
+function ramp(R, v, b) { var i = Math.floor(v), last = R.length - 1; if (v <= 0) return R[0]; if (i >= last) return R[last]; return R[i + ((v - i) * 16 > b + 0.5 ? 1 : 0)]; }
+// flat tones, dithered only in a narrow band where one meets the next: E holds each step's start and width in light
+var E_BLUE = [0.22, 0.03, 0.8, 0.03], E_LIGHT = [0.06, 0.04], E_INK = [0.32, 0.05];   // blue: deep in the shade, ice only where it faces the light
+var E_BLUE_D = [0.1, 0.03, 0.8, 0.03];               // on the dark sections less of it is deep, or it sinks into the background
+function tone(R, E, l, b) { var v = 0.001; for (var i = 0; i < E.length; i += 2) v += 0.998 * Math.max(0, Math.min(1, (l - E[i]) / E[i + 1])); return ramp(R, v, b); }
+// colour by height: below L.v the virtual SOL (a 50% half-tone of deep blue and ice, a checkerboard, gone where its
+// Bayer rank is under L.dis), from L.lo to L.t the real SOL (solid blue), the rest empty: graphite on warm white,
+// or warm white on graphite (light) for the dark sections
+function tint(G, L, light, sock) {
+  var W = G.w, out = G.out, idx = G.idx, dz = L.dis * 16, k = 0;
+  for (var yy = 0; yy < G.h; yy++) for (var xx = 0; xx < W; xx++, k++) {
+    if (idx[k] < 0) { out[k] = 0; continue; }
+    var b = B4[(yy & 3) * 4 + (xx & 3)], y = G.y[k], l = G.lit[k];
+    if (y < L.v && b >= dz) out[k] = b < 8 ? DEEP : ICE;
+    else if (y >= L.lo && y < L.t) out[k] = tone(R_BLUE, light ? E_BLUE_D : E_BLUE, l, b);
+    else out[k] = light ? tone(R_LIGHT, E_LIGHT, l, b) : tone(R_INK, E_INK, l, b);
+  }
+  if (sock) socket(G, sock);
+}
+// an empty socket cut into the tube from outside: a notch open to the dark around it, lined in orange where it meets the tube
+function socket(G, s) {
+  var W = G.w, n = W * G.h, m = new Uint8Array(n), idx = G.idx, k;
+  for (k = 0; k < n; k++) if (idx[k] >= 0) {
+    var dx = G.x[k] - s.cx, dy = G.y[k] - s.cy, u = dx * s.tx + dy * s.ty, v = dy * s.tx - dx * s.ty;   // along the side, and outward from its path
+    if (Math.abs(u) < s.a && v > s.v0 && v < s.v1) m[k] = 1;
+  }
+  function tube(x, y) { var j = y * W + x; return x >= 0 && y >= 0 && x < W && y < G.h && idx[j] >= 0 && !m[j]; }
+  for (k = 0; k < n; k++) if (m[k]) {                 // lined where any of the eight neighbours is tube, so the line closes
+    var x = k % W, y = (k - x) / W, on = false;
+    for (var dy = -1; dy <= 1 && !on; dy++) for (var dx = -1; dx <= 1; dx++) if ((dx || dy) && tube(x + dx, y + dy)) { on = true; break; }
+    G.out[k] = on ? ORANGE : 0;
+  }
+}
+// the socket's place: a slot cut down into the base bar from its top, x hero pixels right of the middle
+function socketOn(f, S, sc, x) {
+  var r = TUBE * sc;
+  return { cx: x * sc + S.sx, cy: f.c[1] * sc - S.rc + S.sy, tx: 1, ty: 0, a: r * 1.3, v0: -r * 0.55, v1: r * 2 };
+}
+function qh(h, sc) { return Math.round(h * sc * CE) / CE; }   // a height on a whole pixel row
+function levelsAt(vol, sc, vf, tf, post) {           // still levels: virtual SOL up to vf, real SOL up to tf (from the bottom if post)
+  var v = post ? 0 : qh(heightOf(vol, vf), sc);
+  return { v: v, lo: v, t: qh(heightOf(vol, tf), sc), dis: post ? 1 : 0 };
+}
+// still views at the three-quarter angle (or each at its own, angs): one buffer per form, all one size, on one base line
+function stills(forms, sc, angs) {
+  var S = forms.map(function (f) { return surfOf(f, sc); }), x0 = 0, x1 = 0, u0 = 0, u1 = 0;
+  angs = angs || forms.map(function () { return ANG34; });
+  S.forEach(function (q, i) {
+    var c = Math.cos(angs[i]), s = Math.sin(angs[i]);
+    for (var j = 0; j < q.n * 3; j += 3) {
+      var x = q.p[j], y = q.p[j + 1], z = q.p[j + 2], xr = x * c + z * s, u = y * CE - (z * c - x * s) * SE;
+      if (xr < x0) x0 = xr; if (xr > x1) x1 = xr; if (u < u0) u0 = u; if (u > u1) u1 = u;
+    }
+  });
+  var w = Math.ceil(x1 - x0) + 2, h = Math.ceil(u1 - u0) + 2;
+  return S.map(function (q, i) { var G = new GBuf(w, h); splat(G, q, angs[i], 1 - x0, 1 + u1); G.S = q; return G; });
+}
+function present(cv, G) {
+  if (cv.width !== G.w || cv.height !== G.h) { cv.width = G.w; cv.height = G.h; cv.__img = null; }
+  var ctx = cv.getContext('2d'); if (!ctx) return;
+  if (!cv.__img) { cv.__img = ctx.createImageData(G.w, G.h); cv.__u = new Uint32Array(cv.__img.data.buffer); }
+  var u = cv.__u, o = G.out; for (var k = 0; k < o.length; k++) u[k] = RGBA[o[k]];
+  ctx.putImageData(cv.__img, 0, 0);
+}
+// whole device pixels per pixel, so the pixels stay even at 1.25 or 1.5 too: px css pixels, rounded to the screen
+function devPx(px) { var r = window.devicePixelRatio || 1; return Math.max(1, Math.round(px * r)) / r; }
+function scaleCv(cv, G, px) { var d = devPx(px); cv.style.width = (G.w * d) + 'px'; cv.style.height = (G.h * d) + 'px'; }
+
+SETUPS.forEach(function (s) {
+  s.pool = Pool(s.V, s.M, s.fee); s.Cap = s.V + s.pool.G; s.vShare = s.V / s.Cap;
+  s.n = Math.round(40 * s.pool.G / s.Cap); s.unit = s.pool.G / s.n; s.nAll = Math.round(s.Cap / s.unit);   // about 40 holds fill the cavity
+  s.surf = surfOf(s.form, 1); s.vol = volOf(s.surf);
+});
+function findSetup(id) { for (var i = 0; i < SETUPS.length; i++) if (SETUPS[i].id === id) return SETUPS[i]; return null; }
+
+// the house set-up must agree with Block (assets/block.js) to the last digit that matters
+window.__mathCheck = (function () {
+  try {
+    if (!window.Block) return 'Block missing';
+    var B = Block, P = SETUPS[0].pool, a = B.fresh(), b = P.fresh(), err = Math.abs(B.GRAD_R - P.G) / B.GRAD_R;
+    [['b', 5], ['b', 20], ['s', 3], ['b', 70], ['s', 10], ['b', 15], ['s', 40]].forEach(function (o) {
+      if (o[0] === 'b') { B.buy(a, o[1]); P.buy(b, o[1]); } else { B.sellSol(a, o[1]); P.sellSol(b, o[1]); }
+      ['R', 'T', 'burned', 'held'].forEach(function (k) { err = Math.max(err, Math.abs(a[k] - b[k]) / Math.max(1e-9, Math.abs(a[k]))); });
+      err = Math.max(err, Math.abs(B.priceOf(a) - P.price(b)) / B.priceOf(a));
+    });
+    return err;
+  } catch (e) { return 'error ' + e.message; }
+})();
+
+/* ================= motion: the level rises with weight and settles on whole pixel rows ================= */
+var GRAV = 0.0012;                                    // pixel rows per ms^2, for drops and drains
+function fallDur(rows) { return reduce ? 0 : Math.sqrt(2 * Math.max(0, rows) / GRAV); }
+function Spring(w, z) { this.x = 0; this.v = 0; this.g = 0; this.w = w; this.z = z; }
+Spring.prototype.step = function (dt) {
+  for (var left = dt; left > 0; left -= 8) {
+    var h = Math.min(8, left) / 1000;
+    this.v += (-2 * this.z * this.w * this.v - this.w * this.w * (this.x - this.g)) * h;
+    this.x += this.v * h;
+  }
+};
+Spring.prototype.rest = function (e) { e = e || 0.04; return Math.abs(this.x - this.g) < e && Math.abs(this.v) < e * 10; };
+Spring.prototype.snap = function () { this.x = this.g; this.v = 0; };
+// what one triangle shows: the virtual SOL's top (v), the real SOL's top (t), both heights in hero pixels, plus the
+// moments between: the half-tone dissolving, the real SOL dropping to the bottom, everything draining away
+function Fill(sc) { this.sc = sc; this.v = new Spring(20, 0.8); this.t = new Spring(20, 0.8); this.post = false; this.dis = 0; this.an = null; this.clock = 0; this.timers = []; this.vol = null; }
+var FP = Fill.prototype;
+FP.at = function (ms, fn) { this.timers.push({ t: this.clock + ms, fn: fn }); };
+FP.aim = function (vol, vf, tf) { this.vol = vol; this.v.g = heightOf(vol, vf); this.t.g = heightOf(vol, tf); if (reduce) { this.v.snap(); this.t.snap(); } };
+FP.put = function (vol, vf, tf, post) { this.post = !!post; this.dis = post ? 1 : 0; this.an = null; this.aim(vol, post ? 0 : vf, tf); this.v.snap(); this.t.snap(); };
+// graduation: the half-tone dissolves in Bayer order (400 ms), then the real SOL drops to the bottom and settles
+FP.graduate = function (vs, g, cb) {
+  if (reduce) { this.put(this.vol, 0, g, true); if (cb) cb(); return; }
+  this.an = { kind: 'dis', t0: this.clock, dur: 400, vs: vs, g: g, cb: cb };
+};
+FP.drain = function (cb) {
+  if (reduce || this.t.x <= 0.01) { this.put(this.vol, 0, 0, false); if (cb) cb(); return; }
+  this.an = { kind: 'drain', t0: this.clock, v0: this.v.x, top0: this.t.x, cb: cb };
+};
+FP.sunk = function () { var e = this.clock - this.an.t0; return 0.5 * GRAV * e * e / (this.sc * CE); };
+FP.step = function (dt) {
+  this.clock += dt;
+  var t = this.clock, due = this.timers.filter(function (x) { return x.t <= t; }), a;
+  this.timers = this.timers.filter(function (x) { return x.t > t; });
+  due.forEach(function (x) { x.fn(); });
+  a = this.an;
+  if (a && a.kind === 'dis' && t >= a.t0 + a.dur) {
+    this.dis = 1;
+    var fall = heightOf(this.vol, Math.min(0.999, a.vs + a.g)) - heightOf(this.vol, a.g);   // timed by how far its top falls
+    this.an = { kind: 'drop', t0: t, dur: fallDur(fall * this.sc * CE), vs: a.vs, g: a.g, cb: a.cb };
+  } else if (a && a.kind === 'drop' && t >= a.t0 + a.dur) {
+    this.an = null; this.post = true; this.v.x = this.v.g = this.v.v = 0;
+    this.t.x = heightOf(this.vol, a.g); this.t.v = -GRAV * a.dur * 1000 * 0.35 / (this.sc * CE);   // it lands with a little give
+    if (a.cb) a.cb();
+  } else if (a && a.kind === 'drain' && a.top0 - this.sunk() <= 0) {
+    this.put(this.vol, 0, 0, false);
+    if (a.cb) a.cb();
+  }
+  if (!this.an) {
+    this.v.step(dt); this.t.step(dt);
+    if (this.v.rest()) this.v.snap(); if (this.t.rest()) this.t.snap();
+  }
+};
+FP.levels = function () {
+  var a = this.an, t = this.clock, v = this.v.x, top = this.t.x, lo = this.post ? 0 : v, dis = this.dis, f, d;
+  if (a && a.kind === 'dis') dis = Math.min(1, (t - a.t0) / a.dur);
+  if (a && a.kind === 'drop') { f = Math.min(1, (t - a.t0) / Math.max(1, a.dur)); f = a.vs * (1 - f * f); lo = heightOf(this.vol, f); top = heightOf(this.vol, f + a.g); }
+  if (a && a.kind === 'drain') { d = this.sunk(); v = Math.max(0, a.v0 - d); top = Math.max(0, a.top0 - d); lo = this.post ? 0 : v; }
+  return { v: qh(v, this.sc), lo: qh(lo, this.sc), t: qh(top, this.sc), dis: dis };
+};
+FP.busy = function () { return !!this.an || this.timers.length > 0 || !this.v.rest() || !this.t.rest(); };
+
+/* ================= one loop for everything that moves: only the hero turns, at 30 frames a second at most ================= */
+var actors = [], raf = 0, lastT = 0, lastWork = -1e9;
+function wake() { if (raf || document.hidden) return; lastT = performance.now(); raf = requestAnimationFrame(frame); }
+function frame(now) {
+  raf = 0;
+  if (window.__frozen) return;                         // screenshots can hold a frame still
+  if (now - lastWork < 1000 / 30 - 4) { raf = requestAnimationFrame(frame); return; }
+  var dt = Math.min(50, Math.max(0, now - lastT)), again = false; lastT = now; lastWork = now;
+  for (var i = 0; i < actors.length; i++) {
+    var a = actors[i];
+    if (!a.visible || !a.busy()) continue;
+    a.step(dt); a.paint();
+    if (a.busy()) again = true;
+  }
+  window.__frames++;
+  if (again) raf = requestAnimationFrame(frame);
+}
+document.addEventListener('visibilitychange', function () { if (document.hidden) { if (raf) cancelAnimationFrame(raf); raf = 0; } else wake(); });
+var io = 'IntersectionObserver' in window ? new IntersectionObserver(function (es) {
+  es.forEach(function (e) { var a = e.target.__actor; if (!a) return; var was = a.visible; a.visible = e.isIntersecting; if (a.visible && !was) { a.paint(); if (a.onShow) a.onShow(); wake(); } if (!a.visible && was && a.onHide) a.onHide(); });
+}, { threshold: [0, 0.3] }) : null;
+function track(a) { actors.push(a); a.cv.__actor = a; if (io) io.observe(a.cv); else a.visible = true; }
+
+/* ================= the hero ================= */
+var heroCv = $('#heroCv'), hit = $('#hit'), sellBtn = $('#sell'), vnote = $('#vnote');
+// one buffer that holds every form through a whole turn, so nothing moves when the set-up changes
+var HG = (function () {
+  var rho = 0, uLo = 0, uHi = 0;
+  SETUPS.forEach(function (su) { rho = Math.max(rho, su.surf.rho); uLo = Math.min(uLo, su.surf.uLo); uHi = Math.max(uHi, su.surf.uHi); });
+  var w = 2 * Math.ceil(rho) + 2, G = new GBuf(w, Math.ceil(uHi) + Math.ceil(-uLo) + 4);   // 90 wide: 4 px a pixel still fits a 360 px phone
+  G.cx = w / 2; G.oy = Math.ceil(uHi) + 2;            // the turning axis; the row of height 0 seen straight on
+  return G;
+})();
+var TURN = 16000, EASE = 0.3;                         // one turn in 16 s, quicker edge-on and slower face-on (speed 0.4 to 1.6)
+var HUSH = 0.15, HURRY = 2.4;                         // the turn during graduation or a re-form, and while it waits to face us for one
+var H = { su: findSetup(Q.get('setup')) || SETUPS[0], s: null, hold: null, nextT: 0, ticks: 0, locked: false, gradPending: false, gradAnim: false, burn: 0, justGrad: false, full: false, queued: null,
+          S: null, form: null, morph: null, morphNext: null, pour: false, hush: false, phi: 0.9, fixed: null, spin: new Spring(3, 1), fill: new Fill(1) };
+H.S = H.su.surf; H.form = H.su.form; H.spin.x = H.spin.g = 1;
+H.s = H.su.pool.fresh();
+var sol0 = parseFloat(Q.get('sol'));
+if (sol0 > 0) { H.su.pool.buy(H.s, sol0 / (1 - H.su.pool.fee)); if (H.s.grad) H.burn = H.s.burned; }
+function cells() {                                    // holds of real SOL in the pool (one hold step = unit SOL)
+  var su = H.su, s = H.s;
+  if (!s.grad) { if (s.R <= 1e-9) return 0; return Math.max(1, Math.min(su.n - 1, Math.round(s.R / su.unit))); }
+  return Math.max(0, Math.min(su.nAll, Math.round(s.R / su.unit)));
+}
+H.full = H.s.grad && cells() >= H.su.nAll;
+function aimFill() {                                  // the levels follow the pool: virtual SOL at the bottom until graduation, real SOL on top
+  var su = H.su, s = H.s;
+  if (!s.grad || H.gradPending || H.gradAnim) H.fill.aim(su.vol, su.vShare, Math.min(1, su.vShare + Math.min(s.R, su.pool.G) / su.Cap));
+  else H.fill.aim(su.vol, 0, H.full ? 1 : Math.min(1, s.R / su.Cap));
+}
+if (H.s.grad) H.fill.put(H.su.vol, 0, H.full ? 1 : Math.min(1, H.s.R / H.su.Cap), true);
+else H.fill.put(H.su.vol, H.su.vShare, Math.min(1, H.su.vShare + H.s.R / H.su.Cap), false);
+
+function buyOne() {                                   // one step of real SOL (the fee is on top)
+  var su = H.su, P = su.pool, s = H.s, n = cells();
+  if (s.grad && n >= su.nAll) { H.full = true; return false; }   // the cavity is full: the demo stops at the apex
+  var net = (!s.grad && n + 1 >= su.n) ? (P.G - s.R) + su.unit * 1e-4 : (n + 1) * su.unit - s.R;
+  if (!(net > 0)) net = su.unit * 0.5;
+  var info = P.buy(s, net / (1 - P.fee));
+  if (info.graduated) { H.burn = info.burn; H.gradPending = true; }
+  H.justGrad = false;
+  if (s.grad && cells() >= su.nAll) H.full = true;
+  return true;
+}
+function sellOne() {
+  var su = H.su, P = su.pool, s = H.s, n = cells();
+  if (n <= 0 || s.held <= 1) return false;
+  var d = n - 1 <= 0 ? s.R : s.R - (n - 1) * su.unit;
+  if (!(d > 0)) return false;
+  var tok = P.sellSol(s, d);
+  if (s.R < 1e-9) s.R = 0;
+  H.full = false; H.justGrad = false;
+  return tok > 0;
+}
+function eased(phi) { return phi - EASE * Math.sin(2 * phi); }
+function heroAngle() { if (H.fixed !== null) return H.fixed; return reduce ? ANG34 : eased(H.phi); }
+// graduation and a re-form play broadside: they start only when the face is towards us now and still will be once
+// the turn has braked to HUSH (a critically damped brake at w = 8 runs on for about (speed - HUSH) x 250 ms)
+function broadside() {
+  if (reduce || H.fixed !== null) return true;
+  var ahead = (H.spin.x - HUSH) * 250 / TURN * 2 * Math.PI + 0.05;
+  return Math.abs(Math.cos(eased(H.phi))) > 0.6 && Math.abs(Math.cos(eased(H.phi + ahead))) > 0.6;
+}
+function heroLogic() {
+  var t = H.fill.clock;
+  if (H.pour && !H.fill.busy()) { H.pour = false; H.hush = false; H.locked = false; render(); flushQueue(); return; }
+  if (H.gradPending && !H.locked && !H.fill.busy() && broadside()) {   // the level has reached the apex and it faces us: graduate
+    H.gradPending = false; H.locked = true; H.gradAnim = true; H.hush = true;
+    H.fill.graduate(H.su.vShare, H.su.pool.G / H.su.Cap, function () { H.locked = false; H.gradAnim = false; H.hush = false; H.justGrad = true; aimFill(); render(); flushQueue(); });
+    render(); return;
+  }
+  if (!H.hold || H.locked || H.gradPending) return;
+  if (t >= H.nextT) {
+    var ok = H.hold === 'buy' ? buyOne() : sellOne();
+    if (ok) { aimFill(); H.ticks++; }
+    H.nextT = t + Math.max(70, 200 - H.ticks * 16);
+    render();
+  }
+}
+function heroStep(dt) {
+  H.fill.step(dt);
+  // buying turns it a little faster, then it eases back; waiting to graduate or re-form, it hurries past the thin
+  // edge-on view; graduating or re-forming, it brakes almost to a stop with the face towards us
+  var waiting = (H.gradPending && !H.locked && !H.fill.busy()) || !!H.morphNext;
+  H.spin.g = H.hush ? HUSH : waiting ? HURRY : H.hold === 'buy' ? 1.6 : 1; H.spin.w = H.hush ? 8 : 3; H.spin.step(dt);
+  if (!reduce) H.phi = (H.phi + dt / TURN * 2 * Math.PI * H.spin.x) % (2 * Math.PI);
+  if (H.morphNext && broadside()) { H.morph = H.morphNext; H.morphNext = null; H.hush = true; }
+  var m = H.morph;
+  if (m) {                                            // re-forming: the corners ease to the new shape, with a little give
+    m.k.step(dt);
+    if (m.k.rest(0.002)) { H.morph = null; H.S = m.su.surf; H.form = m.su.form; m.cb(); }
+    else H.S = surfOf(lerpForm(m.from, m.su.form, m.k.x), 1, m.buf);
+    if (!m.buf && H.morph) m.buf = H.S;
+  }
+  heroLogic();
+}
+var perf = { ms: [], at: [] };
+function heroPaint() {
+  var t0 = performance.now();
+  splat(HG, H.S, heroAngle(), HG.cx, HG.oy);
+  tint(HG, H.fill.levels(), false);
+  present(heroCv, HG);
+  var t1 = performance.now();
+  perf.ms.push(t1 - t0); perf.at.push(t1);
+  if (perf.ms.length > 600) { perf.ms.shift(); perf.at.shift(); }
+}
+var heroA = { cv: heroCv, visible: false, step: heroStep, paint: heroPaint,
+  busy: function () { return !reduce || H.fill.busy() || !!H.morph || !!H.morphNext || !!H.hold || H.gradPending || H.pour; } };
+function startHold(kind, later) { if (H.hold === kind) return; H.hold = kind; H.ticks = 0; H.nextT = H.fill.clock + (later || 0); render(); wake(); }
+function stopHold() { if (!H.hold) return; H.hold = null; render(); }
+
+function setText(sel, v) { var el = $(sel); if (el && el.textContent !== v) el.textContent = v; }
+function render() {
+  var su = H.su, P = su.pool, s = H.s, showGrad = s.grad && !H.gradPending && !H.gradAnim;   // the readout follows the picture through graduation
+  setText('#nPx', fPx(P.price(s)));
+  setText('#nSol', fSol(s.R));
+  setText('#nSolL', showGrad ? 'graduated, same pool' : 'of ' + fSol(P.G) + ' to graduate');
+  setText('#vnote', 'checkered: ' + su.V + ' virtual SOL' + (PHONE ? '' : ', not in the vault'));
+  vnote.classList.toggle('off', !(cells() === 0 && !s.grad && !H.locked && !H.hold));
+  var hint;
+  if (H.hold === 'buy') hint = H.full ? 'and so on' : 'buying';
+  else if (H.hold === 'sell') hint = cells() > 0 ? 'selling' : 'nothing to sell';
+  else if (H.locked && !s.grad) hint = su.name === 'house' ? 'house settings' : su.name;
+  else if (s.grad && !showGrad) hint = 'graduating';
+  else if (H.full) hint = PHONE ? 'and so on' : 'and so on, in the same pool';
+  else if (s.grad && H.justGrad) hint = PHONE ? 'same price · ' + Math.round(H.burn / 1e6) + 'M burned' : 'same price · ' + fTok(H.burn) + ' tokens burned in the pool';
+  else if (s.grad) hint = PHONE ? 'graduated · trading' : 'graduated · same pool, still trading';
+  else hint = PHONE ? 'tap and hold to buy' : 'hold the triangle to buy';
+  setText('#hint', hint);
+  sellBtn.classList.toggle('on', H.hold === 'sell');
+}
+function flushQueue() { if (H.queued) { var id = H.queued; H.queued = null; choose(id, false); } }
+// re-forming: what is in it drains away, the corners ease to the new form while it keeps turning, the virtual SOL pours in
+function reformTo(su) {
+  H.hold = null; H.locked = true; H.gradPending = false; H.gradAnim = false; H.hush = false; H.su = su; H.s = su.pool.fresh(); H.burn = 0; H.full = false; H.justGrad = false;
+  H.fill.drain(function () {
+    function pour() { H.fill.aim(su.vol, su.vShare, su.vShare); H.pour = true; }
+    if (H.form === su.form && !H.morph) { pour(); return; }
+    if (reduce) { H.S = su.surf; H.form = su.form; pour(); return; }
+    var k = new Spring(11, 0.7); k.g = 1;
+    H.morphNext = { from: H.form, su: su, k: k, cb: pour, buf: null };   // it starts once the face is towards us
+  });
+  render(); wake();
+}
+function choose(id, scroll) {
+  var su = findSetup(id); if (!su) return;
+  markSetup(id);
+  if (scroll) { try { window.scrollTo({ top: 0, behavior: reduce ? 'auto' : 'smooth' }); } catch (e) { window.scrollTo(0, 0); } }
+  if (H.locked) { H.queued = id; return; }
+  reformTo(su);
+}
+
+// input: only the stage takes the press, and a vertical swipe on it still scrolls (the browser cancels the press);
+// a finger's first buy waits 140 ms, so a swipe that starts on the triangle scrolls without buying
+function bindHold(el, kind) {
+  el.addEventListener('pointerdown', function (e) { if (e.button) return; e.preventDefault(); try { el.setPointerCapture(e.pointerId); } catch (x) {} startHold(kind, e.pointerType === 'touch' ? 140 : 0); });
+  ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(function (ev) { el.addEventListener(ev, stopHold); });
+  el.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+  el.addEventListener('keydown', function (e) { if ((e.key === ' ' || e.key === 'Enter') && !e.repeat) { e.preventDefault(); startHold(kind); } });
+  el.addEventListener('keyup', function (e) { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); stopHold(); } });
+  el.addEventListener('blur', stopHold);
+}
+bindHold(hit, 'buy'); bindHold(sellBtn, 'sell');
+$('#reset').addEventListener('click', function () { if (H.locked) return; reformTo(H.su); });
+track(heroA);
+
+/* ================= set-ups: each drawn as its own triangle, full at graduation (half-tone virtual SOL under the real) ================= */
+var CARD_SC = 0.45, cardG = stills(SETUPS.map(function (su) { return su.form; }), CARD_SC, SETUPS.map(function (su) { return su.cardAng == null ? ANG34 : su.cardAng; }));
+var setupsEl = $('#setups');
+SETUPS.forEach(function (su, i) {
+  var bt = document.createElement('button');
+  bt.type = 'button'; bt.className = 'setup'; bt.setAttribute('data-id', su.id);
+  bt.setAttribute('aria-label', 'Try the ' + su.name + ' set-up in the triangle above');
+  bt.innerHTML = '<canvas aria-hidden="true"></canvas><span class="nm"><i class="slot"></i>' + su.name + '</span>' +
+    '<span class="pr"><span>' + su.V + ' virtual SOL</span><span>graduates at a ' + fNum(su.M) + ' SOL market cap (' + (su.M / su.V) + '×)</span><span>' + (su.fee / 100) + '% fee' + (su.id === 'house' ? ', split in half' : '') + '</span>' +
+    (su.id === 'house' ? '<span class="mute">today\'s house settings</span>' : '') + '</span>';
+  bt.addEventListener('click', function () { choose(su.id, true); });
+  setupsEl.appendChild(bt);
+  su.cv = bt.querySelector('canvas'); su.cg = cardG[i];
+  tint(su.cg, levelsAt(su.vol, CARD_SC, su.vShare, 1, false), true);
+  present(su.cv, su.cg);
+});
+function markSetup(id) { Array.prototype.forEach.call(setupsEl.children, function (el) { var on = el.getAttribute('data-id') === id; el.classList.toggle('on', on); el.setAttribute('aria-pressed', on ? 'true' : 'false'); }); }
+markSetup(H.su.id);
+
+/* ================= one pool for life: a still triangle that plays launch, graduation and trades once, when it comes into view ================= */
+var POOL_SC = 0.62, poolCv = $('#poolCv'), poolG = stills([SETUPS[0].form], POOL_SC)[0], poolF = new Fill(POOL_SC);
+var poolA = { cv: poolCv, visible: false, played: false,
+  busy: function () { return poolF.busy(); }, step: function (dt) { poolF.step(dt); },
+  paint: function () { tint(poolG, poolF.levels(), false); present(poolCv, poolG); } };
+function playPool() {
+  var su = SETUPS[0], f = poolF, vs = su.vShare, g = su.pool.G / su.Cap, step = 3 * su.unit / su.Cap, t = 450, i;
+  f.timers = []; f.put(su.vol, 0, 0, false); poolA.played = true;
+  if (reduce) { f.put(su.vol, 0, g + 4 * step, true); poolA.paint(); return; }
+  f.at(t, function () { f.aim(su.vol, vs, vs); });   // the coin launches with its virtual SOL
+  t += 650;
+  for (i = 1; i <= 10; i++) (function (k) { f.at(t, function () { f.aim(su.vol, vs, vs + g * k / 10); }); })(i), t += 120;
+  f.at(t + 600, function () {
+    f.graduate(vs, g, function () {
+      var n = 0;
+      [1, 1, -1, 1, 1, -1, -1, 1, 1, -1, 1].forEach(function (d, j) { f.at(520 + j * 340, function () { n += d; f.aim(su.vol, 0, g + n * step); }); });
+    });
+  });
+  poolA.paint(); wake();
+}
+poolA.onShow = function () { if (!poolA.played) playPool(); };
+poolA.onHide = function () { if (!poolA.busy()) poolA.played = false; };   // plays again next time it is scrolled to
+poolCv.addEventListener('click', function () { if (!poolA.busy()) playPool(); });
+poolF.put(SETUPS[0].vol, 0, 0, false); poolA.paint();
+track(poolA);
+
+/* ================= hooks next: a graduated triangle with an empty socket cut into its base bar ================= */
+var HOOK_SC = 0.62, hookG = stills([SETUPS[0].form], HOOK_SC)[0];
+tint(hookG, levelsAt(SETUPS[0].vol, HOOK_SC, 0, SETUPS[0].pool.G / SETUPS[0].Cap, true), true, socketOn(SETUPS[0].form, hookG.S, HOOK_SC, 3));
+present($('#hookCv'), hookG);
+
+/* ================= marks: a flat pixel triangle with a blue piece in it (it reads in one colour), and the wordmark ================= */
+var SYMBOL = ['....#....', '...###...', '..##.##..', '.##...##.', '##.PPP.##', '#########'];
+function bitmap(rows, ink, piece) {
+  var r = new Raster(rows[0].length, rows.length);
+  rows.forEach(function (row, y) { for (var x = 0; x < row.length; x++) { if (row[x] === '#') r.px(x, y, ink); else if (row[x] === 'P') r.px(x, y, piece); } });
+  return r;
+}
+// the wordmark: wide, compact pixel letters on the same grid; the o holds the piece in one corner of its counter
+var GLYPH = {
+  f: ['.###', '.#..', '###.', '.#..', '.#..', '.#..'],
+  o: ['.....', '.....', '.###.', '#...#', '#P..#', '.###.'],
+  r: ['....', '....', '.###', '#...', '#...', '#...'],
+  m: ['.......', '.......', '.#####.', '#..#..#', '#..#..#', '#..#..#'],
+  a: ['......', '......', '.####.', '#...#.', '#...#.', '.#####']
+};
+function wordRaster(ink, piece) {
+  var rows = ['', '', '', '', '', ''];
+  'forma'.split('').forEach(function (ch, i) { GLYPH[ch].forEach(function (g, y) { rows[y] += (i ? '.' : '') + g; }); });
+  return bitmap(rows, ink, piece);
+}
+function paintStatic(cv, r, bgHex, mono) { var gd = sizeCanvas(cv, r.w, r.h); blit(cv, r, gd, bgHex, mono); }
+
+/* ================= sizes: one pixel for every triangle, one cell for the marks ================= */
+var lastW = 0, lastH = 0;
+function viewH() { return Math.round((window.visualViewport && visualViewport.height) || innerHeight || document.documentElement.clientHeight); }
+function layout() {
+  dpr = Math.min(2, window.devicePixelRatio || 1);
+  var cw = document.documentElement.clientWidth, vh = viewH(), phone = cw < 760, gut = Math.max(16, Math.min(64, cw * 0.044));
+  lastW = cw; lastH = vh; PHONE = phone; CELL = phone ? 5 : 8;
+  var availW = phone ? cw : Math.min(1240, cw) - 2 * gut - 400;   // on a phone the triangle's empty margin may reach into the gutter
+  // the first screen holds the triangle and the control line under it (on a phone, the numbers too), from where the triangle starts
+  var top = heroCv.getBoundingClientRect().top + (window.scrollY || 0), availH = vh - top - (phone ? 120 : 44);
+  PX = Math.max(phone ? 3 : 4, Math.min(phone ? 4 : 5, Math.floor(availW / HG.w), Math.floor(availH / HG.h)));
+  var d = devPx(PX);
+  document.documentElement.style.setProperty('--cell', CELL + 'px');
+  scaleCv(heroCv, HG, PX);
+  hit.style.width = (HG.w * d) + 'px'; hit.style.height = (HG.h * d) + 'px';
+  $('#stagegrid').style.setProperty('--padb', ((HG.h - HG.oy) * d + 4) + 'px');   // the numbers sit on the base line
+  // marks: graphite triangle on the warm-white header, one-colour warm white in the dark footer
+  paintStatic($('#sym'), bitmap(SYMBOL, GR, BLUE), null);
+  paintStatic($('#wm'), wordRaster(INK, BLUE), null);
+  paintStatic($('#sym1'), bitmap(SYMBOL, PAPER, PAPER), null);
+  paintStatic($('#wm1'), wordRaster(PAPER, PAPER), null);
+  SETUPS.forEach(function (su) { scaleCv(su.cv, su.cg, PX); });
+  scaleCv(poolCv, poolG, PX);
+  scaleCv($('#hookCv'), hookG, PX);
+  coinEls.forEach(function (x) { scaleCv(x.cv, tileG, PX); });
+  render();
+}
+// re-lay out when the width changes (a phone's address bar showing or hiding only changes the height: ignored there)
+var rz = 0;
+function maybeLayout() {
+  clearTimeout(rz);
+  rz = setTimeout(function () { var cw = document.documentElement.clientWidth, vh = viewH(); if (cw !== lastW || (cw >= 760 && Math.abs(vh - lastH) > 40)) layout(); }, 140);
+}
+addEventListener('resize', maybeLayout);
+addEventListener('load', maybeLayout);
+if (window.visualViewport) visualViewport.addEventListener('resize', maybeLayout);
+// the headline's height (and so where the triangle starts) is known once the fonts are in
+try { if (document.fonts && document.fonts.ready) document.fonts.ready.then(function () { layout(); }); } catch (e) {}
+// a window moved to a screen with another pixel ratio: whole device pixels again
+(function watchRatio() {
+  try { matchMedia('(resolution: ' + (window.devicePixelRatio || 1) + 'dppx)').addEventListener('change', function () { layout(); watchRatio(); }, { once: true }); } catch (e) {}
+})();
+
+/* ================= devnet coins: tiny still triangles, filled as far as each coin's real SOL reaches toward graduation ================= */
+var TILE_SC = 0.3, tileG = stills([SETUPS[0].form], TILE_SC)[0], coinEls = [];
+function coinName(p) { var n = String(p.name || '').trim(); if (/^DESKTOP-/i.test(n)) return 'Test coin'; return n || 'Unnamed coin'; }
+function showCoins(list) {
+  var grid = $('#coinGrid'); grid.innerHTML = ''; coinEls = [];
+  list.forEach(function (c) {
+    var el = document.createElement(c.href ? 'a' : 'div');
+    el.className = 'coin'; if (c.href) el.href = c.href;
+    el.innerHTML = '<canvas aria-hidden="true"></canvas><b></b><span class="sy"></span><span class="px"></span>';
+    el.querySelector('b').textContent = c.name;
+    el.querySelector('.sy').textContent = c.symbol + ' · ' + fSol(c.realSol) + ' SOL in' + (c.grad ? ', graduated' : '');
+    el.querySelector('.px').textContent = fPx(c.price) + ' SOL per 1M';
+    grid.appendChild(el);
+    var x = { el: el, c: c, cv: el.querySelector('canvas') }, f = c.grad ? 1 : c.gradSol > 0 ? Math.min(1, c.realSol / c.gradSol) : 0;
+    if (c.realSol > 0) f = Math.max(f, shareBelow(SETUPS[0].vol, 1.5 / (TILE_SC * CE)));   // any SOL in shows as a line along the bottom
+    tint(tileG, levelsAt(SETUPS[0].vol, TILE_SC, 0, f, true), true);
+    present(x.cv, tileG); scaleCv(x.cv, tileG, PX);
+    coinEls.push(x);
+  });
+}
+function examples() {
+  var P = SETUPS[0].pool;
+  return [12, 47, 95].map(function (sol, i) {
+    var s = P.fresh(); P.buy(s, sol / (1 - P.fee));
+    return { name: 'Example ' + (i + 1), symbol: 'not real', price: P.price(s), gradSol: P.G, realSol: s.R, grad: s.grad, href: null };
+  });
+}
+function withTimeout(p, ms) { return Promise.race([p, new Promise(function (_, no) { setTimeout(function () { no(new Error('timeout')); }, ms); })]); }
+(function loadCoins() {
+  var prog = window.NET && NET.program, link = $('#progLink');
+  if (prog && NET.explorer) link.href = NET.explorer('address', prog); else link.removeAttribute('href');
+  function fail(why) {
+    setText('#coinLead', why + ' These are examples, not real coins. Only the team launches for now; a launchpad for creators comes later.');
+    setText('#coinNote', '');
+    showCoins(examples());
+  }
+  if (Q.get('offline') === '1') { fail('Offline view.'); return; }
+  if (!window.Chain || !window.NET || !NET.ready) { fail('Devnet is not reachable from here.'); return; }
+  withTimeout(Promise.resolve().then(function () { return Chain.listPools(); }), 8000).then(function (pools) {
+    if (!pools || !pools.length) { fail('No coins on devnet yet.'); return; }
+    var list = pools.slice(0, 12).map(function (p) {
+      return {
+        name: coinName(p), symbol: String(p.symbol || '').trim() || '—', price: Number(p.price) || 0,
+        gradSol: Number(p.graduationSol) / 1e9, realSol: Number(p.realSol) / 1e9, grad: !!p.graduated,
+        href: '/coin?mint=' + encodeURIComponent(String(p.mint))
+      };
+    });
+    setText('#coinNote', list.length + ' coin' + (list.length === 1 ? '' : 's') + ', live');
+    showCoins(list);
+  }).catch(function (e) { fail(e && e.message === 'timeout' ? 'Devnet did not answer in 8 s.' : 'Devnet did not answer.'); });
+})();
+
+/* ================= go ================= */
+layout();
+heroPaint();
+
+// handles for checks and screenshots
+window.__forma = {
+  H: H, setups: SETUPS, hg: HG, pool: poolF,
+  buy: function (n) { for (var i = 0; i < (n || 1); i++) { if (H.locked || H.gradPending) break; if (buyOne()) aimFill(); } render(); wake(); },
+  sell: function (n) { for (var i = 0; i < (n || 1); i++) { if (H.locked) break; if (sellOne()) aimFill(); } render(); wake(); },
+  choose: function (id) { choose(id, false); },
+  hold: function (k) { startHold(k || 'buy'); }, release: function () { stopHold(); },
+  freeze: function () { window.__frozen = true; },
+  face: function (th) { H.fixed = th == null ? null : th; heroPaint(); },          // hold the hero at one angle (radians), or let it turn again
+  angle: heroAngle, paint: heroPaint, layout: layout,
+  cells: cells, cell: function () { return CELL; }, px: function () { return PX; },
+  perf: function () {
+    var m = perf.ms, n = m.length, s = 0, w = 0; for (var i = 0; i < n; i++) { s += m[i]; w = Math.max(w, m[i]); }
+    var span = n > 1 ? perf.at[n - 1] - perf.at[0] : 0;
+    return { frames: n, avgMs: n ? s / n : 0, worstMs: w, fps: span ? (n - 1) / span * 1000 : 0, points: H.S.n, size: HG.w + 'x' + HG.h };
+  },
+  state: function () { var s = H.s, P = H.su.pool; return { setup: H.su.id, R: s.R, grad: s.grad, price1M: P.price(s) * 1e6, cells: cells(), levels: H.fill.levels(), frames: window.__frames, px: PX, cell: CELL }; }
+};
+});
+</script>
+</body>
+</html>

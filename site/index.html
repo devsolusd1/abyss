@@ -1,0 +1,399 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>forma</title>
+<meta name="description" content="forma (working name): a Solana DEX where every coin keeps one pool for life. On devnet.">
+<script>window.__errors = []; addEventListener('error', function (e) { __errors.push(String(e.message || e)); }); addEventListener('unhandledrejection', function (e) { __errors.push('promise: ' + String(e.reason && e.reason.message || e.reason)); });</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anybody:wdth,wght@50..150,100..900&family=Martian+Mono:wdth,wght@75..112.5,100..800&display=swap">
+<link rel="stylesheet" href="/assets/forma.css">
+<style>
+/* ----- hero: the headline over the hole's empty sky, the hole, one line of numbers, two buttons ----- */
+.hero { position: relative; padding: clamp(18px, 4vh, 44px) 0 clamp(36px, 7vh, 72px); text-align: center; background-repeat: repeat; image-rendering: pixelated; }
+.hero::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 120px; background: linear-gradient(transparent, var(--f-bg)); pointer-events: none; }
+.hero > * { position: relative; z-index: 1; }
+.hero > .title { z-index: 2; }
+.hero .kick { margin-bottom: 14px; }
+.hero h1 { font-size: clamp(34px, 5.6vw, 84px); text-wrap: balance; }
+.stage { position: relative; z-index: 1; display: flex; justify-content: center; margin: 0 auto; cursor: pointer; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+.stage button { position: absolute; inset: 0; }
+.read { display: flex; justify-content: center; flex-wrap: wrap; gap: 6px 18px; margin-top: 6px; font-size: 12px; }
+.read b { font-weight: 500; color: var(--f-yellow); }
+.read .bar { --s: 2px; display: inline-block; width: 120px; height: 10px; background: var(--f-deep); clip-path: var(--step); vertical-align: -1px; position: relative; overflow: hidden; }
+.read .bar i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--f-yellow); width: 0; }
+.cta { display: flex; justify-content: center; flex-wrap: wrap; gap: 12px; margin-top: 26px; }
+
+/* ----- how a coin lives: three cards joined by dashed lines ----- */
+#how { padding-bottom: 0; }
+.card .no { font-size: 11px; color: var(--f-yellow); letter-spacing: .1em; }
+.card h3 { font-size: 22px; margin: 8px 0 10px; }
+.card p { color: var(--f-mute); font-size: 12px; }
+.card canvas { margin: 0 auto 18px; }
+.flow { display: grid; grid-template-columns: 1fr 44px 1fr 44px 1fr; align-items: stretch; margin-top: 40px; }
+.flow .link { align-self: center; height: 0; border-top: 2px dashed var(--f-line2); margin: 0 6px; }
+
+/* ----- the four settings ----- */
+#set { padding-bottom: 0; }
+.setups { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-top: 40px; }
+.setup { text-align: left; display: block; width: 100%; }
+.setup .card { padding: 16px 16px 18px; }
+.setup .card canvas { margin-bottom: 14px; }
+.setup dl { display: grid; gap: 3px; margin: 0; font-size: 11px; }
+.setup dl div { display: flex; justify-content: space-between; gap: 8px; }   /* each row its own two ends, as on the launch page */
+.setup dt { color: var(--f-mute); white-space: nowrap; }
+.setup dd { margin: 0; text-align: right; white-space: nowrap; }
+.setup:hover .card { background: var(--f-line2); }
+.setup[aria-pressed="true"] .card, .setup[aria-pressed="true"]:hover .card { background: var(--f-yellow); }
+.legend { margin-top: 18px; font-size: 11px; color: var(--f-mute); }
+
+/* ----- hooks next ----- */
+#hooks { padding-bottom: 0; }
+.hooks { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: stretch; margin-top: 40px; }
+.hooks .card p { color: var(--f-mute); font-size: 12px; }
+.hooks .card p + p { margin-top: 10px; }
+.hooks .card .tag { display: inline-block; margin-top: 18px; color: var(--f-yellow); font-size: 12px; }
+.code { font-size: 11px; line-height: 1.9; }
+.code b { color: var(--f-yellow); font-weight: 500; }
+.code s { text-decoration: none; color: var(--f-lilac); }
+
+/* ----- real devnet coins ----- */
+#coins { padding-bottom: 0; }
+.head { display: flex; justify-content: space-between; align-items: flex-end; gap: 24px; flex-wrap: wrap; }
+.note { font-size: 11px; color: var(--f-mute); }
+.coins { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; margin-top: 34px; }
+.coin { display: block; text-decoration: none; }
+.coin .card { padding: 16px 16px 18px; height: 100%; }
+.coin .card canvas { margin: 0 auto 14px; }
+.coin b { display: block; font: 850 16px/1.1 var(--f-head); font-stretch: 118%; text-transform: uppercase; }
+.coin span { display: block; font-size: 11px; color: var(--f-mute); margin-top: 4px; }
+a.coin:hover .card, a.coin:focus-visible .card { background: var(--f-line2); }
+.foot { margin-top: clamp(72px, 12vw, 140px); }
+
+@media (max-width: 860px) {
+  .flow { grid-template-columns: 1fr; gap: 0; }
+  .flow .link { width: 0; height: 26px; border-top: 0; border-left: 2px dashed var(--f-line2); margin: 0 auto; }
+  .setups { grid-template-columns: repeat(2, 1fr); }
+  .hooks { grid-template-columns: 1fr; }
+}
+@media (max-width: 560px) {
+  .tick .tag { padding-left: 16px; }
+  .setups { gap: 10px; }
+  .setup .card { padding: 12px 12px 14px; }
+  .setup dl { font-size: 10px; gap: 2px; }
+  .coins { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  .coin .card { padding: 12px 12px 14px; }
+}
+</style>
+<script defer src="/assets/bh.js"></script>
+<script defer src="/net.js"></script>
+<script defer src="/vendor/chain.js"></script>
+</head>
+<body>
+
+<div class="tick" role="region" aria-label="Trades in the simulation at the top of the page">
+  <span class="tag"><i></i>simulation</span>
+  <div class="tape" id="tape"></div>
+</div>
+
+<header class="top">
+  <a class="brand" href="/" aria-label="forma, home"><canvas id="sym" aria-hidden="true"></canvas><b>forma</b></a>
+  <nav class="nav" aria-label="Site">
+    <a href="#how"><span class="long">how it works</span><span class="short">how</span></a>
+    <a href="/coins">coins</a>
+    <a class="btn sm" href="/launch">launch</a>
+  </nav>
+</header>
+
+<main>
+<!-- ===== hero: the hole is a coin's pool; every buy is matter falling in, the disk is the SOL in it, the jets are graduation ===== -->
+<section class="hero" id="top">
+  <div class="wrap title">
+    <p class="kick">a new dex on solana</p>
+    <h1>Every coin,<br> <span class="y">its own way.</span></h1>
+  </div>
+  <div class="stage" id="stage">
+    <canvas id="hole" aria-hidden="true"></canvas>
+    <button type="button" id="hit" aria-label="Buy 5 SOL of the simulated coin"></button>
+  </div>
+  <div class="wrap">
+    <p class="read">
+      <span><b id="rName">MOTE</b> <span class="mute">simulated</span></span>
+      <span><span id="rCap">◎ 0</span> <span class="mute" id="rGoal">of 420 market cap</span> <span class="bar" aria-hidden="true"><i id="rBar"></i></span></span>
+      <span class="mute" id="rHint">tap the hole to buy</span>
+    </p>
+    <p class="vh" id="rSay" aria-live="polite"></p>
+    <div class="cta">
+      <a class="btn" href="/launch">Launch a coin <span aria-hidden="true">→</span></a>
+      <a class="btn ghost" href="/coins">Browse coins</a>
+    </div>
+  </div>
+</section>
+
+<!-- ===== how a coin lives ===== -->
+<section class="sec" id="how">
+  <div class="wrap">
+    <h2>Every trade falls in.</h2>
+    <p class="lead">A coin here is a black hole. Its disk is the SOL in its pool.</p>
+    <div class="flow">
+      <div class="card"><canvas id="h1" aria-hidden="true"></canvas><p class="no">01</p><h3>Buy</h3><p>Your SOL goes into the coin's pool. The disk grows with every buy.</p></div>
+      <div class="link" aria-hidden="true"></div>
+      <div class="card"><canvas id="h2" aria-hidden="true"></canvas><p class="no">02</p><h3>Graduate</h3><p>At its market cap goal the virtual SOL drops away and tokens burn, so the price holds. The jets light up.</p></div>
+      <div class="link" aria-hidden="true"></div>
+      <div class="card"><canvas id="h3" aria-hidden="true"></canvas><p class="no">03</p><h3>Trade for life</h3><p>The same pool keeps trading. No migration, and no instruction takes the liquidity out.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== settings ===== -->
+<section class="sec" id="set">
+  <div class="wrap">
+    <h2>Set at launch.</h2>
+    <p class="lead">Each coin picks where its price starts, when it graduates and its fee. Tap one to try it above.</p>
+    <div class="setups" id="setups"></div>
+    <p class="legend">The further it has to grow to graduate, the wider its disk. The higher the fee, the hotter it glows.</p>
+  </div>
+</section>
+
+<!-- ===== hooks next ===== -->
+<section class="sec" id="hooks">
+  <div class="wrap">
+    <h2>Hooks next.</h2>
+    <div class="hooks">
+      <div class="card">
+        <p>A hook is code that runs on every transfer of a coin. Hooks are not in this version.</p>
+        <p>The pool's trading path already carries their accounts, so a later version can launch hooked coins on this same program. Coins launched now stay hook-free.</p>
+        <p class="tag">Settings now. Hooks next.</p>
+      </div>
+      <div class="card code" role="img" aria-label="A buy takes sol_in and min_tokens_out, and the accounts trader, pool, mint, vault and trader_tokens; a hook's accounts would come after these, and there are none in this version">
+        <p><b>buy</b> ( sol_in, min_tokens_out )</p>
+        <p>&nbsp; trader · pool · mint · vault · trader_tokens</p>
+        <p>&nbsp; <s>+ a hook's accounts, after these</s> &nbsp;<span class="y">← none in this version</span></p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== real devnet coins ===== -->
+<section class="sec" id="coins">
+  <div class="wrap">
+    <div class="head">
+      <div>
+        <h2>On devnet.</h2>
+        <p class="lead" id="coinLead">Real coins, read from devnet. Only the team launches for now; a launchpad for creators comes later.</p>
+      </div>
+      <p class="note" id="coinNote">reading devnet</p>
+    </div>
+    <div class="coins" id="coinGrid"></div>
+  </div>
+</section>
+</main>
+
+<footer class="wrap foot">
+  <a class="brand" href="#top" aria-label="forma, top of the page"><canvas id="sym1" aria-hidden="true"></canvas><b>forma</b></a>
+  <p>forma is a working name · devnet only · the black hole at the top is a simulation · <a id="progLink" href="#" target="_blank" rel="noopener">program</a></p>
+</footer>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+'use strict';
+var $ = function (s) { return document.querySelector(s); };
+var BH = window.BH, reduced = BH.reduced;
+var Q; try { Q = new URLSearchParams(location.search); } catch (e) { Q = { get: function () { return null; } }; }
+
+function num(n, d) { return Number(n).toLocaleString('en-US', { maximumFractionDigits: d, minimumFractionDigits: d }); }
+function fSol(v) { return v >= 100 ? num(v, 1) : v >= 1 || v <= 0 ? num(v, 2) : num(v, 3); }
+function fPct(bps) { return (bps / 100).toLocaleString('en-US', { maximumFractionDigits: 2 }) + '%'; }
+function big(n) { return n >= 1e6 ? num(n / 1e6, 2) + 'M' : num(n, 0); }
+function setText(sel, v) { var el = $(sel); if (el && el.textContent !== v) el.textContent = v; }
+
+/* ---------- marks ---------- */
+BH.mark($('#sym'), 2); BH.mark($('#sym1'), 2); BH.favicon();
+
+/* ---------- the four settings ---------- */
+var SETUPS = [{ V: 30, M: 420, fee: 100 }, { V: 20, M: 180, fee: 200 }, { V: 200, M: 800, fee: 150 }, { V: 60, M: 420, fee: 300 }].map(BH.look);
+function mcap(lk, x) { return (lk.V + x) * (lk.V + x) / lk.V; }   // market cap with x real SOL in, on the curve
+// after graduation, as the chain counts it: on the supply left after the burn, M − V at graduation, then with the
+// square of the real SOL (a plain constant-product pool)
+function mcapAfter(lk, x) { var r = x / lk.G; return (lk.M - lk.V) * r * r; }
+
+/* ---------- the hero: a simulated coin; the strip at the top is its trades ---------- */
+var NAMES = ['MOTE', 'HALO', 'DUSK', 'ORBY', 'LUMA', 'PIXL', 'NOVA', 'EMBR'];
+var sim = { lk: SETUPS[0], k: 0, name: NAMES[0], x: 0, grad: false, gradAt: 0 };
+var sol0 = parseFloat(Q.get('sol')); sim.x = sol0 >= 0 ? sol0 : sim.lk.G * .52;
+function simState() { return { virtualSol: sim.lk.V, realSol: sim.x, graduationSol: sim.lk.G, graduated: sim.grad }; }
+
+var cv = $('#hole'), PX = 4;
+var hero = BH.live(cv, {
+  look: sim.lk, state: simState(), w: 168, h: 92,
+  onLand: function () { readout(); },
+  onGraduate: function () { sim.gradAt = performance.now(); say('<b>' + sim.name + '</b> graduated · ' + big(sim.lk.burn) + ' tokens burned', 'grad'); readout(); }
+});
+
+function readout() {
+  var lk = sim.lk, done = hero.graduated, shown = Math.min(hero.shown, lk.G);
+  setText('#rName', sim.name);
+  setText('#rCap', '◎ ' + num(done ? mcapAfter(lk, hero.shown) : mcap(lk, shown), 0));
+  setText('#rGoal', done ? 'market cap · graduated' : 'of ' + num(lk.M, 0) + ' market cap');
+  $('#rBar').style.width = (done ? 100 : Math.min(100, shown / lk.G * 100)) + '%';
+  setText('#rHint', done ? 'one pool, trading for life' : 'tap the hole to buy');
+}
+
+var tape = $('#tape');
+function say(html, cls) {
+  var s = document.createElement('span'); s.className = (cls || '') + (reduced ? '' : ' new'); s.innerHTML = '<i></i>' + html;
+  tape.insertBefore(s, tape.firstChild);
+  while (tape.children.length > 14) tape.removeChild(tape.lastChild);
+}
+function buy(amount, who) {
+  sim.x += amount;
+  if (!sim.grad && sim.x >= sim.lk.G) sim.grad = true;
+  say('◎' + num(amount, 2) + ' <b>bought</b> ' + sim.name + (who ? ' · ' + who : ''), 'buy');
+  hero.show(simState()); readout();
+}
+function sell(amount) {
+  amount = Math.min(amount, sim.x * .25);
+  if (amount < .05) return;
+  sim.x -= amount;
+  say('◎' + num(amount, 2) + ' sold ' + sim.name, 'sell');
+  hero.show(simState()); readout();
+}
+function next() {
+  sim.k = (sim.k + 1) % NAMES.length; sim.name = NAMES[sim.k];
+  sim.x = sim.lk.G * (.12 + Math.random() * .25); sim.grad = false;
+  say('<b>' + sim.name + '</b> launched · ' + num(sim.lk.V, 0) + ' SOL virtual, graduates at ' + num(sim.lk.M, 0) + ', fee ' + fPct(sim.lk.fee));
+  // a new coin is a fresh hole: it opens as a thin ring with no jets, and its first SOL falls in
+  hero.put(sim.lk, Object.assign({}, simState(), { realSol: 0 })); hero.show(simState()); readout();
+}
+function pick(i) {
+  sim.lk = SETUPS[i]; next();
+  [].forEach.call(document.querySelectorAll('.setup'), function (b, j) { b.setAttribute('aria-pressed', String(i === j)); });
+}
+// mostly buys, some sells; a graduated coin keeps trading for a while, then a new coin opens
+function market() {
+  setTimeout(function () {
+    if (!document.hidden && !window.__frozen) {
+      if (sim.grad && hero.graduated && performance.now() - sim.gradAt > 16000) next();
+      else if (Math.random() < .78) { var r = Math.random(); buy(Math.round((.15 + r * r * r * 7.5) * 100) / 100); }
+      else sell(Math.round((.2 + Math.random() * 2) * 100) / 100);
+    }
+    market();
+  }, 1300 + Math.random() * 1700);
+}
+say('<b>' + sim.name + '</b> launched · 30 SOL virtual, graduates at 420, fee 1%');
+readout();
+market();
+
+// a tap buys; a mouse over the hole tilts the view a little
+// only the visitor's own tap is read out; the simulation's trades are not
+$('#hit').addEventListener('click', function () {
+  buy(5, 'you');
+  setText('#rSay', 'You bought 5 SOL of ' + sim.name + ', simulated: ' + fSol(sim.x) + ' SOL in its pool' + (sim.grad ? ', graduated.' : ' of ' + fSol(sim.lk.G) + ' to graduate.'));
+});
+$('#stage').addEventListener('pointermove', function (e) {
+  if (e.pointerType !== 'mouse') return;
+  var r = cv.getBoundingClientRect(); hero.lean(((e.clientY - r.top) / r.height - .5) * 2);
+});
+$('#stage').addEventListener('pointerleave', function () { hero.lean(0); });
+
+/* ---------- stills: the three steps, and one hole per setting ---------- */
+var stills = [];
+function addStill(c, o) { stills.push({ cv: c, o: o }); BH.still(c, o); }
+addStill($('#h1'), { look: SETUPS[0], progress: .1, blobs: [.15, .45, .75], zoom: 1.12 });
+addStill($('#h2'), { look: SETUPS[0], progress: 1, jet: .55, flash: .8, t: 7, zoom: 1.12 });
+addStill($('#h3'), { look: SETUPS[0], progress: 1, graduated: true, t: 11, theta: 1.4, zoom: 1.12 });
+var box = $('#setups');
+SETUPS.forEach(function (lk, i) {
+  var b = document.createElement('button'); b.type = 'button'; b.className = 'setup'; b.setAttribute('aria-pressed', String(i === 0));
+  b.setAttribute('aria-label', 'Try ' + num(lk.V, 0) + ' SOL virtual, graduating at ' + num(lk.M, 0) + ' SOL market cap, fee ' + fPct(lk.fee));
+  b.innerHTML = '<div class="card"><canvas aria-hidden="true"></canvas><dl><div><dt>start</dt><dd>' + num(lk.V, 0) + ' SOL virtual</dd></div><div><dt>graduates</dt><dd>' + num(lk.M, 0) + ' SOL cap</dd></div><div><dt>fee</dt><dd>' + fPct(lk.fee) + '</dd></div></dl></div>';
+  box.appendChild(b);
+  addStill(b.querySelector('canvas'), { look: lk, progress: 1, zoom: 1.08, theta: 1.36 + i * .045, t: 3 + i * 2.5 });
+  b.addEventListener('click', function () { pick(i); $('#top').scrollIntoView({ behavior: reduced ? 'auto' : 'smooth' }); });
+});
+
+/* ---------- real devnet coins: a still hole each, its disk as far as its real SOL reaches ---------- */
+var coinEls = [];
+function coinName(p) { var n = String(p.name || '').trim(); if (/^DESKTOP-/i.test(n)) return 'Test coin'; return n || 'Unnamed coin'; }
+function showCoins(list) {
+  var grid = $('#coinGrid'); grid.innerHTML = ''; coinEls = [];
+  list.forEach(function (c) {
+    var el = document.createElement(c.href ? 'a' : 'div'), st = c.state;
+    el.className = 'coin'; if (c.href) el.href = c.href;
+    el.innerHTML = '<div class="card"><canvas aria-hidden="true"></canvas><b></b><span class="sy"></span><span class="px"></span></div>';
+    el.querySelector('b').textContent = c.name;
+    el.querySelector('.sy').textContent = c.symbol + ' · ' + fSol(st.realSol) + ' of ' + fSol(st.graduationSol) + ' SOL in' + (st.graduated ? ', graduated' : '');
+    el.querySelector('.px').textContent = (c.price * 1e6).toFixed(4) + ' SOL per 1M';
+    grid.appendChild(el);
+    var x = { cv: el.querySelector('canvas'), o: { look: c.look, state: st, zoom: 1, t: 2 + coinEls.length * 1.7 } };   // zoom 1: the full disk fits at graduation
+    BH.still(x.cv, x.o); coinEls.push(x);
+  });
+  sizeStills();
+}
+function examples() {
+  return [12, 47, 95].map(function (solIn, i) {
+    var lk = SETUPS[0], g = Math.min(solIn, lk.G), st = { virtualSol: lk.V, realSol: g, graduationSol: lk.G, graduated: solIn >= lk.G };
+    // SOL per token on the curve; graduation leaves it where it was (0.42 per 1M for 30 / 420)
+    return { name: 'Example ' + (i + 1), symbol: 'not real', price: (lk.V + g) * (lk.V + g) / lk.V / 1e9, state: st, look: lk, href: null };
+  });
+}
+function withTimeout(p, ms) { return Promise.race([p, new Promise(function (_, no) { setTimeout(function () { no(new Error('timeout')); }, ms); })]); }
+(function loadCoins() {
+  var prog = window.NET && NET.program, link = $('#progLink');
+  if (prog && NET.explorer) link.href = NET.explorer('address', prog); else link.removeAttribute('href');
+  function fail(why) {
+    setText('#coinLead', why + ' These are examples, not real coins. Only the team launches for now; a launchpad for creators comes later.');
+    setText('#coinNote', '');
+    showCoins(examples());
+  }
+  if (Q.get('offline') === '1') { fail('Offline view.'); return; }
+  if (!window.Chain || !window.NET || !NET.ready) { fail('Devnet is not reachable from here.'); return; }
+  withTimeout(Promise.resolve().then(function () { return Chain.listPools(); }), 8000).then(function (pools) {
+    if (!pools || !pools.length) { fail('No coins on devnet yet.'); return; }
+    var list = pools.slice(0, 12).map(function (p) {
+      var f = BH.fromPool(p);                           // lamports to SOL, and the look of its launch settings
+      return { name: coinName(p), symbol: String(p.symbol || '').trim() || '—', price: Number(p.price) || 0, state: f.state, look: f.look, href: '/coin?mint=' + encodeURIComponent(String(p.mint)) };
+    });
+    setText('#coinNote', list.length + ' coin' + (list.length === 1 ? '' : 's') + ', read when this page opened');
+    showCoins(list);
+  }).catch(function (e) { fail(e && e.message === 'timeout' ? 'Devnet did not answer in 8 s.' : 'Devnet did not answer.'); });
+})();
+
+/* ---------- sizes: whole device pixels; the hero as large as the first screen allows ---------- */
+var tileUrl = BH.starTile(128);
+function heroPx() {
+  var vw = document.documentElement.clientWidth, vh = innerHeight;
+  var byW = Math.floor((Math.min(vw, 1240) - 24) / 168), byH = Math.floor((vh - 300) / 80);
+  return Math.max(2, Math.min(5, byW, Math.max(3, byH)));
+}
+function sizeStills() { var sp = document.documentElement.clientWidth < 560 ? 2 : 3; stills.concat(coinEls).forEach(function (x) { BH.fit(x.cv, sp); }); }
+var lastW = 0;
+function layout() {
+  lastW = document.documentElement.clientWidth;
+  PX = heroPx();
+  var d = hero.size(PX), h = $('.hero');
+  h.style.backgroundImage = 'url(' + tileUrl + ')'; h.style.backgroundSize = 128 * BH.devPx(PX) + 'px';
+  $('#stage').style.marginTop = -Math.round(cv.height * d * .2) + 'px';   // the headline sits on the hole's empty sky
+  sizeStills();
+}
+layout();
+var rz = 0;
+addEventListener('resize', function () { clearTimeout(rz); rz = setTimeout(function () { if (document.documentElement.clientWidth !== lastW) layout(); }, 140); });
+(function watchRatio() {
+  try { matchMedia('(resolution: ' + (window.devicePixelRatio || 1) + 'dppx)').addEventListener('change', function () { layout(); watchRatio(); }, { once: true }); } catch (e) {}
+})();
+
+/* ---------- handles for checks and screenshots ---------- */
+window.__forma = {
+  hero: hero, sim: sim, setups: SETUPS, buy: buy, sell: sell, pick: pick, next: next, readout: readout, layout: layout,
+  graduate: function () { buy(Math.max(1, sim.lk.G - sim.x + .5)); },
+  freeze: function (t, theta) { window.__frozen = true; hero.stop(); if (t != null) hero.hole.t = t; if (theta != null) hero.hole.theta = theta; hero.hole.paint(); },
+  perf: function () { return hero.perf(); },
+  px: function () { return PX; }
+};
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,1672 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Brasa · the horn</title>
+<meta name="description" content="Prototype, round 3: every coin is one glass horn whose wall is the pool's curve. The surface's area is the price.">
+<meta name="theme-color" content="#0b0d10">
+<script>window.__errors = []; addEventListener('error', function (e) { __errors.push(String(e.message || e)); }); addEventListener('unhandledrejection', function (e) { __errors.push('promise: ' + String(e.reason && e.reason.message || e.reason)); });</script>
+<script src="../../assets/palettes.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anybody:wdth,wght@50..150,100..900&family=Martian+Mono:wdth,wght@75..112.5,100..800&display=swap">
+<style>
+/* Prototype, round 3: Gabriel's horn. Everything this page needs is in this file, except the
+   palette (palettes.js), the pool math (block.js) and the devnet reader (net.js, chain.js). */
+:root{
+  --f-d:"Anybody","Arial Narrow",system-ui,sans-serif;
+  --f-m:"Martian Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --gut:40px;
+}
+@media (max-width:760px){:root{--gut:16px}}
+*{box-sizing:border-box}
+html{background:var(--coal);-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--coal);color:var(--ink);font-family:var(--f-d);font-size:17px;line-height:1.45;overflow-x:hidden;-webkit-font-smoothing:antialiased;position:relative}
+a{color:inherit;text-decoration-thickness:1px;text-underline-offset:3px}
+a:hover{color:var(--heat-high)}
+:focus-visible{outline:1.5px solid var(--heat-high);outline-offset:3px}
+button{font:inherit;color:inherit}
+p{margin:0}
+.m{font-family:var(--f-m);font-stretch:87.5%}
+.vh{position:absolute!important;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+
+/* ---------- header: wordmark, colour trial, and the navigation as an etched scale ---------- */
+.top{position:absolute;z-index:6;top:0;left:0;right:0;display:flex;justify-content:space-between;align-items:flex-start;padding:22px var(--gut) 0;pointer-events:none}
+.top>*{pointer-events:auto}
+.word{display:inline-block;font-weight:800;font-stretch:150%;font-size:27px;line-height:1;letter-spacing:-.015em;text-decoration:none;color:var(--ink)}
+.word:hover{color:var(--ink)}
+.word-sub{display:block;margin-top:8px;font-family:var(--f-m);font-stretch:87.5%;font-size:10.5px;color:var(--ash)}
+.trial{display:flex;align-items:center;gap:6px;margin-top:14px;font-family:var(--f-m);font-stretch:87.5%;font-size:10px;color:var(--ash)}
+.trial-label{margin-right:4px}
+.trial-sw{position:relative;width:22px;height:22px;padding:0;border:1px solid;border-radius:0;cursor:pointer;overflow:hidden}
+.trial-sw i{position:absolute;left:0;right:0;bottom:0;height:7px}
+.trial-sw.on{outline:1px solid var(--ink);outline-offset:2px}
+.trial-name{margin-left:6px;color:var(--ink)}
+.navscale{position:relative;display:grid;justify-items:end;gap:9px;padding:2px 15px 2px 0;border-right:1px solid var(--line-2);font-family:var(--f-m);font-stretch:87.5%;font-size:11px;line-height:1}
+.navscale a{position:relative;text-decoration:none;color:var(--ink)}
+.navscale a::after{content:"";position:absolute;top:50%;right:-15px;width:9px;height:1px;background:var(--line-2)}
+.navscale a:nth-child(2)::after{width:5px}
+.navscale a:hover::after,.navscale a:focus-visible::after{background:var(--heat-high);width:13px}
+.navscale::before{content:"";position:absolute;right:-1px;bottom:-5px;width:5px;height:1px;background:var(--line-2)}
+
+/* ---------- the hero ---------- */
+.hero{position:relative;display:grid;grid-template-columns:minmax(0,56fr) minmax(0,44fr);grid-template-rows:auto 1fr;min-height:max(720px,100vh);min-height:max(720px,100svh)}
+.head{grid-column:1;grid-row:1;position:relative;z-index:2;padding:clamp(150px,19vh,196px) 0 0 var(--gut)}
+h1{margin:0;font-weight:300;font-stretch:100%;font-size:clamp(60px,8.1vw,128px);line-height:.9;letter-spacing:-.04em}
+h1 span{display:block}
+.sub{margin-top:20px;max-width:40ch;font-weight:300;font-stretch:105%;font-size:clamp(18px,1.45vw,21px);line-height:1.3;color:var(--ash)}
+.sub b{font-weight:400;color:var(--ink)}
+.body{grid-column:1;grid-row:2;align-self:end;position:relative;z-index:2;padding:28px 0 40px var(--gut);max-width:600px}
+.lede{max-width:470px;color:var(--ash);font-size:17px;line-height:1.42}
+.lede b{color:var(--ink);font-weight:500}
+.panel{margin-top:26px}
+.sim-tag{font-family:var(--f-m);font-stretch:87.5%;font-size:10.5px;color:var(--ash);display:flex;align-items:center;gap:8px}
+.sq{width:7px;height:7px;background:var(--heat-mid);display:inline-block;flex:none}
+.hint{font-size:20px;font-stretch:110%;font-weight:400;margin:7px 0 6px;line-height:1.22;min-height:3.66em;max-width:520px}
+.you{font-family:var(--f-m);font-stretch:87.5%;font-size:11px;color:var(--ash);font-variant-numeric:tabular-nums;min-height:1.4em}
+.you b{color:var(--ink);font-weight:400}
+.ctl{display:flex;flex-wrap:wrap;align-items:stretch;gap:8px;margin-top:14px}
+.amt{display:flex;align-items:center;gap:6px;border-bottom:1px solid var(--line-2);padding:0 2px;min-width:0}
+.amt input{width:62px;background:transparent;border:0;color:var(--ink);font-family:var(--f-d);font-weight:300;font-size:26px;letter-spacing:-.02em;padding:2px 0 0;outline:none;font-variant-numeric:tabular-nums}
+.amt input::placeholder{color:var(--ash-2)}
+.amt span{font-family:var(--f-m);font-stretch:87.5%;font-size:11px;color:var(--ash)}
+.key{font-family:var(--f-d);font-stretch:112%;font-size:13.5px;font-weight:500;line-height:1;background:transparent;border:1px solid var(--line-2);border-radius:1px;padding:10px 13px 9px;cursor:pointer;color:var(--ink)}
+.key:hover{border-color:var(--heat-high);color:var(--heat-high)}
+.key:disabled{opacity:.4;cursor:default;border-color:var(--line-2);color:var(--ink)}
+.quiet{margin-top:14px;padding:0;border:0;background:none;cursor:pointer;font-family:var(--f-m);font-stretch:87.5%;font-size:11px;color:var(--ash);text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:3px}
+.quiet:hover{color:var(--ink)}
+.live{margin-top:22px;font-family:var(--f-m);font-stretch:87.5%;font-size:10.5px;color:var(--ash);display:flex;gap:8px;align-items:baseline;max-width:460px;line-height:1.5}
+.dot{width:6px;height:6px;border-radius:50%;background:var(--ash-2);flex:none;transform:translateY(-1px)}
+.dot.on{background:var(--ok)}
+
+.stage{grid-column:2;grid-row:1/3;position:relative;min-height:720px}
+.stage canvas{position:absolute;left:0;top:0;width:100%;height:100%;display:block;pointer-events:none}
+.glass-hit{position:absolute;left:0;top:0;outline:none;touch-action:pan-y}
+.glass-hit:focus-visible{outline:1px dashed var(--line-2);outline-offset:-1px}
+.grip{position:absolute;left:0;top:0;touch-action:none;cursor:ns-resize;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+.tag{position:absolute;left:0;top:0;pointer-events:none;white-space:nowrap;font-family:var(--f-m);font-stretch:87.5%;font-size:10.5px;line-height:1.3;color:var(--ash);font-variant-numeric:tabular-nums;text-shadow:0 0 3px var(--coal),0 0 7px var(--coal),0 0 12px var(--coal);transition:opacity .35s}
+.tag b{color:var(--ink);font-weight:500}
+.tag.off{opacity:0}
+/* the price, riding the surface: above it while the surface is narrow, under the meniscus
+   (inside the liquid) once it is wide enough to hold the figure */
+.ride{text-align:center;padding:1px 3px 2px;text-shadow:0 0 2px var(--coal),0 0 5px var(--coal)}
+.ride .px{display:block;font-family:var(--f-d);font-weight:300;font-stretch:100%;font-size:31px;line-height:1;letter-spacing:-.025em;color:var(--ink)}
+.ride small{display:block;margin-top:3px;font-family:var(--f-m);font-stretch:87.5%;font-size:10.5px;letter-spacing:0;color:var(--ash)}
+.ride.in{padding:0 2px;text-shadow:0 0 3px var(--liq,#0b1530),0 0 8px var(--liq,#0b1530)}
+.ride.in .px{font-size:29px;color:var(--liq-ink,var(--ink))}
+.ride.in small{color:var(--liq-ink,var(--ink));opacity:.8}
+.rl{text-align:right}
+.rl b,.rr b{display:block;font-size:12.5px}
+.rl i,.rr i{display:block;font-style:normal}
+.rl i{margin-top:2px;color:var(--heat-high)}
+.rr em{font-style:normal;color:var(--ink)}
+.rr i.t{margin-top:3px;color:var(--heat-high)}
+.gcap{width:210px;white-space:normal;font-size:11.5px;line-height:1.45;color:var(--ink);opacity:0}
+.gcap.on{opacity:1}
+.vlab{text-align:left;font-size:10px;line-height:1.45}
+.vlab i{font-style:normal;color:var(--ash-2)}
+
+/* ---------- below the hero: how to read the glass ---------- */
+.wrap{position:relative;z-index:2;padding:0 var(--gut);padding-right:calc(22.5% + 90px)}
+.eyebrow{font-family:var(--f-m);font-stretch:87.5%;font-size:11px;color:var(--ash);margin-bottom:14px}
+h2{margin:0;font-weight:300;font-stretch:100%;font-size:clamp(38px,4.6vw,66px);line-height:.95;letter-spacing:-.03em;max-width:13ch}
+.how{padding-top:110px;padding-bottom:40px}
+.reads{list-style:none;margin:44px 0 0;padding:0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:34px 48px;max-width:860px}
+.reads li{position:relative;padding-top:14px;border-top:1px solid var(--line);color:var(--ash);font-size:16px;line-height:1.45}
+.reads li::before{content:"";position:absolute;top:-1px;left:0;width:34px;height:1px;background:var(--heat-high)}
+.reads b{display:block;color:var(--ink);font-weight:500;font-size:19px;font-stretch:108%;line-height:1.2;margin-bottom:6px}
+.reads .wide{grid-column:1/-1}
+
+/* ---------- the board test ---------- */
+.board{padding-top:110px;padding-bottom:70px}
+.b-note{margin-top:18px;max-width:640px;color:var(--ash);font-size:16px;line-height:1.45}
+.b-grid{display:grid;grid-template-columns:300px minmax(0,1fr);gap:44px;margin-top:40px;align-items:start}
+.shared{position:relative;margin:0}
+.shared canvas{display:block;width:300px;height:540px}
+.lens-grip{position:absolute;left:0;top:0;border-radius:50%;touch-action:none;cursor:grab;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+.lens-grip:active{cursor:grabbing}
+.shared figcaption{margin-top:10px;font-family:var(--f-m);font-stretch:87.5%;font-size:10.5px;line-height:1.5;color:var(--ash)}
+.cards{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(118px,1fr));gap:26px 18px}
+.card{position:relative;padding-top:10px;border-top:1px solid var(--line);cursor:default}
+.card canvas{display:block;width:96px;height:176px;margin:0 auto 0 0}
+.card.on{border-top-color:var(--heat-high)}
+.card.ex{border-top-style:dashed}
+.c-name{margin-top:8px;font-weight:500;font-stretch:108%;font-size:16px;line-height:1.15;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.c-name span{display:block;font-family:var(--f-m);font-stretch:87.5%;font-weight:400;font-size:10px;color:var(--ash);margin-top:3px}
+.c-cap{margin-top:7px;font-family:var(--f-d);font-weight:300;font-size:24px;line-height:1;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.c-cap i{font-style:normal;font-family:var(--f-m);font-stretch:87.5%;font-size:10px;letter-spacing:0;color:var(--ash);margin-left:4px}
+.c-meta{margin-top:6px;font-family:var(--f-m);font-stretch:87.5%;font-size:10px;line-height:1.5;color:var(--ash);font-variant-numeric:tabular-nums}
+.c-tag{position:absolute;top:-8px;right:0;font-family:var(--f-m);font-stretch:87.5%;font-size:9.5px;color:var(--ash);background:var(--coal);padding:0 0 0 6px}
+
+.foot{position:relative;z-index:2;padding:30px var(--gut) 44px;padding-right:calc(22.5% + 90px);font-family:var(--f-m);font-stretch:87.5%;font-size:11px;color:var(--ash);line-height:1.6}
+.foot p+p{margin-top:4px}
+
+/* the stem, down the page (desktop only) */
+.spine{position:absolute;z-index:1;left:0;top:0;pointer-events:none;overflow:visible}
+.spine text{font-family:var(--f-m);font-stretch:87.5%;font-size:10.5px;fill:var(--ash)}
+.spine text.b{fill:var(--ink)}
+
+/* ---------- phone ---------- */
+@media (max-width:859px){
+  .hero{display:block;min-height:0}
+  .head{padding:112px var(--gut) 0}
+  h1{font-size:clamp(46px,13vw,76px)}
+  .sub{margin-top:14px;font-size:17px;max-width:24ch}
+  .ride.in .px{font-size:24px}
+  .stage{height:min(700px,max(560px,80vh));height:min(700px,max(560px,80svh));min-height:0;margin-top:6px}
+  .body{padding:8px var(--gut) 36px;max-width:none}
+  .hint{font-size:18px}
+  .gcap{width:auto;right:16px}
+  .wrap,.foot{padding-right:var(--gut)}
+  .how{padding-top:70px}
+  .reads{grid-template-columns:minmax(0,1fr);gap:26px}
+  .board{padding-top:80px}
+  .b-grid{grid-template-columns:minmax(0,1fr);gap:30px}
+  .shared canvas{width:100%;height:500px}
+  .cards{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .spine{display:none}
+}
+@media (max-width:600px){
+  .trial{gap:5px;margin-top:9px}
+  .trial-label,.trial-name{display:none}
+  .trial-sw{width:17px;height:17px}
+  .trial-sw i{height:5px}
+  .navscale{gap:8px;font-size:10.5px}
+  .key{font-size:12.5px;padding:9px 10px 8px}
+}
+@media (pointer:coarse){ .glass-hit{pointer-events:none} }
+@media (prefers-reduced-motion:reduce){ .tag{transition:none} }
+</style>
+</head>
+<body>
+<header class="top" id="top">
+  <div>
+    <a class="word" href="/">brasa</a>
+    <span class="word-sub">a Solana exchange, on devnet</span>
+    <div class="trial" id="trial" hidden></div>
+  </div>
+  <nav class="navscale" aria-label="Site">
+    <a href="/#how">how it works</a>
+    <a href="/coins">coins</a>
+    <a href="/launch">launch</a>
+  </nav>
+</header>
+
+<main>
+<section class="hero" id="hero" aria-label="The glass">
+  <div class="head">
+    <h1><span>The surface</span> <span>is the price.</span></h1>
+    <p class="sub">Its <b>width</b> is all the SOL the price counts. Its <b>area</b> is the price.</p>
+  </div>
+
+  <div class="stage" id="stage">
+    <canvas id="horn" aria-hidden="true"></canvas>
+    <div class="glass-hit" id="glassHit" tabindex="0" role="application" aria-label="The coin's glass. Hold Space to pour SOL in, press the up arrow to add 1 SOL, the down arrow to sell 1 SOL." aria-describedby="hint"></div>
+    <div class="grip" id="grip" aria-hidden="true"></div>
+    <div class="tag ride" id="ride" aria-hidden="true"></div>
+    <div class="tag ride in off" id="rideIn" aria-hidden="true"></div>
+    <div class="tag rl" id="rideL" aria-hidden="true"></div>
+    <div class="tag rr" id="rideR" aria-hidden="true"></div>
+    <div class="tag vlab" id="vlab" aria-hidden="true"></div>
+    <div class="tag gcap" id="gcap" aria-hidden="true"></div>
+    <p class="vh" id="say" aria-live="polite"></p>
+  </div>
+
+  <div class="body">
+    <p class="lede">A Solana exchange where each coin is one pool for life, drawn as one glass: the <b>level</b> is the tokens left, and the endless stem holds the <b>30&nbsp;SOL that isn't there</b>. Only the team launches coins for now.</p>
+    <div class="panel">
+      <p class="sim-tag"><span class="sq"></span>Simulation on the pool's own math. Nothing is sent.</p>
+      <p class="hint" id="hint" aria-live="polite">Pouring a little SOL in…</p>
+      <p class="you" id="you">&nbsp;</p>
+      <div class="ctl">
+        <label class="amt"><input id="amt" type="text" inputmode="decimal" autocomplete="off" placeholder="5" aria-label="Amount in SOL"><span>SOL</span></label>
+        <button class="key" type="button" id="pourBtn">Pour in</button>
+        <button class="key" type="button" id="drawBtn">Draw out</button>
+        <button class="key" type="button" id="runBtn">Run to graduation</button>
+      </div>
+      <button class="quiet" type="button" id="resetBtn">start over with a new coin</button>
+    </div>
+    <p class="live"><span class="dot" id="liveDot"></span><span id="liveText">Reading devnet…</span></p>
+  </div>
+</section>
+
+<section class="wrap how" id="how" aria-labelledby="how-h">
+  <p class="eyebrow">How to read the glass</p>
+  <h2 id="how-h">Its wall is the curve.</h2>
+  <ul class="reads">
+    <li><b>The level is the tokens left.</b>The right-hand scale counts down toward the mouth. The mouth widens forever, so nobody can buy the last token. Far past graduation the drawing steps back to fit, and a mark by the mouth says by how much.</li>
+    <li><b>The liquid is all the SOL.</b>Everything below the surface is the SOL the price counts. The left-hand scale reads the real SOL, the part above the 1B ring.</li>
+    <li><b>The surface's area is the price.</b>Its width is all the SOL; its area is SOL per token. Each step up is wider, so the level climbs slower and each token costs more.</li>
+    <li><b>The stem holds the 30&nbsp;SOL that isn't there.</b>Below the 1B ring it narrows forever and holds exactly 30&nbsp;SOL. The price counts them; the vault never had them.</li>
+    <li class="wide"><b>At 82.25 real SOL it graduates, inside the trade.</b>The stem's 30 drops out and the glass tightens by 26.7% along its whole length. That lifts the level 71.43M tokens up the scale, and those tokens burn. The surface keeps its width, so the price holds. Same pool from then on, as plain x·y&nbsp;=&nbsp;k. The 1% fee never enters the glass: half to the coin's creator, half to the platform.</li>
+  </ul>
+</section>
+
+<section class="wrap board" id="board" aria-labelledby="board-h">
+  <p class="eyebrow">The board test</p>
+  <h2 id="board-h">Every coin, the same glass.</h2>
+  <p class="b-note" id="bNote">Reading the coins on devnet…</p>
+  <div class="b-grid">
+    <figure class="shared">
+      <canvas id="shared" aria-label="One shared glass with a ring for each coin on devnet"></canvas>
+      <div class="lens-grip" id="lensGrip" aria-hidden="true"></div>
+      <figcaption id="sharedCap">One glass for every coin on house settings. Each ring is a coin at its level. Drag the loupe up and down.</figcaption>
+    </figure>
+    <ul class="cards" id="cards" aria-label="Coins"></ul>
+  </div>
+</section>
+</main>
+
+<footer class="foot" id="foot">
+  <p>Prototype, round 3: the horn. Canvas 2D, no WebGL. The simulation runs the pool's own math (block.js); nothing is signed or sent.</p>
+  <p id="footNet">Runs on Solana devnet.</p>
+</footer>
+<svg class="spine" id="spine" aria-hidden="true"></svg>
+
+<script src="../../assets/block.js"></script>
+<script defer src="../../net.js"></script>
+<script defer src="../../vendor/chain.js"></script>
+<script>
+(function () {
+'use strict';
+/* ======================================================================================
+   The horn. A coin's pool drawn as a glass whose radius at the height where T tokens are
+   left is proportional to 1/T, with height linear in T. Then, with k = (30 + R) * T:
+     volume of liquid below the surface  = k / T       = 30 + R  (all the SOL counted)
+     volume below the 1B ring             = k / 1B      = 30       (the virtual SOL)
+     surface area  (pi r^2)               = k / T^2     = the price per token
+     surface width (2 r)                  is proportional to k / T = all the SOL
+   At graduation k drops from 30,000 to 16,107 SOL*M: the radius scales by sqrt(k2 / k0) =
+   82.25 / 112.25 at every height, and the level moves from 267.26M to 195.83M, where the
+   narrower glass is exactly as wide as before.
+   ====================================================================================== */
+var Bk = window.Block, BR = window.BRASA, PAL = BR.palette, PC = PAL.css, P3 = PAL.three;
+var VIRT = Bk.VIRT, SUPPLY = Bk.SUPPLY, K0 = Bk.K0, FEE = Bk.FEE, GRAD_R = Bk.GRAD_R, T_G = Bk.T_G, BURN_G = Bk.BURN_G, T_G2 = Bk.T_G2, K2 = Bk.K2;
+var X_G = VIRT + GRAD_R, F2 = GRAD_R / X_G, FLOOR2 = SUPPLY - BURN_G, STAY2 = K2 / FLOOR2;
+var fSol = Bk.fSol, fTok = Bk.fTok, fPx = Bk.fPx, clamp = Bk.clamp;
+var INTRO_SOL = Bk.INTRO_SOL, T_RIM = 110e6, PI = Math.PI, TAU = 2 * Math.PI;
+var $ = function (s) { return document.querySelector(s); };
+var QS = {}; try { new URLSearchParams(location.search).forEach(function (v, k) { QS[k] = v; }); } catch (e) {}
+var reduce = false; try { reduce = matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) {}
+if (QS.motion === 'reduce') reduce = true;
+function report(where, e) { try { __errors.push(where + ': ' + String(e && e.message || e)); } catch (x) {} }
+function dprOf() { return Math.min(2, window.devicePixelRatio || 1); }
+function now() { return performance.now(); }
+
+/* ---------------- colours, from the palette ---------------- */
+var rgb = BR.rgb, LIGHT = PAL.scheme === 'light';
+function mix(a, b, t) { return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t].map(Math.round); }
+function css(c, a) { return a == null || a >= 1 ? 'rgb(' + c[0] + ',' + c[1] + ',' + c[2] + ')' : 'rgba(' + c[0] + ',' + c[1] + ',' + c[2] + ',' + Math.max(0, a).toFixed(3) + ')'; }
+var COL = { glass: rgb(P3.ghost), edge: rgb(P3.edge), ink: rgb(PC.ink), ash: rgb(PC.ash), ash2: rgb(PC.ash2), coal: rgb(PC.coal), coal3: rgb(PC.coal3), low: rgb(PC.heatLow), mid: rgb(PC.heatMid), pale: rgb(PC.heatHigh), hot: rgb(PC.whiteHot) };
+
+/* The liquid, lit from inside: one strip per heat, 64 px across (dark edges, a lit core) and
+   32 rows deep (the rows nearest the surface are brighter). Slices of the liquid are drawn
+   from it with drawImage, which is cheap. */
+var strips = {};
+function liquidStrip(h) {
+  var key = Math.round(h * 40);
+  if (strips[key]) return strips[key];
+  var c = document.createElement('canvas'); c.width = 64; c.height = 32;
+  var hh = key / 40, g = c.getContext('2d'), base = bodyRGB(hh);
+  for (var row = 0; row < 32; row++) {
+    var lift = Math.pow(1 - row / 31, 2.2);
+    var core = LIGHT ? mix(base, COL.coal, 0.14 + lift * 0.3) : mix(base, COL.pale, 0.1 + lift * (0.2 + 0.24 * hh));
+    var edge = LIGHT ? mix(base, COL.ink, 0.18) : mix(base, COL.coal, 0.64 - lift * 0.22);
+    var gr = g.createLinearGradient(0, 0, 64, 0);
+    gr.addColorStop(0, css(edge)); gr.addColorStop(0.18, css(mix(edge, core, 0.55))); gr.addColorStop(0.5, css(core));
+    gr.addColorStop(0.82, css(mix(edge, core, 0.55))); gr.addColorStop(1, css(edge));
+    g.fillStyle = gr; g.fillRect(0, row, 64, 1);
+  }
+  strips[key] = c;
+  return c;
+}
+// the liquid's own colour: deep navy when cold, the burner's blue at graduation (never the pale cone)
+function bodyRGB(h) { return Bk.heatRGB(0.06 + 0.6 * h); }
+var vStrip = null;
+function virtStrip() {
+  if (vStrip) return vStrip;
+  var c = document.createElement('canvas'); c.width = 64; c.height = 1;
+  var g = c.getContext('2d'), base = LIGHT ? mix(COL.coal3, COL.ash, 0.25) : mix(COL.coal3, COL.low, 0.4);
+  var gr = g.createLinearGradient(0, 0, 64, 0);
+  gr.addColorStop(0, css(mix(base, COL.coal, 0.5))); gr.addColorStop(0.5, css(base)); gr.addColorStop(1, css(mix(base, COL.coal, 0.5)));
+  g.fillStyle = gr; g.fillRect(0, 0, 64, 1);
+  return (vStrip = c);
+}
+var hatchTile = null;
+function hatchFor(c, scale) {
+  if (!hatchTile) {
+    hatchTile = document.createElement('canvas'); hatchTile.width = hatchTile.height = 12;
+    var g = hatchTile.getContext('2d'); g.strokeStyle = css(COL.glass, LIGHT ? 0.5 : 0.42); g.lineWidth = 1.4;
+    [[-6, 12, 6, 0], [0, 12, 12, 0], [6, 12, 18, 0]].forEach(function (l) { g.beginPath(); g.moveTo(l[0], l[1]); g.lineTo(l[2], l[3]); g.stroke(); });
+  }
+  var p = c.createPattern(hatchTile, 'repeat');
+  try { p.setTransform(new DOMMatrix().scale(0.5 / (scale || 1))); } catch (e) {}
+  return p;
+}
+
+/* ---------------- the geometry of one drawn glass ---------------- */
+// o: cx, yRim (y of the mouth), rimR (px radius of the mouth), y1B (y of the 1B ring), e (ellipse ratio)
+function geom(w, h, o) {
+  var g = { w: w, h: h, cx: o.cx, yRim: o.yRim, rimR: o.rimR, e: o.e || 0.16, TRIM: o.Trim || T_RIM };
+  g.r00 = o.rimR * g.TRIM / SUPPLY; g.py0 = (o.y1B - o.yRim) / (SUPPLY - g.TRIM);
+  setView(g, 1, g.TRIM, g.py0);
+  return g;
+}
+// the view: z scales every radius (said on the glass as "drawn ×z" whenever it is below 1),
+// Trim is the tokens left at the mouth, py the height of one token
+function setView(g, z, Trim, py) { g.z = z; g.r0 = g.r00 * z; g.Trim = Trim; g.py = py; }
+function yOf(g, T) { return g.yRim + (T - g.Trim) * g.py; }
+function TofY(g, y) { return g.Trim + (y - g.yRim) / g.py; }
+function rOf(g, T, f) { return f * g.r0 * SUPPLY / Math.max(1, T); }
+// one wall of the glass from y0 down to y1, as [y, r, y, r, ...], denser where it flares
+function wallPts(g, f, y0, y1) {
+  var pts = [], y = y0, guard = 0;
+  while (y < y1 && guard++ < 4000) {
+    var T = TofY(g, y), r = rOf(g, T, f); pts.push(y, r);
+    var slope = f * g.r0 * SUPPLY / (T * T) / g.py;
+    y += Math.max(0.5, Math.min(5, 2.6 / (0.15 + slope)));
+  }
+  pts.push(y1, rOf(g, TofY(g, y1), f));
+  return pts;
+}
+function ell(c, cx, cy, rx, ry, a0, a1) { c.beginPath(); c.ellipse(cx, cy, Math.max(0.05, rx), Math.max(0.05, ry), 0, a0, a1); }
+function setFont(c, px, weight, fam) {
+  c.font = (weight || 400) + ' ' + px + 'px ' + (fam === 'd' ? '"Anybody", system-ui, sans-serif' : '"Martian Mono", ui-monospace, monospace');
+  try { c.fontStretch = fam === 'd' ? 'normal' : 'semi-condensed'; } catch (e) {}
+}
+
+/* The liquid from the surface (ys) down to yEnd; v describes the glass (see heroView). Only rows
+   between y0 and y1 are drawn (the loupe draws a small window). */
+function drawLiquid(c, g, v, ys, yEnd, step, y0, y1, scale) {
+  var f = v.f, cx = g.cx;
+  var realEnd = v.botT === Infinity ? yEnd : Math.min(yEnd, yOf(g, v.botT));
+  var strip = liquidStrip(v.heat), yA = Math.max(ys, y0), yB = Math.min(realEnd, y1), y, T, r;
+  for (y = yA; y < yB; y += step) {
+    T = TofY(g, y + step * 0.5); r = rOf(g, T, f);
+    c.drawImage(strip, 0, Math.min(31, ((y - ys) * (scale || 1) / 5) | 0), 64, 1, cx - r, y, 2 * r, step + 0.35 / (scale || 1));
+  }
+  if (v.virtA > 0.004) {
+    var vy0 = Math.max(yOf(g, SUPPLY), y0, ys), vy1 = Math.min(yEnd, y1);
+    if (vy1 > vy0) {
+      c.globalAlpha = v.virtA * (LIGHT ? 0.8 : 0.9);
+      var vs = virtStrip();
+      for (y = vy0; y < vy1; y += step) { T = TofY(g, y + step * 0.5); r = rOf(g, T, f); c.drawImage(vs, 0, 0, 64, 1, cx - r, y, 2 * r, step + 0.35 / (scale || 1)); }
+      c.save(); stemPath(c, g, f, vy0, vy1); c.clip(); c.fillStyle = hatchFor(c, scale); c.fillRect(cx - g.rimR, vy0, 2 * g.rimR, vy1 - vy0); c.restore();
+      c.globalAlpha = 1;
+    }
+  }
+  // while the glass tightens, the real liquid runs down the emptied stem: its lower edge
+  if (v.botT !== Infinity && v.virtA < 0.99 && realEnd < yEnd && realEnd > y0 && realEnd < y1) {
+    var rb = rOf(g, v.botT, f);
+    ell(c, cx, realEnd, rb, rb * g.e, 0, PI); c.strokeStyle = css(LIGHT ? COL.ink : COL.pale, 0.55); c.lineWidth = 1 / (scale || 1); c.stroke();
+  }
+}
+function stemPath(c, g, f, y0, y1) {
+  var L = wallPts(g, f, y0, y1), cx = g.cx, i;
+  c.beginPath(); c.moveTo(cx - L[1], L[0]);
+  for (i = 2; i < L.length; i += 2) c.lineTo(cx - L[i + 1], L[i]);
+  for (i = L.length - 2; i >= 0; i -= 2) c.lineTo(cx + L[i + 1], L[i]);
+  c.closePath();
+}
+function drawWalls(c, g, f, col, y0, y1, lw, a) {
+  var L = wallPts(g, f, y0, y1), cx = g.cx, i, s, k;
+  a = a == null ? 1 : a;
+  // a faint fresnel band, the wall line, and the inner face of the glass
+  var passes = [[COL.edge, 0.05 * a, 7 * lw, 0], [col, 0.8 * a, 1.1 * lw, 0], [col, 0.22 * a, lw, 2.4 * lw]];
+  for (k = 0; k < passes.length; k++) {
+    var p = passes[k];
+    c.strokeStyle = css(p[0], p[1]); c.lineWidth = p[2];
+    for (s = -1; s <= 1; s += 2) {
+      c.beginPath();
+      for (i = 0; i < L.length; i += 2) { var x = g.cx + s * Math.max(0.3 * lw, L[i + 1] - p[3]); if (i) c.lineTo(x, L[i]); else c.moveTo(x, L[i]); }
+      c.stroke();
+    }
+  }
+}
+
+/* ======================================================================================
+   The simulation
+   ====================================================================================== */
+var S = Bk.fresh();
+var hero = $('#hero'), stage = $('#stage'), cv = $('#horn'), ctx = cv.getContext('2d');
+var hit = $('#glassHit'), grip = $('#grip'), rideEl = $('#ride'), rideIn = $('#rideIn'), rideL = $('#rideL'), rideR = $('#rideR'), vlab = $('#vlab'), gcap = $('#gcap');
+var G = null, phone = false, DPR = 1, vials = [];
+var TOUCH = false; try { TOUCH = matchMedia('(pointer: coarse)').matches; } catch (e) {}
+var touched = false;          // the first touch on the surface hides the "hold to pour" mark
+var settleT = 0;              // a burst of drops is told as one pour
+var disp = { T: S.T };
+var pouring = false, auto = null, holdT = 0, streamA = 0, pipA = 0, rate = 0, clock = 0, wobUntil = 0;
+var amt = { left: 0, rate: 0, out: 0, want: 0 };
+var A = null;                 // the graduation, while it plays
+var rings = [], drops = [], ripples = [];
+var trade = null;             // what the current gesture has done, for the message at the end
+var ghost = null;             // the level a typed amount would land at
+var lock = false;
+var stats = { frames: 0, wakes: 0, draws: 0 };
+var loop = { raf: 0, last: 0, until: 0, visible: !document.hidden, onscreen: true };
+
+function say(html) { $('#hint').innerHTML = html; }
+function defaultHint() {
+  if (S.grad) return 'Graduated. Same pool, same glass. Keep pouring, or drag the surface down to sell.';
+  return phone ? 'Hold the surface to pour SOL in. Drag it down to sell.' : 'Hold the glass to pour SOL in. Drag the surface down to sell.';
+}
+function youText() {
+  var t = 'you hold <b>' + fTok(Math.max(0, S.held)) + '</b>';
+  if (A) t += ' · graduating, inside this trade…';
+  else if (!S.grad) t += ' · <b>' + fSol(GRAD_R - S.R) + '</b> more real SOL and it graduates';
+  else t += ' · graduated, <b>' + fTok(S.burned) + '</b> burned';
+  $('#you').innerHTML = t;
+}
+// the trade buttons do nothing while the graduation plays, so they say so
+function keysBusy(on) {
+  $('#pourBtn').disabled = on; $('#drawBtn').disabled = on; $('#runBtn').disabled = on || S.grad;
+}
+function settleSoon(ms) { clearTimeout(settleT); settleT = setTimeout(function () { settleT = 0; settle(); }, ms); }
+function flushSettle() { if (settleT) { clearTimeout(settleT); settleT = 0; settle(); } }
+
+/* ---------------- trades ---------------- */
+// pours `d` SOL (fee included); stops exactly at the graduation ring and plays it
+function pourAmt(d) {
+  if (!(d > 0)) return false;
+  var T0 = S.T, held0 = S.held;
+  if (!S.grad) {
+    var need = (GRAD_R - S.R) / (1 - FEE);
+    if (d >= need - 1e-12) {
+      var info = Bk.buy(S, need);
+      note('buy', need, S.held - held0);
+      if (info.graduated) startGrad(info);
+      return true;
+    }
+  }
+  Bk.buy(S, d); note('buy', d, S.held - held0);
+  return false;
+}
+function sellTok(tok) {
+  tok = Math.min(tok, Math.max(0, S.held));
+  if (!(tok > 1)) return 0;
+  var got = Bk.sellTokens(S, tok); note('sell', got, tok);
+  return got;
+}
+function note(kind, sol, tok) {
+  if (!trade) trade = { buySol: 0, buyTok: 0, sellSol: 0, sellTok: 0 };
+  if (kind === 'buy') { trade.buySol += sol; trade.buyTok += tok; } else { trade.sellSol += sol; trade.sellTok += tok; }
+}
+// a gesture ended: etch a tide ring at the level and say what happened
+function settle(quiet) {
+  var t = trade; trade = null;
+  if (t && (t.buySol > 1e-6 || t.sellTok > 1)) {
+    var last = rings[rings.length - 1];
+    if (!A && (!last || Math.abs(last.T - S.T) > 2e5)) { rings.push({ T: S.T, pre: !S.grad, at: clock }); if (rings.length > 36) rings.shift(); }
+  }
+  if (!quiet && t && !A) {
+    if (t.buySol > 1e-6 && t.sellTok <= 1) say('You poured <b>' + fSol(t.buySol) + ' SOL</b>. The level rose <b>' + fTok(t.buyTok) + '</b> tokens: those are yours.');
+    else if (t.sellTok > 1 && t.buySol <= 1e-6) say('You drew <b>' + fTok(t.sellTok) + '</b> tokens back down. <b>' + fSol(t.sellSol) + ' SOL</b> comes out to you, after the 1% fee.');
+    else if (t.buySol > 1e-6) say('Net: poured ' + fSol(t.buySol) + ' SOL, drew out ' + fSol(t.sellSol) + ' SOL. You hold ' + fTok(Math.max(0, S.held)) + '.');
+  }
+  youText(); ghostUpdate();
+  wobUntil = clock + 2.2; wake(2300);
+}
+
+/* ---------------- graduation, played slowly ----------------
+   u from 0 to 1 over 10 s: the ring is reached (0 to .12); the 30 virtual SOL go out of the
+   stem (.12 to .32); the glass tightens by 82.25/112.25 while the level rises to where it is
+   as wide as before, which is the 71.43M burn (.32 to .78); the glass turns pale (.78 to 1). */
+var PH = [0, 0.12, 0.32, 0.78, 1];
+var CAPS = [
+  '<b>82.25 real SOL in</b>: a 420 SOL market cap. The coin graduates, inside this trade.',
+  '<b>The 30 SOL that was never there</b> drops out of the stem.',
+  '<b>The glass tightens by 26.7%.</b> That lifts the level 71.43M tokens up the scale, and those tokens burn. Same width, same price.',
+  '<b>Same pool, plain x·y = k</b> from here on, every drop in it real. With 71.43M fewer tokens, the market cap reads 390 SOL at the same price.'
+];
+function startGrad(info) {
+  clearInterval(pourTimer); clearTimeout(settleT); settleT = 0; pouring = false; auto = null; lock = true; drops = []; trade = null;
+  rings.push({ T: info.Tpre || T_G, pre: true, at: clock });
+  A = { u: 0, dur: 10, Tpre: info.Tpre || T_G, phase: -1 };
+  keysBusy(true); youText(); ghostUpdate();
+  if (reduce) {
+    // steps instead of flow: the end of each phase, held for a moment
+    var i = 0;
+    (function next() {
+      if (!A) return;
+      A.u = PH[i + 1] - 1e-6; gradCaption(); wake(0);
+      i++;
+      if (i < 4) A.timer = setTimeout(next, 2300); else A.timer = setTimeout(function () { endGrad(); }, 2300);
+    })();
+  } else wake(0);
+}
+function gradCaption() {
+  var p = 0; while (p < 3 && A.u >= PH[p + 1]) p++;
+  if (p !== A.phase) { A.phase = p; gcap.innerHTML = CAPS[p]; gcap._box = null; gcap.classList.add('on'); $('#say').innerHTML = CAPS[p]; if (p === 0) say('Graduating, slowly. Watch the glass.'); }
+}
+function endGrad() {
+  if (!A) return;
+  clearTimeout(A.timer); A = null; lock = false;
+  rings.forEach(function (r) { if (r.pre) { r.T *= F2; r.pre = false; } });
+  disp.T = S.T;
+  say('Graduated at 82.25 real SOL. The price held at <b>' + fPx(Bk.priceOf(S)) + '</b> SOL per 1M; the market cap now counts the ' + fTok(SUPPLY - S.burned) + ' tokens left in existence.');
+  setTimeout(function () { if (!A) { gcap.classList.remove('on'); wake(400); } }, 6000);
+  keysBusy(false); youText(); buildSpine(); wake(2300); wobUntil = clock + 2.2;
+}
+function smooth(t) { t = clamp(t, 0, 1); return t * t * (3 - 2 * t); }
+function gradView(u) {
+  var p1 = smooth((u - PH[1]) / (PH[2] - PH[1])), p2 = smooth((u - PH[2]) / (PH[3] - PH[2])), p3 = smooth((u - PH[3]) / (PH[4] - PH[3]));
+  var f = 1 + (F2 - 1) * p2, Ts = f * A.Tpre;
+  // the liquid's volume stays the 82.25 real SOL: in the tightening glass (k = f^2 * k0) it
+  // fills from the surface down to the T where 1/T = (112.25 f - 82.25) / (f^2 k0)
+  var inv = (X_G * f - GRAD_R) / (f * f * K0), botT = p2 <= 0 ? SUPPLY : inv > 1e-15 ? 1 / inv : Infinity;
+  // the readouts show real states only: the coin at the ring until the burn is done, then the
+  // graduated pool (no counting through in-between numbers that are no pool's state)
+  var done = u >= PH[3], px = done ? Bk.priceOf(S) : X_G / A.Tpre;
+  return {
+    f: f, Ts: Ts, botT: botT, virtA: 1 - p1, pale: p3, heat: 1, preA: 1 - p2, postA: p3, floorA: p3, ringF: f,
+    flare: u < PH[1] ? Math.sin(PI * u / PH[1]) : 0, burn: p2 > 0 ? { from: A.Tpre, to: Ts, a: 1 - 0.55 * p3 } : null, grad: true, anim: true,
+    num: { px: px, R: GRAD_R, T: done ? S.T : A.Tpre, mcap: done ? Bk.mcapOf(S) : px * SUPPLY, all: done ? GRAD_R : X_G }
+  };
+}
+function heroView() {
+  if (A) return gradView(A.u);
+  var post = S.grad;
+  return {
+    f: post ? F2 : 1, Ts: disp.T, botT: post ? Infinity : SUPPLY, virtA: post ? 0 : 1, pale: post ? 1 : 0, heat: Bk.heatOf(S),
+    preA: post ? 0 : 1, postA: post ? 1 : 0, floorA: post ? 1 : 0, ringF: 1, flare: 0, burn: null, grad: post, anim: false,
+    num: { px: Bk.priceOf(S), R: S.R, T: S.T, mcap: Bk.mcapOf(S), all: Bk.xOf(S) }
+  };
+}
+
+/* ---------------- the loop: runs only while something moves ---------------- */
+function wake(ms) {
+  loop.until = Math.max(loop.until, now() + (ms || 0));
+  if (loop.raf || !loop.visible || !loop.onscreen) return;
+  stats.wakes++; loop.last = now();
+  loop.raf = requestAnimationFrame(frame);
+}
+function frame(t) {
+  loop.raf = 0; stats.frames++;
+  var dt = Math.min(0.05, Math.max(0, (t - loop.last) / 1000)); loop.last = t;
+  var busy = false;
+  try {
+    if (reduce && !A) { disp.T = S.T; var vr = viewTarget(); if (G.z !== vr.z || G.Trim !== vr.Trim || G.py !== vr.py) { setView(G, vr.z, vr.Trim, vr.py); buildSpine(); } }
+    busy = reduce ? false : step(dt);
+  } catch (e) { report('frame', e); }
+  // at most 60 draws a second (30 while only the surface settles), and always the last frame
+  var cont = !reduce && (busy || t < loop.until) && loop.visible && loop.onscreen;
+  if (!cont || reduce || t - (loop.drawn || 0) >= (busy ? 15 : 30)) { try { draw(); } catch (e) { report('draw', e); } loop.drawn = t; }
+  if (cont) loop.raf = requestAnimationFrame(frame);
+}
+function sleepNow() { if (loop.raf) { cancelAnimationFrame(loop.raf); loop.raf = 0; } }
+
+function step(dt) {
+  clock += dt;
+  var busy = false;
+  if (A) {
+    if (!A.frozen) { A.u = Math.min(1, A.u + dt / A.dur); gradCaption(); busy = true; if (A.u >= 1) endGrad(); }
+  } else if (pouring || auto === 'intro' || auto === 'grad' || auto === 'pour') {
+    holdT += dt;
+    rate = auto === 'grad' ? 24 : auto === 'intro' ? 16 : auto === 'pour' ? amt.rate : 1.5 + 12.5 * Math.min(1, holdT / 1.6);
+    var d = rate * dt;
+    if (auto === 'pour') d = Math.min(d, amt.left);
+    if (auto === 'intro') d = Math.min(d, (INTRO_SOL - S.R) / (1 - FEE));
+    var graduated = pourAmt(d);
+    if (!graduated) {
+      if (auto === 'pour') { amt.left -= d; if (amt.left <= 1e-9) { auto = null; settle(); } }
+      if (auto === 'intro' && S.R >= INTRO_SOL - 1e-9) { auto = null; settle(true); say(defaultHint()); }
+    }
+    if (!A) disp.T = S.T;
+    busy = true;
+  } else if (auto === 'draw') {
+    // draws a typed amount of SOL out, a little per frame, through the pipette
+    var want = Math.min(amt.rate * dt, amt.want - amt.out), x = Bk.xOf(S);
+    var tok = want > 0 ? Math.min(S.T * want / (x - want), Math.max(0, S.held)) : 0;
+    if (tok > 1) { var got = sellTok(tok); amt.out += got / (1 - FEE); }
+    if (!(tok > 1) || amt.out >= amt.want - 1e-9) { auto = null; settle(); }
+    disp.T = S.T; busy = true;
+  }
+  var wantS = (pouring || auto === 'intro' || auto === 'grad' || auto === 'pour') ? 1 : 0;
+  var wantP = (auto === 'draw' || (press && press.kind === 'drag' && press.dir > 0)) ? 1 : 0;
+  if (Math.abs(streamA - wantS) > 0.01) { streamA += (wantS - streamA) * Math.min(1, dt * 9); busy = true; } else streamA = wantS;
+  if (Math.abs(pipA - wantP) > 0.01) { pipA += (wantP - pipA) * Math.min(1, dt * 9); busy = true; } else pipA = wantP;
+  if (!A && Math.abs(disp.T - S.T) > 2e4) { disp.T += (S.T - disp.T) * (1 - Math.exp(-dt * 10)); busy = true; } else if (!A) disp.T = S.T;
+  var vt = viewTarget();
+  // (held still while the surface is dragged, so the pointer and the scale under it agree)
+  if (!(press && press.kind === 'drag') && (G.z !== vt.z || G.Trim !== vt.Trim || G.py !== vt.py)) {
+    if (viewSettled(vt)) { setView(G, vt.z, vt.Trim, vt.py); buildSpine(); }   // the stem down the page follows once it settles
+    else { var kz = 1 - Math.exp(-dt * 5); setView(G, G.z + (vt.z - G.z) * kz, G.Trim + (vt.Trim - G.Trim) * kz, G.py + (vt.py - G.py) * kz); }
+    busy = true;
+  }
+  for (var i = drops.length - 1; i >= 0; i--) {
+    var dr = drops[i]; dr.v += 1500 * dt; dr.y += dr.v * dt; busy = true;
+    var ysf = yOf(G, disp.T);
+    if (dr.y + dr.r * 0.6 >= ysf) { drops.splice(i, 1); landDrop(dr); }
+  }
+  for (i = ripples.length - 1; i >= 0; i--) { ripples[i].age += dt; busy = true; if (ripples[i].age > 1) ripples.splice(i, 1); }
+  return busy;
+}
+/* After graduation the level climbs toward the mouth, and the glass has to show more of its
+   endless flare. Until about 100 SOL nothing is rescaled: the mouth is cropped higher up the
+   flare (it sits where the glass is 1/0.56 as wide as the surface) and the height per token grows
+   so the surface stays as far below the mouth as it was when the coin graduated. Width is still
+   all the SOL and area still the price, to the pixel. Past that, the radii are drawn smaller
+   (z = sqrt(T / 160M)) and the glass says so: "drawn ×z to fit". */
+var VIEW_T1 = 160e6, VIEW_RHO = 0.56;
+function viewTarget() {
+  var g = G;
+  if (!(S.grad && !A)) return { z: 1, Trim: g.TRIM, py: g.py0 };
+  var T = disp.T, rMax = Math.min(g.cx, g.w - g.cx) - (phone ? 14 : 24), k = F2 * g.r00 * SUPPLY;
+  var z = Math.min(1, Math.sqrt(T / VIEW_T1), 0.6 * rMax * T / k);
+  var Trim = Math.min(g.TRIM * z, VIEW_RHO * T);
+  if (z * k / Trim > rMax) Trim = z * k / rMax;          // the mouth never wider than the stage
+  // the surface's distance below the mouth: what it was at graduation, growing to 17% of the
+  // glass by about 100 SOL, so the glass never looks brim-full
+  var g0 = (T_G2 - g.TRIM) * g.py0, g1 = Math.max(g0, 0.17 * (SUPPLY - g.TRIM) * g.py0 * (phone ? 1 : 1.1));
+  var gap = g0 + (g1 - g0) * smooth((T_G2 - T) / (T_G2 - VIEW_T1)), py = Math.max(g.py0, gap / Math.max(1, T - Trim));
+  return { z: z, Trim: Trim, py: py };
+}
+function viewSettled(t) { return Math.abs(G.z - t.z) < 0.002 && Math.abs(G.Trim / t.Trim - 1) < 0.002 && Math.abs(G.py / t.py - 1) < 0.002; }
+function wobble() { if (reduce) return 0; var left = wobUntil - clock; return left > 0 ? Math.sin(clock * 2.6) * Math.min(1, left / 1.2) : 0; }
+
+/* ---------------- drawing the hero ----------------
+   Every label is placed before anything is drawn. First the readouts that ride the surface (on
+   its two sides) and what stands still (the vials, the graduation caption); then the marks that
+   must show (the graduation ring's label, the notes on the stem, the burn, the ghost); then the
+   price, which takes the freest of three places: above the surface, inside it under the
+   meniscus, above the mouth. The scales' own numbers come last and skip any place taken. */
+var zones = [], soft = [], pri = [], drawnBoxes = [], priceMode = 'above', priceBox = null, ghostGeo = null, M_EDGE = 8;
+function boxHit(a, b) { return a.x0 < b.x1 && a.x1 > b.x0 && a.y0 < b.y1 && a.y1 > b.y0; }
+function overlapArea(a, b) { var w = Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0), h = Math.min(a.y1, b.y1) - Math.max(a.y0, b.y0); return w > 0 && h > 0 ? w * h : 0; }
+function hitsAny(b) { for (var i = 0; i < zones.length; i++) if (boxHit(b, zones[i])) return true; return false; }
+function inZone(x0, y0, x1, y1) { return hitsAny({ x0: x0, y0: y0, x1: x1, y1: y1 }); }
+function label(c, txt, x, y, align, col, a) {
+  var w = c.measureText(txt).width, x0 = align === 'right' ? x - w : align === 'center' ? x - w / 2 : x;
+  if (inZone(x0 - 2, y - 9, x0 + w + 2, y + 3)) return false;
+  c.textAlign = align || 'left'; c.fillStyle = css(col || COL.ash, a == null ? 1 : a); c.fillText(txt, x, y);
+  drawnBoxes.push({ n: txt, x0: x0, y0: y - 9, x1: x0 + w, y1: y + 3 });
+  return true;
+}
+// a block of canvas lines: measured now, drawn on top at the end
+function textBlock(c, lines, size, weight, lh) {
+  setFont(c, size, weight); var w = 0;
+  for (var i = 0; i < lines.length; i++) w = Math.max(w, c.measureText(lines[i]).width);
+  return { lines: lines, size: size, weight: weight, lh: lh || Math.round(size * 1.3), w: w };
+}
+function blockBox(b, x, y, align) {
+  var x0 = align === 'right' ? x - b.w : align === 'center' ? x - b.w / 2 : x;
+  return { x0: x0 - 2, y0: y - b.size + 1, x1: x0 + b.w + 2, y1: y + (b.lines.length - 1) * b.lh + 3 };
+}
+function fitsStage(b) { return b.x0 >= M_EDGE && b.x1 <= G.w - M_EDGE && b.y0 >= 0 && b.y1 <= G.h - 2; }
+function putBlock(b, x, y, align, col, a) {
+  b.x = x; b.y = y; b.align = align; b.col = col; b.a = a == null ? 1 : a;
+  b.box = blockBox(b, x, y, align); b.box.n = b.lines.join(' / ');
+  zones.push(b.box); pri.push(b); return b;
+}
+// beside the glass, first line at about y: on the preferred side, then the other, moving in
+// `step` px (down if positive) until the whole block is free and inside the stage
+function besideGlass(c, b, y, side, f, step, col, a, gap) {
+  gap = gap || 12;
+  for (var pass = 0; pass < 2; pass++) {
+    var s = pass ? -side : side, al = s < 0 ? 'right' : 'left';
+    for (var k = 0; k < 10; k++) {
+      var yy = y + k * step, r = rOf(G, TofY(G, yy - b.size), f) + gap;   // the block's top row is where the glass is widest
+      var x = s < 0 ? G.cx - r : G.cx + r, box = blockBox(b, x, yy, al);
+      if (box.y1 > G.h - 2 || box.y0 < 0) break;
+      if (fitsStage(box) && !hitsAny(box)) return putBlock(b, x, yy, al, col, a);
+    }
+  }
+  return null;
+}
+function drawBlocks(c) {
+  for (var i = 0; i < pri.length; i++) {
+    var b = pri[i]; setFont(c, b.size, b.weight); c.textAlign = b.align; c.fillStyle = css(b.col, b.a);
+    for (var k = 0; k < b.lines.length; k++) c.fillText(b.lines[k], b.x, b.y + k * b.lh);
+    drawnBoxes.push(b.box);
+  }
+}
+// the mouth's rim, with a pouring lip on the left (t is the angle round the rim; pi is the left)
+var SPW = 0.3;
+function rimTrace(c, cx, y, r, e, S, t0, t1) {
+  var n = Math.max(24, Math.round(r * (t1 - t0) / 6)), i, t, d, b, rr;
+  c.beginPath();
+  for (i = 0; i <= n; i++) {
+    t = t0 + (t1 - t0) * i / n; d = Math.abs(t - PI);
+    b = d < SPW ? Math.pow(1 - d / SPW, 1.8) : 0; rr = r + S * b;
+    var x = cx + rr * Math.cos(t), yy = y + rr * e * Math.sin(t) - S * 0.42 * b;
+    if (i) c.lineTo(x, yy); else c.moveTo(x, yy);
+  }
+}
+
+function plan(c, v, ys, rs, rys) {
+  var g = G, n = v.num, cx = g.cx, e = g.e, f = v.f;
+  zones = []; soft = []; pri = []; drawnBoxes = []; ghostGeo = null;
+  M_EDGE = phone ? 12 : 8;
+  var Tg = v.anim ? T_G * v.ringF : (v.grad ? T_G2 : T_G), yg = yOf(g, Tg), rg = rOf(g, Tg, f);
+  var ringOn = yg > g.yRim + 4 && yg < g.h, near = ringOn && !v.anim && Math.abs(yg - ys) <= 16;
+  // 1. the readouts riding the surface, one on each side, their first line on the level
+  var lH = '<b>' + fSol(n.R) + '</b>real SOL' + (near && !v.grad ? '<i>' + fSol(GRAD_R - n.R) + ' SOL to graduation</i>' : '');
+  var rH = '<b>' + fTok(n.T) + '</b>tokens left<i>' + (phone ? 'cap ' : 'market cap ') + '<em>' + fSol(n.mcap) + '</em> SOL</i>' +
+    (TOUCH && !touched && !v.anim ? '<i class="t">← hold to pour</i>' : '');
+  zones.push(setTag(rideL, 'l', lH, cx - rs - 10, ys - 8, 'right', 'top'));
+  zones.push(setTag(rideR, 'r', rH, cx + rs + 10, ys - 8, 'left', 'top'));
+  // 2. what stands still: the fee vials and their label, the graduation caption
+  if (vials.length) {
+    zones.push(setTag(vlab, 'v', vialHtml(), vials.lx, vials.ly, vials.la, 'top'));
+    vials.forEach(function (vl) { zones.push({ n: 'vial', x0: vl.x - vl.w / 2 - 3, y0: vl.y0 - 4, x1: vl.x + vl.w / 2 + 3, y1: vl.y1 + 2 }); });
+  }
+  if (gcap.classList.contains('on')) {
+    if (!gcap._box) { var gr = gcap.getBoundingClientRect(), sr = stage.getBoundingClientRect(); gcap._box = { n: 'gcap', x0: gr.left - sr.left, y0: gr.top - sr.top, x1: gr.right - sr.left, y1: gr.bottom - sr.top }; }
+    zones.push(gcap._box);
+  }
+  // 3. the marks that must show
+  if (ringOn) soft.push({ x0: cx - rg - 2, y0: yg - rg * e - 2, x1: cx + rg + 2, y1: yg + rg * e + 2, w: 0.15 });
+  if (ringOn && !near) {
+    var post = v.grad && !v.anim, b = textBlock(c, [post ? '82.25 · graduated here' : '82.25 · graduation'], 9.5, 500), x = cx - rg - 8, yl = yg + 3.5;
+    if (blockBox(b, x, yl, 'right').x0 < M_EDGE) { b = textBlock(c, post ? ['82.25', 'graduated here'] : ['82.25 SOL', 'graduation'], 9.5, 500, 11); yl = yg - 2; }
+    var bb = blockBox(b, x, yl, 'right');
+    if (fitsStage(bb) && !hitsAny(bb)) putBlock(b, x, yl, 'right', COL.pale, post ? 0.6 : 0.95);
+  }
+  var y1 = yOf(g, SUPPLY);
+  if (v.virtA > 0.01 && y1 + 10 < g.h) {
+    besideGlass(c, textBlock(c, v.grad ? ['the 30 virtual SOL', 'drop out of the stem'] : ['the 30 virtual SOL,', 'all below this ring,', 'never in the vault'], 9.5, 400, 12),
+      y1 + 17, -1, f, 12, COL.ash, v.virtA);
+  }
+  if (v.floorA > 0.01) {
+    var yF = yOf(g, FLOOR2);
+    if (yF < g.h - 10) besideGlass(c, textBlock(c, [fSol(STAY2) + ' SOL stay below', 'this ring, even if', 'every holder sells'], 9.5, 400, 12), yF + 3.5, -1, f, 12, COL.ash, v.floorA);
+  }
+  if (v.burn && v.burn.a > 0) {
+    besideGlass(c, textBlock(c, ['−' + fTok(v.burn.from - v.burn.to) + ' burned'], 10.5, 500), yOf(g, v.burn.from) + 4, 1, f, 14, COL.pale, v.burn.a, 46);
+  }
+  if (ghost && !A) {
+    var gy = yOf(g, ghost.T), grr = rOf(g, ghost.T, ghost.f);
+    if (gy > g.yRim - 2 && gy < g.h) {
+      ghostGeo = { y: gy, r: grr };
+      soft.push({ x0: cx - grr - 2, y0: gy - grr * e - 3, x1: cx + grr + 2, y1: gy + grr * e + 3, w: 0.5 });
+      if (!besideGlass(c, textBlock(c, [ghost.text], 10, 500), gy + 3.5, 1, ghost.f, gy < ys ? -13 : 13, COL.ink, 1) && ghost.lines)
+        besideGlass(c, textBlock(c, ghost.lines, 10, 500, 12), gy + 3.5, 1, ghost.f, gy < ys ? -13 : 13, COL.ink, 1);
+    }
+  }
+  if (g.z < 0.995) {
+    var rR = rOf(g, g.Trim, f), vb = textBlock(c, ['drawn ×' + g.z.toFixed(2) + ' to fit'], 9.5, 400), vy = g.yRim - rR * e - 10;
+    if (fitsStage(blockBox(vb, cx - 20, vy, 'right'))) putBlock(vb, cx - 20, vy, 'right', COL.ash, 0.95);
+  }
+  // 4. the price, in the freest place
+  placePrice(v, ys, rs, rys);
+  // the touch handle: a band over the surface, the only part that captures touch
+  var gw = Math.max(120, 2 * rs + 56), gh = phone ? 76 : 44, gx = Math.round(cx - gw / 2), gyy = Math.round(ys - gh / 2);
+  var key = gx + ',' + gyy + ',' + Math.round(gw);
+  if (grip._k !== key) { grip._k = key; grip.style.transform = 'translate(' + gx + 'px,' + gyy + 'px)'; grip.style.width = Math.round(gw) + 'px'; grip.style.height = gh + 'px'; }
+}
+var liqKey = null;
+function placePrice(v, ys, rs, rys) {
+  var g = G, cx = g.cx, e = g.e, f = v.f, num = fPx(v.num.px), i;
+  var sA = tagSize(rideEl, 'pa', '<span class="px">' + num + '</span><small>SOL per 1M</small>');
+  var sB = tagSize(rideIn, 'pb', '<span class="px">' + num + '</span><small>SOL per 1M</small>');
+  var rR = rOf(g, g.Trim, f);
+  var rim = { x0: cx - rR - g.spout - 6, y0: g.yRim - rR * e - g.spout * 0.42 - 6, x1: cx + rR + 8, y1: g.yRim + rR * e + 6 };
+  var cands = [
+    { k: 'above', el: rideEl, key: 'pa', s: sA, x0: cx - sA.w / 2, y0: ys - rys - 7 - sA.h, base: 0 },
+    { k: 'in', el: rideIn, key: 'pb', s: sB, x0: cx - sB.w / 2, y0: ys + rys + 5, base: 40 },
+    { k: 'top', el: rideEl, key: 'pa', s: sA, x0: cx - sA.w / 2, y0: g.yRim - rR * e - 14 - sA.h, base: 4000 }
+  ];
+  var best = null;
+  cands.forEach(function (cd) {
+    var b = { n: 'price', x0: cd.x0, y0: cd.y0, x1: cd.x0 + cd.s.w, y1: cd.y0 + cd.s.h }, ok = b.y0 >= 0 && b.y1 <= g.h - 2 && b.x0 >= 2 && b.x1 <= g.w - 2;
+    cd.box = b;
+    if (cd.k === 'in') {
+      // under the meniscus only while the liquid there is wide enough to hold the figure, and real
+      var Tb = TofY(g, b.y1), rb = rOf(g, Tb, f);
+      ok = ok && cd.s.w / 2 + 7 <= Math.min(rb, rs) && Tb < (v.grad ? v.botT : SUPPLY);
+    }
+    if (!ok) return;
+    var p = cd.base;
+    for (i = 0; i < zones.length; i++) p += overlapArea(b, zones[i]);
+    if (cd.k !== 'top') p += overlapArea(b, rim);
+    for (i = 0; i < soft.length; i++) p += overlapArea(b, soft[i]) * soft[i].w;
+    if (cd.k === priceMode) p -= 120;       // no flicker between two places that are nearly as good
+    cd.p = p;
+    if (!best || p < best.p) best = cd;
+  });
+  if (!best) best = cands[0];
+  priceMode = best.k;
+  if (best.k === 'in') {
+    // the figure under the meniscus takes the liquid's colours
+    var lk = Math.round(v.heat * 20);
+    if (lk !== liqKey) {
+      liqKey = lk; var base = bodyRGB(v.heat);
+      rideIn.style.setProperty('--liq', css(LIGHT ? mix(base, COL.ink, 0.4) : mix(base, COL.coal, 0.55)));
+      rideIn.style.setProperty('--liq-ink', css(LIGHT ? COL.coal : COL.ink));
+    }
+  }
+  moveTag(best.el, best.key, best.box.x0, best.box.y0);
+  var other = best.el === rideEl ? rideIn : rideEl;
+  if (best.el.classList.contains('off')) best.el.classList.remove('off');
+  if (!other.classList.contains('off')) other.classList.add('off');
+  priceBox = best.box; zones.push(best.box);
+}
+
+function draw() {
+  stats.draws++;
+  var c = ctx, g = G, v = heroView(), f = v.f, w = g.w, h = g.h, cx = g.cx, e = g.e;
+  c.setTransform(DPR, 0, 0, DPR, 0, 0); c.clearRect(0, 0, w, h);
+  var glassC = mix(COL.glass, COL.pale, v.pale * 0.8);
+  var yR = g.yRim, rR = rOf(g, g.Trim, f), SP = g.spout;
+  var ys = yOf(g, v.Ts), rs = rOf(g, v.Ts, f), wob = wobble(), rys = Math.max(0.6, rs * e * (1 + 0.06 * wob));
+  var y1 = yOf(g, SUPPLY), i, y;
+  // the glass above the graduation ring is drawn fainter until the coin graduates: no coin on
+  // the curve ever reaches it, and after graduation the whole glass is the tighter one
+  var yG = yOf(g, v.anim ? T_G * v.ringF : (v.grad ? T_G2 : T_G)), upA = 1 - 0.45 * v.preA;
+  plan(c, v, ys, rs, rys);
+
+  // the back of the mouth: the rim and its lip
+  rimTrace(c, cx, yR, rR, e, SP, PI, TAU); c.strokeStyle = css(glassC, 0.32 * upA); c.lineWidth = 1; c.stroke();
+  rimTrace(c, cx, yR - 1.3, rR + 3, e, SP + 1, PI, TAU); c.strokeStyle = css(glassC, 0.15 * upA); c.stroke();
+  // tide rings, back halves (behind the liquid)
+  ringsDraw(c, g, v, glassC, ys, true);
+
+  // the liquid, its surface, ripples
+  drawLiquid(c, g, v, ys, h + 2, 2, -10, h + 10, 1);
+  var base = bodyRGB(v.heat);
+  var top = LIGHT ? mix(base, COL.coal, 0.34) : mix(base, COL.pale, 0.3 + 0.25 * v.heat);
+  ell(c, cx, ys, rs, rys, 0, TAU); c.fillStyle = css(top, 0.97); c.fill();
+  if (rs > 6) {
+    ell(c, cx - rs * 0.14, ys - rys * 0.18, rs * 0.52, rys * 0.42, 0, TAU);
+    c.fillStyle = css(LIGHT ? COL.coal : COL.hot, LIGHT ? 0.2 : 0.06 + 0.06 * v.heat); c.fill();
+  }
+  if (wob && rs > 10) { // faint caustics while the surface settles
+    c.save(); ell(c, cx, ys, rs * 0.96, rys * 0.9, 0, TAU); c.clip();
+    c.strokeStyle = css(LIGHT ? COL.coal : COL.hot, 0.16 * Math.abs(wob)); c.lineWidth = 0.8;
+    for (i = 0; i < 3; i++) {
+      var ph = clock * 0.9 + i * 2.1;
+      c.beginPath(); c.ellipse(cx + Math.sin(ph) * rs * 0.25, ys + Math.cos(ph * 1.3) * rys * 0.2, rs * (0.3 + 0.12 * i), rys * (0.25 + 0.1 * i), 0, 0.3 + i, 2.2 + i); c.stroke();
+    }
+    c.restore();
+  }
+  ell(c, cx, ys, rs, rys, 0, TAU); c.strokeStyle = css(LIGHT ? COL.ink : COL.pale, 0.5 + 0.35 * v.heat); c.lineWidth = 1.15; c.stroke();
+  ripples.forEach(function (rp) {
+    var k = rp.age, rr = rs * (0.12 + 0.88 * Math.sqrt(k));
+    ell(c, cx, ys, rr, rr * e, 0, TAU); c.strokeStyle = css(LIGHT ? COL.ink : COL.hot, 0.6 * (1 - k)); c.lineWidth = 1; c.stroke();
+  });
+  if (TOUCH && rs > 4) {
+    // a grip on the front of the meniscus: the part a finger holds
+    var ga = Math.min(0.7, 13 / rs);
+    c.beginPath(); c.ellipse(cx, ys, rs, rys, 0, PI / 2 - ga, PI / 2 + ga); c.strokeStyle = css(LIGHT ? COL.ink : COL.pale, 0.95); c.lineWidth = 3.2; c.stroke();
+    c.strokeStyle = css(COL.coal, 0.9); c.lineWidth = 1;
+    for (i = -1; i <= 1; i++) { c.beginPath(); c.moveTo(cx + i * 4, ys + rys - 2.6); c.lineTo(cx + i * 4, ys + rys + 2.6); c.stroke(); }
+  }
+  // tide rings, front halves (on the glass, over the liquid)
+  ringsDraw(c, g, v, glassC, ys, false);
+
+  // scales and their marks
+  setFont(c, 9.5, 400);
+  c.lineWidth = 1;
+  tokenScale(c, g, v, glassC, ys, rs);
+  solScale(c, g, v, glassC, ys);
+  keyRings(c, g, v, glassC, ys, y1);
+
+  // the glass, with two faint contour lines on its empty part
+  if (ys - yR > 20) {
+    var Lc = wallPts(g, f, yR, ys - rys), sgn, kk;
+    for (kk = 0; kk < 2; kk++) for (sgn = -1; sgn <= 1; sgn += 2) {
+      c.beginPath();
+      for (i = 0; i < Lc.length; i += 2) { var xq = cx + sgn * Lc[i + 1] * (kk ? 0.3 : 0.64); if (i) c.lineTo(xq, Lc[i]); else c.moveTo(xq, Lc[i]); }
+      c.strokeStyle = css(glassC, 0.08 * (0.4 + 0.6 * upA)); c.lineWidth = 1; c.stroke();
+    }
+  }
+  if (upA < 0.999 && yG > yR + 2 && yG < h) { drawWalls(c, g, f, glassC, yR, yG, 1, upA); drawWalls(c, g, f, glassC, yG, h + 2, 1, 1); }
+  else drawWalls(c, g, f, glassC, yR, h + 2, 1, 1);
+  // the front of the rim and its rolled lip, a little brighter than the walls
+  var rimA = Math.max(0.62, 0.85 * upA);
+  rimTrace(c, cx, yR, rR, e, SP, 0, PI); c.strokeStyle = css(glassC, rimA); c.lineWidth = 1.2; c.stroke();
+  rimTrace(c, cx, yR - 1.3, rR + 3, e, SP + 1, 0, PI); c.strokeStyle = css(glassC, rimA * 0.5); c.lineWidth = 1; c.stroke();
+  rimTrace(c, cx, yR - 0.7, rR + 1.6, e, SP + 0.6, 0.58 * PI, 1.08 * PI); c.strokeStyle = css(LIGHT ? COL.ink : COL.hot, 0.35 * upA + 0.1); c.lineWidth = 1.8; c.stroke();
+
+  // what moves in and out: the stream, the pipette, the fee thread, drops
+  var heatC = Bk.heatRGB(Math.max(0.35, v.heat)), streamC = LIGHT ? heatC : mix(heatC, COL.hot, 0.25);
+  var yTop = Math.max(-4, yR - 74);
+  if (streamA > 0.01) {
+    var sw = (0.8 + 2.2 * Math.min(1, rate / 16)) * streamA;
+    var sg = c.createLinearGradient(0, yTop, 0, yTop + 50); sg.addColorStop(0, css(streamC, 0)); sg.addColorStop(1, css(streamC, 0.95 * streamA));
+    c.strokeStyle = sg; c.lineWidth = sw; c.beginPath();
+    for (y = yTop; y <= ys; y += 6) { var xo = reduce ? 0 : Math.sin(y * 0.045 - clock * 11) * 0.5 * streamA; if (y === yTop) c.moveTo(cx + xo, y); else c.lineTo(cx + xo, y); }
+    c.lineTo(cx, ys); c.stroke();
+    ell(c, cx, ys, 3 + sw * 2, (3 + sw * 2) * e * 1.4, 0, TAU); c.fillStyle = css(LIGHT ? COL.coal : COL.hot, 0.25 * streamA); c.fill();
+  }
+  if (pipA > 0.01) {
+    c.strokeStyle = css(glassC, 0.75 * pipA); c.lineWidth = 1;
+    c.strokeRect(cx - 3.5, yTop, 7, Math.max(4, ys - yTop - 1));
+    c.save(); c.setLineDash([5, 6]); c.lineDashOffset = clock * 70; c.strokeStyle = css(streamC, 0.9 * pipA); c.lineWidth = 3;
+    c.beginPath(); c.moveTo(cx, ys - 2); c.lineTo(cx, yTop + 2); c.stroke(); c.restore();
+  }
+  var thA = Math.max(streamA, pipA);
+  if (thA > 0.01 && vials.length) {
+    // the 1% splits off just above the mouth, into the two vials; it never enters the glass
+    c.save(); c.setLineDash([3, 4]); c.lineDashOffset = -clock * 40; c.lineWidth = 0.9; c.strokeStyle = css(streamC, 0.8 * thA);
+    var sx = cx, sy = Math.max(6, yR - 36);
+    vials.forEach(function (vl, k) {
+      c.beginPath(); c.moveTo(sx, sy);
+      if (phone) c.bezierCurveTo(sx + (vl.x - sx) * 0.7, sy - 24 - k * 6, vl.x + 6, sy + 80, vl.x, vl.y0 - 3);
+      else c.bezierCurveTo(sx + (vl.x - sx) * 0.55, sy - 30 - k * 8, vl.x + 26, vl.y0 - (vl.y0 - sy) * 0.6, vl.x, vl.y0 - 3);
+      c.stroke();
+    });
+    c.restore();
+  }
+  drops.forEach(function (dr) {
+    c.beginPath(); c.arc(cx, dr.y, dr.r, 0, TAU); c.fillStyle = css(top, 0.9); c.fill();
+    c.strokeStyle = css(LIGHT ? COL.ink : COL.pale, 0.7); c.lineWidth = 1; c.stroke();
+  });
+
+  // the fee vials
+  vialsDraw(c, glassC);
+
+  // the ghost of a typed amount: a dashed level where it would land (its label is placed above)
+  if (ghostGeo) {
+    c.save();
+    if (priceBox) { c.beginPath(); c.rect(0, 0, w, h); c.rect(priceBox.x0 - 4, priceBox.y0 - 3, priceBox.x1 - priceBox.x0 + 8, priceBox.y1 - priceBox.y0 + 6); c.clip('evenodd'); }
+    c.setLineDash([3, 3]); ell(c, cx, ghostGeo.y, ghostGeo.r, ghostGeo.r * e, 0, TAU); c.strokeStyle = css(COL.ink, 0.8); c.lineWidth = 1; c.stroke(); c.restore();
+  }
+  // the placed marks, on top
+  drawBlocks(c);
+}
+function ringsDraw(c, g, v, col, ys, back) {
+  for (var i = 0; i < rings.length; i++) {
+    var rg = rings[i], T = rg.T * (rg.pre ? v.ringF : 1), y = yOf(g, T);
+    if (T < g.Trim * 1.02 || y > g.h || Math.abs(y - ys) < 2.5) continue;
+    var r = rOf(g, T, v.f), age = Math.min(1, (clock - rg.at) / 60), a = 0.55 - 0.25 * age;
+    if (back) { ell(c, g.cx, y, r, r * g.e, PI, TAU); c.strokeStyle = css(col, a * 0.5); }
+    else { ell(c, g.cx, y, r, r * g.e, 0, PI); c.strokeStyle = css(col, a); }
+    c.lineWidth = 0.8; c.stroke();
+  }
+}
+function tickArc(c, g, T, f, side, len, col, a, lw) {
+  // len: how far in from the wall the mark reaches, in px, like the marks on a measuring jug
+  var y = yOf(g, T), r = rOf(g, T, f), th = Math.min(1.35, Math.max(0.05, Math.acos(clamp(1 - len / Math.max(1, r), -1, 1))));
+  c.beginPath();
+  if (side > 0) c.ellipse(g.cx, y, r, r * g.e, 0, 0, th); else c.ellipse(g.cx, y, r, r * g.e, 0, PI - th, PI);
+  c.strokeStyle = css(col, a); c.lineWidth = lw || 1; c.stroke();
+  return { y: y, r: r };
+}
+function tokenScale(c, g, v, col, ys, rs) {
+  var lastY = -1e9, f = v.f, yLip = g.yRim + rOf(g, g.Trim, f) * g.e + 8;
+  for (var T = 50e6; T <= SUPPLY + 1; T += 50e6) {
+    if (T < g.Trim * 1.04) continue;
+    var y = yOf(g, T); if (y > g.h - 4 || y < g.yRim + 6) continue;
+    var major = Math.round(T / 50e6) % 2 === 0, burned = v.burn && T < v.burn.from && T > v.burn.to;
+    var p = tickArc(c, g, T, f, 1, major ? 9 : 4.5, col, (major ? 0.62 : 0.36) * (burned ? 0.4 : 1));
+    if (major && Math.abs(y - ys) > 11 && y - lastY > 11 && y > yLip) {
+      var txt = T >= SUPPLY ? '1B' : Math.round(T / 1e6) + 'M';
+      if (label(c, txt, g.cx + p.r + 8, y + 3.5, 'left', COL.ash, burned ? 0.4 : 0.95) && burned) {
+        var tw = c.measureText(txt).width; c.beginPath(); c.moveTo(g.cx + p.r + 6, y); c.lineTo(g.cx + p.r + 10 + tw, y); c.strokeStyle = css(COL.pale, 0.8); c.stroke();
+      }
+      lastY = y;
+    }
+  }
+  if (v.burn && v.burn.a > 0) {
+    // the burned slice of the token scale, along the right wall
+    var y0 = yOf(g, v.burn.from), y1 = yOf(g, v.burn.to), L = wallPts(g, f, y1, y0), i;
+    c.beginPath();
+    for (i = 0; i < L.length; i += 2) { var x = g.cx + L[i + 1] + 4; if (i) c.lineTo(x, L[i]); else c.moveTo(x, L[i]); }
+    c.strokeStyle = css(COL.pale, 0.95 * v.burn.a); c.lineWidth = 2.4; c.stroke();
+    c.lineWidth = 1;   // its label ("−71.43M burned") is placed with the other marks, in plan()
+  }
+}
+function solScale(c, g, v, col, ys) {
+  var R, T, y, p, lastY = 1e9, yLip = g.yRim + rOf(g, g.Trim, v.f) * g.e + 8;
+  if (v.preA > 0.01) {
+    for (R = 0; R <= 80 + 1e-9; R += 5) {
+      T = K0 / (VIRT + R) * v.ringF; y = yOf(g, T);
+      if (y > g.h - 4) continue;
+      var major = R % 10 === 0;
+      p = tickArc(c, g, T, v.f, -1, major ? 9 : 4.5, col, (major ? 0.62 : 0.36) * v.preA);
+      if (major && R !== 80 && Math.abs(y - ys) > 11 && lastY - y > 11 && y > yLip) { label(c, String(R), g.cx - p.r - 8, y + 3.5, 'right', COL.ash, 0.95 * v.preA); lastY = y; }
+    }
+  }
+  if (v.postA > 0.01) {
+    var marks = [20, 30, 40, 50, 60, 70, 100, 125, 150, 200, 250, 300, 400, 500, 750, 1000, 1500, 2000, 3000, 5000];
+    lastY = 1e9;
+    for (var i = 0; i < marks.length; i++) {
+      R = marks[i]; T = K2 / R; y = yOf(g, T);
+      if (T > FLOOR2 || T < g.Trim * 1.04 || y > g.h - 4) continue;
+      p = tickArc(c, g, T, v.f, -1, 9, col, 0.62 * v.postA);
+      if (Math.abs(y - ys) > 11 && lastY - y > 13 && Math.abs(y - yOf(g, T_G2)) > 11 && y > yLip) { label(c, String(R), g.cx - p.r - 8, y + 3.5, 'right', COL.ash, 0.95 * v.postA); lastY = y; }
+    }
+  }
+}
+function keyRings(c, g, v, col, ys, y1) {
+  var cx = g.cx, e = g.e, r, y, a;
+  // the 1B ring, where all the tokens are back in the pool: a raised band, the foot of the real
+  // glass; the stem below it goes on for ever
+  r = rOf(g, SUPPLY, v.f);
+  if (y1 < g.h) {
+    ell(c, cx, y1, r, r * e, 0, TAU); c.strokeStyle = css(col, 0.55); c.lineWidth = 1; c.stroke();
+    ell(c, cx, y1 + 1, r + 2.4, (r + 2.4) * e, 0, PI); c.strokeStyle = css(col, 0.42); c.lineWidth = 1.7; c.stroke();
+  }
+  // the graduation ring at 82.25 real SOL; while the glass tightens it rides up with the level
+  var Tg = v.anim ? T_G * v.ringF : (v.grad ? T_G2 : T_G);
+  y = yOf(g, Tg); r = rOf(g, Tg, v.f);
+  if (y > g.yRim && y < g.h) {
+    a = v.grad && !v.anim ? 0.55 : 0.95;
+    if (v.flare > 0) { ell(c, cx, y, r + 3, (r + 3) * e, 0, TAU); c.strokeStyle = css(COL.pale, 0.35 * v.flare); c.lineWidth = 6; c.stroke(); }
+    ell(c, cx, y, r, r * e, 0, TAU); c.strokeStyle = css(COL.pale, a); c.lineWidth = 1.3; c.stroke();
+  }
+  // after graduation: the ring below which 17.35 SOL stay for ever
+  if (v.floorA > 0.01) {
+    y = yOf(g, FLOOR2); r = rOf(g, FLOOR2, v.f);
+    if (y < g.h) { ell(c, cx, y, r, r * e, 0, TAU); c.strokeStyle = css(col, 0.55 * v.floorA); c.lineWidth = 1; c.stroke(); }
+  }
+}
+// the fee vials: their scale (full vial) grows in steps so the fill always reads
+var VCAPS = [0.25, 0.5, 1, 2, 5, 10, 25, 50, 100, 250, 1000];
+function vialCap() {
+  var top = Math.max(S.feeC, S.feeP);
+  for (var i = 0; i < VCAPS.length; i++) if (VCAPS[i] >= top * 1.08) return VCAPS[i];
+  return VCAPS[VCAPS.length - 1];
+}
+function vialHtml() {
+  var cap = vialCap();
+  return '<b>' + fSol(S.feeC) + '</b> creator<br><b>' + fSol(S.feeP) + '</b> platform<br><i>' +
+    (phone ? 'the 1% fee, not in the glass<br>full vial: ' : '1% fee, never<br>in the glass<br>full: ') + cap + ' SOL</i>';
+}
+function vialsDraw(c, col) {
+  var fees = [S.feeC, S.feeP], cap = vialCap();
+  vials.forEach(function (vl, k) {
+    var x = vl.x, y0 = vl.y0, y1 = vl.y1, rw = vl.w / 2, frac = Math.min(1, fees[k] / cap);
+    var inner = y1 - y0 - rw - 3, fy = y1 - rw - inner * frac;
+    // liquid
+    if (frac > 0.001) {
+      c.save(); c.beginPath(); c.moveTo(x - rw + 1.5, fy); c.lineTo(x - rw + 1.5, y1 - rw); c.arc(x, y1 - rw, rw - 1.5, PI, 0, true); c.lineTo(x + rw - 1.5, fy); c.closePath();
+      c.fillStyle = css(bodyRGB(0.8)); c.fill(); c.restore();
+      ell(c, x, fy, rw - 1.5, 1.4, 0, TAU); c.fillStyle = css(LIGHT ? COL.coal : COL.pale, 0.6); c.fill();
+    }
+    // tube
+    c.beginPath(); c.moveTo(x - rw, y0); c.lineTo(x - rw, y1 - rw); c.arc(x, y1 - rw, rw, PI, 0, true); c.lineTo(x + rw, y0);
+    c.strokeStyle = css(col, 0.75); c.lineWidth = 1; c.stroke();
+    ell(c, x, y0, rw + 1.5, 1.8, 0, TAU); c.strokeStyle = css(col, 0.55); c.stroke();
+    for (var t = 1; t <= 4; t++) { var ty = y1 - rw - inner * t / 4; c.beginPath(); c.moveTo(x - rw, ty); c.lineTo(x - rw + (t % 2 ? 3 : 5), ty); c.strokeStyle = css(col, 0.5); c.stroke(); }
+  });
+}
+
+/* DOM readouts that ride the object: the price on the surface, real SOL on the left wall,
+   tokens left and the market cap on the right wall. Each number is Block's, for this state. */
+var lastTags = {};
+function tagSize(el, key, html) {
+  var t = lastTags[key] || (lastTags[key] = { html: null, w: 0, h: 0, x: null, y: null });
+  if (t.html !== html) { el.innerHTML = html; t.html = html; t.w = el.offsetWidth; t.h = el.offsetHeight; }
+  return t;
+}
+function moveTag(el, key, lx, ly) {
+  var t = lastTags[key]; lx = Math.round(lx); ly = Math.round(ly);
+  if (t.x !== lx || t.y !== ly) { el.style.transform = 'translate(' + lx + 'px,' + ly + 'px)'; t.x = lx; t.y = ly; }
+}
+function setTag(el, key, html, x, y, align, vAlign) {
+  var t = tagSize(el, key, html);
+  var lx = align === 'right' ? x - t.w : align === 'center' ? x - t.w / 2 : x;
+  var ly = vAlign === 'bottom' ? y - t.h : vAlign === 'middle' ? y - t.h / 2 : y;
+  lx = clamp(lx, M_EDGE, Math.max(M_EDGE, G.w - t.w - M_EDGE));
+  moveTag(el, key, lx, ly);
+  return { n: key, x0: Math.round(lx), y0: Math.round(ly), x1: Math.round(lx) + t.w, y1: Math.round(ly) + t.h };
+}
+
+/* ---------------- layout ---------------- */
+function layout() {
+  phone = window.innerWidth < 860;
+  var sw = stage.clientWidth, sh = stage.clientHeight;
+  DPR = dprOf();
+  cv.width = Math.round(sw * DPR); cv.height = Math.round(sh * DPR);
+  var o;
+  if (phone) {
+    var rimR = Math.min(sw / 2 - 26, 170);
+    o = { cx: Math.round(sw / 2), yRim: 84, rimR: rimR, y1B: sh - 160, e: 0.15 };
+  } else {
+    var axis = Math.round(window.innerWidth * 0.775 - stage.getBoundingClientRect().left);
+    o = { cx: axis, yRim: 152, rimR: Math.min(200, sw * 0.32), y1B: sh - 122, e: 0.16 };
+  }
+  G = geom(sw, sh, o); G.spout = phone ? 10 : 13;
+  // the two fee vials, beside the glass (on the phone below the 1B ring, where the price never goes)
+  var vw = phone ? 12 : 15, vh = phone ? 46 : 78;
+  if (phone) {
+    var vy = Math.round(yOf(G, SUPPLY)) + 26;
+    vials = [{ x: sw - 50, y0: vy, y1: vy + vh, w: vw }, { x: sw - 26, y0: vy, y1: vy + vh, w: vw }];
+    vials.lx = sw - 12; vials.ly = vy + vh + 9; vials.la = 'right';
+  } else {
+    var vx = Math.min(sw - 70, G.cx + 204), vy2 = Math.round(yOf(G, 520e6));
+    vials = [{ x: vx, y0: vy2, y1: vy2 + vh, w: vw }, { x: vx + 30, y0: vy2, y1: vy2 + vh, w: vw }];
+    vials.lx = vx - vw / 2 - 2; vials.ly = vy2 + vh + 10; vials.la = 'left';
+  }
+  var vt0 = viewTarget(); setView(G, vt0.z, vt0.Trim, vt0.py);
+  // the box the mouse can hold (touch uses the band over the surface only)
+  var bx = Math.round(G.cx - G.rimR - 12), by = Math.round(G.yRim - 16);
+  hit.style.transform = 'translate(' + bx + 'px,' + by + 'px)'; hit.style.width = Math.round(2 * G.rimR + 24) + 'px'; hit.style.height = (sh - by) + 'px';
+  if (phone) { gcap.style.transform = 'translate(16px,8px)'; gcap.style.width = (sw - 32) + 'px'; }
+  else {
+    var gyy = Math.round(yOf(G, 640e6)), grr = rOf(G, 640e6, 1);
+    gcap.style.transform = 'translate(14px,' + gyy + 'px)'; gcap.style.width = Math.max(150, Math.min(230, G.cx - grr - 90)) + 'px';
+  }
+  lastTags = {}; grip._k = null; gcap._box = null;
+  draw();
+}
+
+/* ---------------- input on the glass ---------------- */
+var press = null;
+function local(e) { var r = stage.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; }
+function onGlass(p) {
+  if (p.y < G.yRim - 6 || p.y > G.h) return false;
+  var T = TofY(G, p.y); if (!(T > 0)) return false;
+  var r = rOf(G, T, S.grad ? F2 : 1);
+  return Math.abs(p.x - G.cx) <= Math.max(r + 8, 20);
+}
+function nearSurface(p) { var ys = yOf(G, disp.T), rs = rOf(G, disp.T, S.grad ? F2 : 1); return Math.abs(p.y - ys) < Math.max(16, rs * G.e + 10) && Math.abs(p.x - G.cx) < rs + 26; }
+function pdown(e, el) {
+  if (lock || A || auto === 'intro') return;
+  if (e.button != null && e.button !== 0) return;
+  var p = local(e);
+  if (el === hit && (e.pointerType === 'touch' || !onGlass(p))) return;
+  e.preventDefault();
+  if (el === grip && !touched) { touched = true; wake(0); }
+  try { el.setPointerCapture(e.pointerId); } catch (x) {}
+  if (auto) { auto = null; settle(true); }
+  press = { id: e.pointerId, el: el, x: p.x, y: p.y, kind: null, ys0: yOf(G, disp.T), dir: 0 };
+  press.timer = setTimeout(function () { if (press && !press.kind) { press.kind = 'pour'; startPour(); } }, 170);
+  try { hit.focus({ preventScroll: true }); } catch (x) {}
+}
+function pmove(e, el) {
+  if (!press || e.pointerId !== press.id) {
+    if (el === hit && e.pointerType === 'mouse') { var q = local(e); hit.style.cursor = onGlass(q) ? (nearSurface(q) ? 'ns-resize' : 'pointer') : 'default'; }
+    return;
+  }
+  var p = local(e);
+  if (!press.kind && Math.abs(p.y - press.y) > 6) { press.kind = 'drag'; clearTimeout(press.timer); flushSettle(); }
+  if (press.kind === 'drag') { dragTo(press.ys0 + (p.y - press.y)); }
+}
+function pup(e, cancel) {
+  if (!press || e.pointerId !== press.id) return;
+  clearTimeout(press.timer);
+  var k = press.kind; press = null;
+  if (!k && !cancel) clickDrop();
+  else if (k === 'pour') stopPour();
+  else if (k === 'drag') { settle(); }
+  wake(300);
+}
+var pourTimer = 0;
+function startPour() {
+  if (lock || A) return; flushSettle(); pouring = true; holdT = 0; say('Pouring… the level slows as it climbs: each step up is wider.');
+  if (reduce) { clearInterval(pourTimer); pourTimer = setInterval(function () { if (!pouring || A) { clearInterval(pourTimer); return; } pourAmt(2); disp.T = S.T; wake(0); }, 320); }
+  wake(0);
+}
+function stopPour() { clearInterval(pourTimer); if (!pouring) return; pouring = false; settle(); }
+// drag the level: up buys, down sells, to the height the pointer is at
+function dragTo(yWant) {
+  if (A) return;
+  var f = S.grad ? F2 : 1, Tw = TofY(G, clamp(yWant, G.yRim + 30, G.h)), x = Bk.xOf(S), k = x * S.T;
+  var Tmax = S.T + Math.max(0, S.held);
+  if (!S.grad) Tmax = Math.min(Tmax, SUPPLY);
+  Tw = Math.min(Tw, Tmax);
+  if (S.grad) Tw = Math.max(Tw, G.Trim * 1.5);
+  if (Tw < S.T - 1e4) {
+    var xw = k / Tw, gross = (xw - x) / (1 - FEE);
+    press.dir = -1; pourAmt(gross);
+  } else if (Tw > S.T + 1e4) {
+    press.dir = 1; sellTok(Tw - S.T);
+  }
+  disp.T = S.T; wake(200);
+}
+function clickDrop() {
+  if (lock || A) return;
+  var sol = S.grad ? 1 : Math.min(1, (GRAD_R - S.R) / (1 - FEE));
+  clearTimeout(settleT); settleT = 0;     // quick clicks add up: the message counts the whole burst
+  if (reduce) { pourAmt(sol); if (!A) settleSoon(600); wake(0); return; }
+  // a drop as big as its SOL: in this drawing one SOL fills pi r0^2 * 1B^2 * py / k0 cubic px
+  var vol = sol * PI * G.r0 * G.r0 * SUPPLY * SUPPLY * G.py / K0, r = Math.cbrt(3 * vol / (4 * PI));
+  drops.push({ y: G.yRim - 70, v: 0, r: r, sol: sol });
+  wake(0);
+}
+function landDrop(dr) {
+  pourAmt(dr.sol); disp.T = S.T;
+  ripples.push({ age: 0 });
+  if (!A) { if (!drops.length) settleSoon(450); youText(); wake(300); }
+}
+[hit, grip].forEach(function (el) {
+  el.addEventListener('pointerdown', function (e) { pdown(e, el); });
+  el.addEventListener('pointermove', function (e) { pmove(e, el); });
+  el.addEventListener('pointerup', function (e) { pup(e, false); });
+  el.addEventListener('pointercancel', function (e) { pup(e, true); });
+  el.addEventListener('lostpointercapture', function (e) { if (press && e.pointerId === press.id) pup(e, true); });
+});
+hit.addEventListener('keydown', function (e) {
+  if (A || lock) return;
+  if (e.key === ' ' || e.key === 'Spacebar') { e.preventDefault(); if (!e.repeat && !pouring) { if (auto) { auto = null; settle(true); } startPour(); } }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); clickDrop(); }
+  else if (e.key === 'ArrowDown') { e.preventDefault(); flushSettle(); var x = Bk.xOf(S); sellTok(Math.min(S.T * 1 / (x - 1), S.held)); settle(); disp.T = S.T; wake(0); }
+});
+hit.addEventListener('keyup', function (e) { if (e.key === ' ' || e.key === 'Spacebar') { e.preventDefault(); stopPour(); } });
+hit.addEventListener('pointerenter', function () { if (!A && !pouring) { wobUntil = Math.max(wobUntil, clock + 1.6); wake(1700); } });
+
+/* ---------------- the buttons ---------------- */
+function amount() { var v = parseFloat(String($('#amt').value || $('#amt').placeholder).replace(',', '.')); return v > 0 && isFinite(v) ? Math.min(v, 5000) : 0; }
+var ghostSide = 'buy';
+function ghostUpdate() {
+  var a = amount(), focus = document.activeElement === $('#amt') || ghostSide === 'sell' || $('#amt').value;
+  ghost = null;
+  if (a > 0 && focus && !A) {
+    var s2 = JSON.parse(JSON.stringify(S));
+    if (ghostSide === 'buy') {
+      var info = Bk.buy(s2, s2.grad ? a : Math.min(a, (GRAD_R - s2.R) / (1 - FEE)));
+      var ring = !S.grad && a >= (GRAD_R - S.R) / (1 - FEE) ? ', to the ring' : '';
+      ghost = { T: s2.T, f: s2.grad ? F2 : 1, text: '+' + fTok(info.out) + ' for ' + fSol(a) + ' SOL' + ring, lines: ['+' + fTok(info.out), 'for ' + fSol(a) + ' SOL' + ring] };
+    } else {
+      var x = Bk.xOf(s2), tok = Math.min(s2.T * a / Math.max(1e-9, x - a), Math.max(0, s2.held));
+      if (a < x * 0.9 && tok > 1) { var got = Bk.sellTokens(s2, tok); ghost = { T: s2.T, f: s2.grad ? F2 : 1, text: '−' + fTok(tok) + ', ' + fSol(got) + ' SOL to you', lines: ['−' + fTok(tok) + ',', fSol(got) + ' SOL to you'] }; }
+    }
+  }
+  if (!loop.raf) draw();
+}
+$('#amt').addEventListener('input', function () { ghostSide = 'buy'; ghostUpdate(); });
+$('#amt').addEventListener('focus', function () { ghostSide = 'buy'; ghostUpdate(); });
+$('#amt').addEventListener('blur', function () { setTimeout(ghostUpdate, 120); });
+$('#drawBtn').addEventListener('pointerenter', function () { ghostSide = 'sell'; ghostUpdate(); });
+$('#drawBtn').addEventListener('pointerleave', function () { ghostSide = 'buy'; ghostUpdate(); });
+$('#pourBtn').addEventListener('click', function () {
+  if (A || lock) return; var a = amount(); if (!a) return;
+  flushSettle(); if (auto) { auto = null; settle(true); }
+  if (reduce) { pourAmt(a); if (!A) settle(); wake(0); return; }
+  auto = 'pour'; amt.left = a; amt.rate = Math.max(8, a / 1.4); holdT = 0; say('Pouring ' + fSol(a) + ' SOL…'); wake(0);
+});
+$('#drawBtn').addEventListener('click', function () {
+  if (A || lock) return; var a = amount(); if (!a) return;
+  flushSettle(); if (auto) { auto = null; settle(true); }
+  if (S.held <= 1) { say('You hold no tokens to sell. Pour some in first.'); return; }
+  if (reduce) { var x = Bk.xOf(S); sellTok(Math.min(S.T * a / Math.max(1e-9, x - a), S.held)); settle(); disp.T = S.T; wake(0); return; }
+  auto = 'draw'; amt.want = a; amt.out = 0; amt.rate = Math.max(8, a / 1.4); say('Drawing ' + fSol(a) + ' SOL out…'); wake(0);
+});
+$('#runBtn').addEventListener('click', function () {
+  if (A || lock || S.grad) return;
+  flushSettle(); if (auto) { auto = null; settle(true); }
+  if (phone) { try { stage.scrollIntoView({ block: 'center', behavior: reduce ? 'auto' : 'smooth' }); } catch (e) {} }
+  if (reduce) { pourAmt((GRAD_R - S.R) / (1 - FEE)); return; }
+  auto = 'grad'; holdT = 0; say('Pouring until the level touches the graduation ring…'); wake(0);
+});
+$('#resetBtn').addEventListener('click', function () {
+  if (A) { clearTimeout(A.timer); A = null; }
+  clearTimeout(settleT); settleT = 0;
+  lock = false; pouring = false; auto = null; trade = null; S = Bk.fresh(); disp.T = S.T; rings = []; drops = []; ripples = [];
+  setView(G, 1, G.TRIM, G.py0); gcap.classList.remove('on'); keysBusy(false);
+  say('A new coin: only the 30 virtual SOL, down in the stem. ' + (phone ? 'Hold the surface to pour.' : 'Hold the glass to pour.'));
+  youText(); ghostUpdate(); buildSpine(); wake(400);
+});
+
+/* ---------------- sleeping: hidden tab, hero off-screen ---------------- */
+document.addEventListener('visibilitychange', function () {
+  loop.visible = !document.hidden;
+  if (!loop.visible) { if (pouring) stopPour(); sleepNow(); } else wake(0);
+});
+try {
+  new IntersectionObserver(function (es) {
+    es.forEach(function (en) { loop.onscreen = en.isIntersecting; if (!loop.onscreen) { if (pouring) stopPour(); sleepNow(); } else wake(0); });
+  }, { threshold: 0 }).observe(stage);
+} catch (e) {}
+
+/* ======================================================================================
+   The stem, running down the page (desktop). Static SVG, drawn on layout and when the coin
+   graduates or starts over. Below the hero the token scale is squeezed (logarithmic between
+   marks, said so on the page); the width at every mark is exact.
+   ====================================================================================== */
+function buildSpine() {
+  var el = $('#spine');
+  if (phone || !G) { el.innerHTML = ''; return; }
+  try {
+    var sy = window.scrollY, sx = window.scrollX, st = stage.getBoundingClientRect(), hr = hero.getBoundingClientRect();
+    var how = $('#how').getBoundingClientRect(), bd = $('#board').getBoundingClientRect(), ft = $('#foot').getBoundingClientRect();
+    var post = S.grad && !A, k = post ? K2 : K0, f = post ? F2 : 1;
+    // it carries on from the canvas's own stem at the hero's foot, in the view the canvas has now
+    var top = hr.bottom + sy, x0 = st.left + sx + G.cx, Tb = TofY(G, G.h);
+    var marks = [{ T: Tb, y: 0 }, { T: 2e9, y: 150 }, { T: 4e9, y: how.bottom + sy - top - 30 }, { T: 10e9, y: (bd.top + bd.bottom) / 2 + sy - top }, { T: 1e11, y: ft.top + sy - top + 20 }];
+    marks = marks.filter(function (mk, i) { return i === 0 || mk.T > Tb * 1.3; });
+    if (marks.length < 2) marks.push({ T: Tb * 10, y: ft.top + sy - top + 20 });
+    for (var m = 1; m < marks.length; m++) marks[m].y = Math.max(marks[m].y, marks[m - 1].y + 120);
+    var Hh = marks[marks.length - 1].y + 40, W = 330, ox = 50;
+    function Tat(y) {
+      for (var i = 0; i < marks.length - 1; i++) if (y <= marks[i + 1].y || i === marks.length - 2) {
+        var a = marks[i], b = marks[i + 1], t = clamp((y - a.y) / (b.y - a.y), 0, 1);
+        return Math.exp(Math.log(a.T) + t * (Math.log(b.T) - Math.log(a.T)));
+      }
+    }
+    function rAt(y) { return f * G.r0 * SUPPLY / Tat(y); }
+    var L = [], R = [], Li = [], Ri = [], y;
+    for (y = 0; y <= Hh; y += 6) {
+      var r = rAt(Math.min(y, marks[marks.length - 1].y)), ri = Math.max(0.3, r - 2.4);
+      L.push((ox - r).toFixed(2) + ',' + y); R.unshift((ox + r).toFixed(2) + ',' + y); Li.push((ox - ri).toFixed(2) + ',' + y); Ri.push((ox + ri).toFixed(2) + ',' + y);
+    }
+    // the same fill as the canvas draws at the hero's foot: the liquid's deepest row after
+    // graduation, the virtual part's strip and hatching (3 px apart, rising to the right) before
+    var stops, op;
+    if (post) {
+      var bs = bodyRGB(1), core = LIGHT ? mix(bs, COL.coal, 0.14) : mix(bs, COL.pale, 0.1), edge = LIGHT ? mix(bs, COL.ink, 0.18) : mix(bs, COL.coal, 0.64);
+      stops = [[0, edge], [0.18, mix(edge, core, 0.55)], [0.5, core], [0.82, mix(edge, core, 0.55)], [1, edge]]; op = 1;
+    } else {
+      var vb = LIGHT ? mix(COL.coal3, COL.ash, 0.25) : mix(COL.coal3, COL.low, 0.4), ve = mix(vb, COL.coal, 0.5);
+      stops = [[0, ve], [0.5, vb], [1, ve]]; op = LIGHT ? 0.8 : 0.9;
+    }
+    var gl = css(mix(COL.glass, COL.pale, post ? 0.8 : 0)), poly = L.concat(R).join(' ');
+    var s = '<defs><linearGradient id="spG" x1="0" x2="1" y1="0" y2="0">' + stops.map(function (st2) { return '<stop offset="' + st2[0] + '" stop-color="' + css(st2[1]) + '"/>'; }).join('') + '</linearGradient>' +
+      '<pattern id="spH" width="3" height="3" patternUnits="userSpaceOnUse"><path d="M-1,1 L1,-1 M0,3 L3,0 M2,4 L4,2" stroke="' + css(COL.glass) + '" stroke-opacity="' + (LIGHT ? 0.5 : 0.42) + '" stroke-width="0.7"/></pattern></defs>';
+    s += '<polygon points="' + poly + '" fill="url(#spG)" fill-opacity="' + op + '"/>';
+    if (!post) s += '<polygon points="' + poly + '" fill="url(#spH)" opacity="' + op + '"/>';
+    s += '<polyline points="' + L.join(' ') + '" fill="none" stroke="' + gl + '" stroke-opacity=".05" stroke-width="7"/><polyline points="' + R.join(' ') + '" fill="none" stroke="' + gl + '" stroke-opacity=".05" stroke-width="7"/>';
+    s += '<polyline points="' + L.join(' ') + '" fill="none" stroke="' + gl + '" stroke-opacity=".8" stroke-width="1.1"/><polyline points="' + R.join(' ') + '" fill="none" stroke="' + gl + '" stroke-opacity=".8" stroke-width="1.1"/>';
+    s += '<polyline points="' + Li.join(' ') + '" fill="none" stroke="' + gl + '" stroke-opacity=".22" stroke-width="1"/><polyline points="' + Ri.join(' ') + '" fill="none" stroke="' + gl + '" stroke-opacity=".22" stroke-width="1"/>';
+    // the break: the scale is squeezed from here down
+    s += '<path d="M' + (ox - 30) + ',30 l10,-5 l10,5 l10,-5 l10,5 l10,-5 l10,5" fill="none" stroke="' + css(COL.ash) + '" stroke-width="1" opacity=".7"/>';
+    s += '<text x="' + (ox + 34) + '" y="26">the token scale is squeezed</text><text x="' + (ox + 34) + '" y="40">from here down</text>';
+    marks.slice(1).forEach(function (mk) {
+      var rr = rAt(mk.y), vol = k / mk.T, lab = mk.T >= 1e11 ? '100B' : (mk.T / 1e9) + 'B';
+      s += '<line x1="' + (ox - rr - 6) + '" y1="' + mk.y + '" x2="' + (ox + rr + 14) + '" y2="' + mk.y + '" stroke="' + gl + '" stroke-opacity=".55"/>';
+      var lines = post ? [fSol(vol) + ' SOL below this line,', 'real, and it can never leave']
+        : mk.T === 2e9 ? [fSol(vol) + ' SOL of the 30 virtual SOL', 'lie below this line'] : mk.T >= 1e11 ? [fSol(vol) + ' SOL below. The stem', 'never ends, so it never runs dry.'] : [fSol(vol) + ' SOL below this line'];
+      var tx = ox + rr + 20;
+      s += '<text class="b" x="' + tx + '" y="' + (mk.y + 4) + '">' + lab + '</text>';
+      lines.forEach(function (t, j) { s += '<text x="' + tx + '" y="' + (mk.y + 19 + j * 14) + '">' + t + '</text>'; });
+    });
+    el.setAttribute('width', W); el.setAttribute('height', Math.ceil(Hh)); el.setAttribute('viewBox', '0 0 ' + W + ' ' + Math.ceil(Hh));
+    el.style.transform = 'translate(' + Math.round(x0 - ox) + 'px,' + Math.round(top) + 'px)';
+    el.innerHTML = s;
+  } catch (e) { report('spine', e); }
+}
+
+/* ======================================================================================
+   The board test: the coins on devnet, all at one scale.
+   ====================================================================================== */
+var board = { coins: [], examples: [], live: false, lensT: 975e6, hl: -1, g: null, cv: $('#shared'), dpr: 1 };
+var LENS_M = 8;
+function coinState(p) {
+  var s = Bk.stateFromPool(p), v = Number(p.virtualSol) / 1e9, gsol = Number(p.graduationSol) / 1e9;
+  return {
+    // the first devnet coin was named after the computer that launched it
+    name: /^DESKTOP-[A-Z0-9]+$/i.test(String(p.name || '').trim()) ? 'Test coin' : p.name || 'unnamed', symbol: p.symbol || '?', s: s, virt: v, k: (s.grad ? s.R : v + s.R) * s.T,
+    house: Math.abs(v - VIRT) < 1e-6 && Math.abs(gsol - GRAD_R) < 1e-4 && Number(p.feeBps) === 100,
+    gradT: (v * SUPPLY) / (v + gsol), mint: String(p.mint || '')
+  };
+}
+function exampleCoin(name, R) {
+  var s = Bk.fresh(); Bk.buy(s, R / (1 - FEE));
+  return { name: name, symbol: 'example', s: s, virt: VIRT, k: Bk.xOf(s) * s.T, house: true, gradT: T_G, example: true };
+}
+function miniView(cn) {
+  var s = cn.s, grad = s.grad;
+  return { f: Math.sqrt(cn.k / K0), Ts: s.T, botT: grad ? Infinity : SUPPLY, virtA: grad ? 0 : 1, pale: grad ? 1 : 0, heat: Bk.heatOf(s), grad: grad };
+}
+// one small glass: liquid, the virtual stem, walls, mouth, the 1B and graduation rings
+function drawMini(c, g, v, o) {
+  var lw = o.lw || 1, y0 = o.y0 == null ? -5 : o.y0, y1 = o.y1 == null ? g.h + 5 : o.y1, cx = g.cx, e = g.e;
+  var glassC = mix(COL.glass, COL.pale, v.pale * 0.8), r, y;
+  if (v.Ts) {
+    var ys = yOf(g, v.Ts), rs = rOf(g, v.Ts, v.f);
+    drawLiquid(c, g, v, ys, g.h + 2, o.step || 1.5, y0, y1, o.scale || 1);
+    var base = bodyRGB(v.heat), top = LIGHT ? mix(base, COL.coal, 0.34) : mix(base, COL.pale, 0.3 + 0.25 * v.heat);
+    if (ys > y0 - 20 && ys < y1 + 20) {
+      ell(c, cx, ys, rs, rs * e, 0, TAU); c.fillStyle = css(top, 0.97); c.fill();
+      c.strokeStyle = css(LIGHT ? COL.ink : COL.pale, 0.55 + 0.3 * v.heat); c.lineWidth = lw; c.stroke();
+    }
+  } else if (o.virtOnly) {
+    drawLiquid(c, g, { f: v.f, botT: SUPPLY, virtA: 1, heat: 0 }, yOf(g, SUPPLY), g.h + 2, o.step || 1.5, y0, y1, o.scale || 1);
+  }
+  // rings: 1B, graduation (pre) or the floor (after)
+  r = rOf(g, SUPPLY, v.f); y = yOf(g, SUPPLY);
+  ell(c, cx, y, r, r * e, 0, TAU); c.strokeStyle = css(glassC, 0.5); c.lineWidth = lw; c.stroke();
+  var Tg = v.grad ? T_G2 : (o.gradT || T_G);
+  r = rOf(g, Tg, v.f); y = yOf(g, Tg);
+  ell(c, cx, y, r, r * e, 0, TAU); c.strokeStyle = css(COL.pale, v.grad ? 0.5 : 0.85); c.lineWidth = lw * 1.1; c.stroke();
+  if (o.rings) o.rings.forEach(function (rg, i) {
+    var T = rg.T, yy = yOf(g, T), rr = rOf(g, T, v.f), on = i === o.hl;
+    if (!o.inLens) { ell(c, cx, yy, rr, rr * e, PI, TAU); c.strokeStyle = css(on ? COL.pale : COL.ink, on ? 0.5 : 0.22); c.lineWidth = lw; c.stroke(); }
+    ell(c, cx, yy, rr, rr * e, 0, PI); c.strokeStyle = css(on ? COL.pale : COL.ink, on ? 1 : 0.7); c.lineWidth = lw * (on ? 1.6 : 1.1); c.stroke();
+  });
+  drawWalls(c, g, v.f, glassC, g.yRim, g.h + 2, lw, 0.95);
+  var rR = rOf(g, g.Trim, v.f), sp = Math.max(2, g.rimR * 0.07);
+  rimTrace(c, cx, g.yRim, rR, e, sp, 0, TAU); c.strokeStyle = css(glassC, 0.7); c.lineWidth = lw; c.stroke();
+}
+// a loupe laid on the glass at (cx, ly): what is under it, magnified m times
+function lens(c, g, v, ly, L, m, o) {
+  var cx = g.cx;
+  c.save(); c.beginPath(); c.arc(cx, ly, L, 0, TAU); c.clip();
+  c.fillStyle = css(COL.coal); c.fillRect(cx - L, ly - L, 2 * L, 2 * L);
+  c.translate(cx, ly); c.scale(m, m); c.translate(-cx, ly * 0 - ly);
+  drawMini(c, g, v, { lw: 1 / m, y0: ly - L / m - 2, y1: ly + L / m + 2, step: 0.6 / m, scale: m, rings: o.rings, hl: o.hl, gradT: o.gradT, virtOnly: o.virtOnly, inLens: true });
+  c.restore();
+  // the handle, so it reads as a loupe laid on the glass
+  var ang = 0.62, hl = Math.max(14, L * 0.62), hw = Math.max(1.6, L * 0.035), ca = Math.cos(ang), sa = Math.sin(ang);
+  var hx0 = cx + ca * (L + 2), hy0 = ly + sa * (L + 2), hx1 = cx + ca * (L + 2 + hl), hy1 = ly + sa * (L + 2 + hl);
+  c.beginPath(); c.moveTo(hx0 - sa * hw, hy0 + ca * hw); c.lineTo(hx1 - sa * hw, hy1 + ca * hw); c.lineTo(hx1 + sa * hw, hy1 - ca * hw); c.lineTo(hx0 + sa * hw, hy0 - ca * hw); c.closePath();
+  c.fillStyle = css(COL.coal); c.fill(); c.strokeStyle = css(COL.glass, 0.7); c.lineWidth = 1; c.stroke();
+  c.beginPath(); c.arc(cx, ly, L, 0, TAU); c.strokeStyle = css(COL.glass, 0.85); c.lineWidth = 1.2; c.stroke();
+  c.beginPath(); c.arc(cx, ly, L + 2.5, 0, TAU); c.strokeStyle = css(COL.glass, 0.16); c.lineWidth = 3.5; c.stroke();
+  return function (y) { return ly + (y - ly) * m; };
+}
+function sharedDraw() {
+  var c = board.cv.getContext('2d'), g = board.g; if (!g) return;
+  c.setTransform(board.dpr, 0, 0, board.dpr, 0, 0); c.clearRect(0, 0, g.w, g.h);
+  var shared = board.coins.filter(function (cn) { return cn.house && !cn.s.grad; });
+  var v = { f: 1, Ts: 0, botT: SUPPLY, virtA: 1, pale: 0, heat: 0, grad: false };
+  var rings = shared.map(function (cn) { return { T: cn.s.T }; });
+  drawMini(c, g, v, { rings: rings, hl: board.hl, virtOnly: true });
+  // the token scale, on the right wall
+  setFont(c, 9.5, 400); c.textAlign = 'left';
+  var L = board.L, ly = yOf(g, board.lensT);
+  for (var T = 100e6; T <= SUPPLY; T += 100e6) {
+    if (T < g.Trim * 1.05) continue;
+    var y = yOf(g, T), r = rOf(g, T, 1);
+    if (Math.abs(y - ly) < L + 8) continue;
+    c.beginPath(); c.ellipse(g.cx, y, r, r * g.e, 0, 0, Math.min(1.1, 0.45 * 30 / r + 0.2)); c.strokeStyle = css(COL.glass, 0.55); c.lineWidth = 1; c.stroke();
+    c.fillStyle = css(COL.ash); c.fillText(T >= SUPPLY ? '1B' : Math.round(T / 1e6) + 'M', g.cx + r + 7, y + 3.5);
+  }
+  var yg = yOf(g, T_G), rg = rOf(g, T_G, 1);
+  setFont(c, 9.5, 500); c.textAlign = 'right'; c.fillStyle = css(COL.pale);
+  if (c.measureText('82.25 SOL · graduation').width < g.cx - rg - 10) c.fillText('82.25 SOL · graduation', g.cx - rg - 7, yg + 3.5);
+  else { c.fillText('82.25 SOL', g.cx - rg - 7, yg - 2); c.fillText('graduation', g.cx - rg - 7, yg + 10); }
+  // the loupe over the crowd at the foot
+  var map = lens(c, g, v, ly, L, LENS_M, { rings: rings, hl: board.hl, virtOnly: true });
+  setFont(c, 9.5, 400);
+  var placed = [], order = shared.map(function (cn, i) { return { cn: cn, i: i, y: map(yOf(g, cn.s.T) + rOf(g, cn.s.T, 1) * g.e) }; }).sort(function (a, b) { return a.y - b.y; });
+  var side = 1;
+  order.forEach(function (o, n) {
+    if (Math.abs(o.y - ly) > L - 8) return;
+    if (n && Math.abs(o.y - order[n - 1].y) < 13) side = -side; else side = 1;
+    var txt = '$' + o.cn.symbol + ' ' + fSol(o.cn.s.R);
+    c.textAlign = side > 0 ? 'left' : 'right';
+    c.lineWidth = 3; c.strokeStyle = css(COL.coal, 0.9); c.strokeText(txt, g.cx + side * 10, o.y - 4);
+    c.fillStyle = css(o.i === board.hl ? COL.pale : COL.ink);
+    c.fillText(txt, g.cx + side * 10, o.y - 4);
+    placed.push({ i: o.i, y: o.y });
+  });
+  var y1 = map(yOf(g, SUPPLY) + rOf(g, SUPPLY, 1) * g.e);
+  if (Math.abs(y1 - 4 - ly) < L - 10) { c.textAlign = 'right'; c.lineWidth = 3; c.strokeStyle = css(COL.coal, 0.95); c.strokeText('1B ring', g.cx - 10, y1 - 4); c.fillStyle = css(COL.ash); c.fillText('1B ring', g.cx - 10, y1 - 4); }
+  c.textAlign = 'right'; c.fillStyle = css(COL.ash); c.fillText('×' + LENS_M, g.cx - L * 0.74, ly - L * 0.74 - 2);
+  board.placed = placed;
+  // the loupe's handle (touch: only it captures the finger)
+  var gripEl = $('#lensGrip'), key = Math.round(g.cx - L) + ',' + Math.round(ly - L) + ',' + L;
+  if (gripEl._k !== key) { gripEl._k = key; gripEl.style.transform = 'translate(' + Math.round(g.cx - L) + 'px,' + Math.round(ly - L) + 'px)'; gripEl.style.width = gripEl.style.height = (2 * L) + 'px'; }
+}
+/* A card's glass: the whole horn at the board's one scale, and beside its foot an etched scale
+   of the foot magnified ×8 (the same for every card) with the coin's level as a tide mark. The
+   scale is shown only while the level is inside its range; above it the horn shows the level. */
+var FOOT_PX = 104;
+function cardGlyph(canvas, cn) {
+  var w = 96, h = 176, d = dprOf();
+  canvas.width = w * d; canvas.height = h * d;
+  var c = canvas.getContext('2d'); c.setTransform(d, 0, 0, d, 0, 0);
+  var g = geom(w, h, { cx: 30, yRim: 12, rimR: 26, y1B: 140, e: 0.16 });
+  var v = miniView(cn);
+  drawMini(c, g, v, { gradT: cn.gradT });
+  var yb = yOf(g, SUPPLY), pyF = g.py * LENS_M, T0 = SUPPLY - FOOT_PX / pyF, T = cn.s.T;
+  if (cn.s.grad || !(T > T0)) return;
+  var x = 62.5, topY = yb - FOOT_PX, t, yy;
+  c.strokeStyle = css(COL.glass, 0.5); c.lineWidth = 1;
+  c.beginPath(); c.moveTo(x, topY); c.lineTo(x, yb); c.stroke();
+  for (t = SUPPLY; t >= T0 - 1; t -= 10e6) {
+    var major = Math.round((SUPPLY - t) / 10e6) % 5 === 0; yy = Math.round(yb - (SUPPLY - t) * pyF) + 0.5;
+    c.beginPath(); c.moveTo(x, yy); c.lineTo(x + (major ? 6 : 3), yy); c.strokeStyle = css(COL.glass, major ? 0.6 : 0.32); c.stroke();
+  }
+  setFont(c, 8.5, 400); c.textAlign = 'left'; c.fillStyle = css(COL.ash);
+  c.fillText('1B', x + 9, yb + 3); c.fillText('950M', x + 9, Math.round(yb - 50e6 * pyF) + 3); c.fillText('×' + LENS_M, x + 9, topY + 4);
+  // the coin's level: a tide mark across the scale
+  var yl = yb - (SUPPLY - T) * pyF;
+  c.beginPath(); c.moveTo(x - 7, yl); c.lineTo(x + 7, yl); c.strokeStyle = css(COL.pale, 1); c.lineWidth = 1.8; c.stroke();
+  c.beginPath(); c.arc(x, yl, 2.2, 0, TAU); c.fillStyle = css(COL.pale); c.fill();
+}
+function cardsRender() {
+  var ul = $('#cards'), html = '', list = board.coins.concat(board.examples);
+  list.forEach(function (cn, i) {
+    var s = cn.s;
+    html += '<li class="card' + (cn.example ? ' ex' : '') + '" data-i="' + i + '">' + (cn.example ? '<span class="c-tag">example, not on devnet</span>' : !cn.house ? '<span class="c-tag">own settings, own glass</span>' : '') +
+      '<canvas width="96" height="176" aria-hidden="true"></canvas>' +
+      '<div class="c-name">' + esc(cn.name) + '<span>' + (cn.example ? (s.grad ? 'graduated' : 'on the curve') : '$' + esc(cn.symbol)) + '</span></div>' +
+      '<div class="c-cap">' + fSol(Bk.mcapOf(s)) + '<i>SOL cap</i></div>' +
+      '<div class="c-meta">' + fSol(s.R) + ' real SOL in<br>' + fTok(s.T) + ' left · ' + fPx(Bk.priceOf(s)) + '/1M</div></li>';
+  });
+  ul.innerHTML = html;
+  Array.prototype.forEach.call(ul.querySelectorAll('.card'), function (li) {
+    var i = +li.getAttribute('data-i'); cardGlyph(li.querySelector('canvas'), list[i]);
+    li.addEventListener('pointerenter', function () { setHl(sharedIndex(list[i])); });
+    li.addEventListener('pointerleave', function () { setHl(-1); });
+  });
+}
+function sharedIndex(cn) { var shared = board.coins.filter(function (c) { return c.house && !c.s.grad; }); return shared.indexOf(cn); }
+function setHl(i) {
+  if (board.hl === i) return; board.hl = i; sharedDraw();
+  var shared = board.coins.filter(function (c) { return c.house && !c.s.grad; }), list = board.coins.concat(board.examples);
+  Array.prototype.forEach.call(document.querySelectorAll('.card'), function (li) { var cn = list[+li.getAttribute('data-i')]; li.classList.toggle('on', i >= 0 && shared[i] === cn); });
+}
+function esc(s) { return String(s).replace(/[&<>"]/g, function (ch) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]; }); }
+function boardLayout() {
+  var cvs = board.cv, w = Math.round(cvs.clientWidth || 300), h = Math.round(cvs.clientHeight || 540), d = dprOf();
+  board.dpr = d; cvs.width = w * d; cvs.height = h * d;
+  var rimR = Math.min(132, w / 2 - 34);
+  board.g = geom(w, h, { cx: Math.round(w / 2) - (w > 340 ? 0 : 6), yRim: 28, rimR: rimR, y1B: h - 128, e: 0.16 });
+  board.L = phone ? Math.min(92, w / 2 - 20) : 96;
+  sharedDraw();
+}
+function boardFill(coins, live, why) {
+  board.coins = coins; board.live = live;
+  board.examples = [exampleCoin('Halfway', 41.12), exampleCoin('Graduated', GRAD_R + 0.001)];
+  var shared = coins.filter(function (cn) { return cn.house && !cn.s.grad; });
+  if (shared.length) {
+    // centre the loupe on the rings' fronts (what it shows), the lowest ring first if they do not all fit
+    var g = board.g, fy = shared.map(function (cn) { return yOf(g, cn.s.T) + rOf(g, cn.s.T, 1) * g.e; });
+    var lo = Math.min.apply(null, fy), hi = Math.max.apply(null, fy), half = (board.L - 14) / LENS_M;
+    var yc = hi - lo < 2 * half ? (lo + hi) / 2 : hi - half;
+    board.lensT = clamp(TofY(g, yc), 0.3e9, 1.06e9);
+  }
+  var Rs = coins.map(function (cn) { return cn.s.R; }), lo = Math.min.apply(null, Rs), hi = Math.max.apply(null, Rs);
+  var other = coins.filter(function (cn) { return !cn.house || cn.s.grad; }).length;
+  $('#bNote').innerHTML = (live ? 'The ' + coins.length + ' coins on devnet right now, drawn at one scale.' : '<b>Example coins, not real</b> (' + why + '). Drawn at one scale.') +
+    ' They hold ' + fSol(lo) + ' to ' + fSol(hi) + ' real SOL, so every one sits near the foot: the loupe on the shared glass, and the scale beside each small glass, magnify the foot eight times, the same for all. ' +
+    'They can share one glass because they all keep the house settings (30 virtual SOL, graduation at a 420 SOL market cap, 1% fee); a coin launched on other settings would get a glass of its own.' + (other ? ' ' + other + ' of them are drawn apart.' : '');
+  boardLayout(); cardsRender(); buildSpine();
+}
+function boardFallback(why) {
+  var ex = [['Example A', 0.3], ['Example B', 0.62], ['Example C', 0.95], ['Example D', 1.4], ['Example E', 6]].map(function (a) { var c = exampleCoin(a[0], a[1]); c.symbol = 'EX' + a[0].slice(-1); c.example = false; c.fake = true; return c; });
+  boardFill(ex, false, why);
+  $('#liveText').textContent = why.charAt(0).toUpperCase() + why.slice(1) + '. The board below shows example coins, not real ones.';
+  $('#liveDot').classList.remove('on');
+}
+function loadBoard() {
+  var done = false;
+  var timer = setTimeout(function () { if (!done) { done = true; boardFallback('devnet did not answer within 8 s'); } }, 8000);
+  if (QS.offline === '1' || !window.Chain || !window.NET || !NET.ready) { done = true; clearTimeout(timer); boardFallback(QS.offline === '1' ? 'offline view, devnet not asked' : 'no devnet connection is set up'); return; }
+  Chain.listPools().then(function (pools) {
+    if (done) return; done = true; clearTimeout(timer);
+    if (!pools.length) { boardFallback('no coins on devnet yet'); return; }
+    var coins = pools.map(coinState).sort(function (a, b) { return Bk.mcapOf(b.s) - Bk.mcapOf(a.s); });
+    boardFill(coins, true);
+    var Rs = coins.map(function (c) { return c.s.R; });
+    $('#liveDot').classList.add('on');
+    $('#liveText').innerHTML = 'Live on devnet: ' + coins.length + ' coin' + (coins.length === 1 ? '' : 's') + ', ' + fSol(Math.min.apply(null, Rs)) + ' to ' + fSol(Math.max.apply(null, Rs)) + ' real SOL in. <a href="#board">See them at one scale</a>.';
+    var pl = window.NET && NET.program && Bk.explorer('address', NET.program);
+    if (pl) $('#footNet').innerHTML = 'Runs on Solana devnet: <a href="' + pl + '" target="_blank" rel="noopener">the program on the explorer ↗</a>';
+  }).catch(function (e) { if (done) return; done = true; clearTimeout(timer); report('pools', e); boardFallback('devnet returned an error'); });
+}
+// the loupe moves along the glass
+(function () {
+  var gripEl = $('#lensGrip'), drag = null;
+  gripEl.addEventListener('pointerdown', function (e) { if (!board.g) return; e.preventDefault(); try { gripEl.setPointerCapture(e.pointerId); } catch (x) {} drag = { id: e.pointerId, y: e.clientY, T: board.lensT }; });
+  gripEl.addEventListener('pointermove', function (e) {
+    if (drag && e.pointerId === drag.id) { board.lensT = clamp(drag.T + (e.clientY - drag.y) / board.g.py, board.g.Trim * 2.2, 1.12e9); sharedDraw(); return; }
+    if (e.pointerType !== 'mouse' || !board.placed) return;
+    var r = board.cv.getBoundingClientRect(), y = e.clientY - r.top, best = -1, bd = 9;
+    board.placed.forEach(function (p) { var d = Math.abs(p.y - y); if (d < bd) { bd = d; best = p.i; } });
+    setHl(best);
+  });
+  function end(e) { if (drag && e.pointerId === drag.id) drag = null; }
+  gripEl.addEventListener('pointerup', end); gripEl.addEventListener('pointercancel', end);
+  gripEl.addEventListener('pointerleave', function () { if (!drag) setHl(-1); });
+})();
+
+/* ======================================================================================
+   Start
+   ====================================================================================== */
+try { BR.mountTrial($('#trial')); } catch (e) { report('trial', e); }
+layout();
+var asked = parseFloat(QS.sol);
+if (QS.gph != null && isFinite(parseFloat(QS.gph))) {
+  // check view: the graduation frozen at u = gph
+  var info0 = Bk.buy(S, (GRAD_R) / (1 - FEE)); A = { u: clamp(parseFloat(QS.gph), 0, 1), dur: 1e9, Tpre: info0.Tpre, phase: -1, frozen: true }; lock = true;
+  gradCaption(); keysBusy(true); disp.T = S.T; say('Graduation, held at one moment for checking (?gph).');
+} else if (asked >= 0) {
+  if (asked > 0) Bk.buy(S, asked / (1 - FEE));
+  keysBusy(false); disp.T = S.T; var vq = viewTarget(); setView(G, vq.z, vq.Trim, vq.py); say(defaultHint());
+} else if (reduce) { Bk.buy(S, INTRO_SOL / (1 - FEE)); disp.T = S.T; say(defaultHint()); }
+else { auto = 'intro'; say('Pouring a little SOL in…'); }
+if (QS.ghost) { $('#amt').value = QS.ghost; ghostSide = QS.side === 'sell' ? 'sell' : 'buy'; }
+youText(); ghostUpdate();
+if (A && A.frozen) { stepFrozen(); }
+function stepFrozen() { draw(); }
+draw(); wake(auto ? 400 : 0);
+
+var rsT = 0, lastSize = '';
+function relayout() { layout(); boardLayout(); if (board.coins.length) cardsRender(); buildSpine(); }
+window.addEventListener('resize', function () { clearTimeout(rsT); rsT = setTimeout(relayout, 150); });
+try {
+  // the stage's size can change without a window resize (the fonts arrive and the hero grows)
+  new ResizeObserver(function () {
+    var k = stage.clientWidth + 'x' + stage.clientHeight;
+    if (k !== lastSize) { var first = !lastSize; lastSize = k; if (!first) { clearTimeout(rsT); rsT = setTimeout(relayout, 60); } }
+  }).observe(stage);
+} catch (e) {}
+document.addEventListener('DOMContentLoaded', function () {
+  boardLayout(); loadBoard(); buildSpine();
+});
+try { document.fonts.ready.then(function () { layout(); sharedDraw(); buildSpine(); if (board.coins.length) cardsRender(); }); } catch (e) {}
+
+/* for checking: the numbers each readout shows, against Block's own math */
+window.__horn = {
+  stats: stats, loop: loop,
+  state: function () { return JSON.parse(JSON.stringify(S)); },
+  surface: function () { var r = stage.getBoundingClientRect(); return { x: r.left + G.cx, y: r.top + yOf(G, disp.T) }; },
+  check: function () {
+    var v = heroView(), n = v.num;
+    return JSON.stringify({
+      shown: { px: fPx(n.px), real: fSol(n.R), tokens: fTok(n.T), mcap: fSol(n.mcap), creator: fSol(S.feeC), platform: fSol(S.feeP) },
+      block: { px: fPx(Bk.priceOf(S)), real: fSol(S.R), tokens: fTok(S.T), mcap: fSol(Bk.mcapOf(S)) },
+      dom: { price: (priceMode === 'in' ? rideIn : rideEl).textContent, mode: priceMode, l: rideL.textContent, r: rideR.textContent, v: vlab.textContent },
+      geometry: { surfaceWidthPx: +(2 * rOf(G, v.Ts, v.f)).toFixed(2), allSol: n.all, widthPerSol: n.all ? +((2 * rOf(G, v.Ts, v.f)) / n.all).toFixed(4) : null, areaOverPrice: +((PI * Math.pow(rOf(G, v.Ts, v.f), 2)) / n.px).toExponential(4), areaOverPriceAtViewScale: +((PI * Math.pow(rOf(G, v.Ts, v.f) / G.z, 2)) / n.px).toExponential(4), f: v.f },
+      loop: { frames: stats.frames, draws: stats.draws, running: !!loop.raf }, z: +G.z.toFixed(4)
+    });
+  },
+  // every label's box (DOM tags and canvas marks), and which ones touch, leave the stage or cross the rim
+  boxes: function () {
+    var st = stage.getBoundingClientRect(), out = [], M = phone ? 12 : 4;
+    function dom(el, name) {
+      if (el.classList.contains('off') || (el === gcap && !gcap.classList.contains('on'))) return;
+      var r = el.getBoundingClientRect(); if (!r.width) return;
+      out.push({ n: name, x0: r.left - st.left, y0: r.top - st.top, x1: r.right - st.left, y1: r.bottom - st.top });
+    }
+    dom(rideEl, 'price'); dom(rideIn, 'priceIn'); dom(rideL, 'L'); dom(rideR, 'R'); dom(vlab, 'vlab'); dom(gcap, 'gcap');
+    drawnBoxes.forEach(function (b) { out.push({ n: String(b.n), x0: b.x0, y0: b.y0, x1: b.x1, y1: b.y1 }); });
+    var hits = [], i, j;
+    for (i = 0; i < out.length; i++) for (j = i + 1; j < out.length; j++) { var a = overlapArea(out[i], out[j]); if (a > 3) hits.push(out[i].n + ' x ' + out[j].n + ' ' + Math.round(a)); }
+    var clipped = out.filter(function (b) { return b.x0 < M - 0.5 || b.x1 > G.w - M + 0.5 || b.y0 < -0.5 || b.y1 > G.h + 0.5; }).map(function (b) { return b.n; });
+    var v = heroView(), rR = rOf(G, G.Trim, v.f), rim = { x0: G.cx - rR, y0: G.yRim - rR * G.e - 2, x1: G.cx + rR, y1: G.yRim + rR * G.e + 2 };
+    return JSON.stringify({ mode: priceMode, hits: hits, clipped: clipped, priceOnRim: priceBox ? Math.round(overlapArea(priceBox, rim)) : 0, z: +G.z.toFixed(3), n: out.length });
+  }
+};
+})();
+</script>
+</body>
+</html>

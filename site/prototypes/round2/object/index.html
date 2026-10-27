@@ -1,0 +1,1216 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Brasa</title>
+<meta name="description" content="A Solana exchange where every coin is one block, and the block's shape is its price.">
+<meta name="theme-color" content="#0d0a09">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anybody:wdth,wght@50..150,100..900&family=Martian+Mono:wdth,wght@75..112.5,100..800&display=swap">
+<style>
+:root{
+  --coal:#0d0a09; --coal-2:#151110; --coal-3:#1e1816;
+  --ink:#f2e9df; --ash:#9b918b; --ash-2:#6f6662;
+  --line:rgba(242,233,223,.12); --line-2:rgba(242,233,223,.3);
+  --ember:#ff5a1f; --ember-hot:#ffae63; --ember-deep:#a3290d; --white-hot:#fff2df;
+  --f-d:"Anybody","Arial Narrow",system-ui,sans-serif;
+  --f-m:"Martian Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --gut:40px;
+  color-scheme:dark;
+}
+@media (max-width:760px){:root{--gut:16px}}
+*{box-sizing:border-box}
+html{background:var(--coal);-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--coal);color:var(--ink);font-family:var(--f-d);font-size:17px;line-height:1.45;overflow-x:hidden;-webkit-font-smoothing:antialiased}
+a{color:inherit;text-decoration-thickness:1px;text-underline-offset:3px}
+a:hover{color:var(--ember-hot)}
+:focus-visible{outline:1.5px solid var(--ember-hot);outline-offset:3px}
+button{font:inherit;color:inherit}
+p{margin:0}
+.vh{position:absolute!important;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+
+/* ---------- header: wordmark + a block whose faces are the navigation ---------- */
+.top{position:absolute;z-index:6;top:0;left:0;right:0;display:flex;justify-content:space-between;align-items:flex-start;padding:22px var(--gut) 0;pointer-events:none}
+.top>*{pointer-events:auto}
+.word{display:inline-block;font-weight:800;font-stretch:150%;font-size:27px;line-height:1;letter-spacing:-.015em;text-decoration:none;color:var(--ink)}
+.word:hover{color:var(--ink)}
+.word-sub{display:block;margin-top:8px;font-family:var(--f-m);font-stretch:87.5%;font-size:10.5px;color:var(--ash)}
+.faces{position:relative;width:200px;height:88px;flex:none}
+.faces svg{position:absolute;inset:0;overflow:visible}
+.fl{position:absolute;font-family:var(--f-m);font-stretch:87.5%;font-size:11px;line-height:1;white-space:nowrap;text-decoration:none;color:var(--ink);padding:3px 0}
+.fl i{font-style:normal;color:var(--ash-2)}
+.fl-top{right:80px;top:4px}
+.fl-left{right:80px;top:37px;color:var(--ash)}
+.fl-right{right:0;top:74px;color:var(--ash)}
+.face{stroke:rgba(242,233,223,.22);stroke-width:1;transition:fill .25s}
+.f-top{fill:#2b211d}.f-left{fill:#5c1b08}.f-right{fill:#962c0b}
+.faces:has(.fl-top:hover) .f-top,.faces:has(.fl-top:focus-visible) .f-top{fill:var(--ember)}
+.faces:has(.fl-left:hover) .f-left{fill:#7a260b}
+.faces:has(.fl-right:hover) .f-right{fill:#b8370f}
+.ld{stroke:var(--line-2);stroke-width:1;fill:none}
+.ldot{fill:var(--ink)}
+
+/* ---------- stage ---------- */
+.hero{position:relative}
+.stage{position:relative;height:100vh;height:100svh;min-height:700px;max-height:1080px;overflow:hidden;background:var(--coal);outline:none}
+.stage:focus-visible{outline:1.5px solid var(--ember-hot);outline-offset:-6px}
+#gl{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:pan-y;cursor:grab;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent}
+.stage.turning #gl{cursor:grabbing}
+.stage.pouring #gl{cursor:crosshair}
+#still{position:absolute;inset:0;touch-action:pan-y;user-select:none;-webkit-user-select:none;cursor:pointer}
+#still svg{position:absolute;inset:0;width:100%;height:100%}
+.leaders{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;overflow:visible}
+.leaders line{stroke:rgba(242,233,223,.42);stroke-width:1}
+.leaders rect{fill:var(--ink)}
+.tags{position:absolute;inset:0;pointer-events:none;overflow:hidden}
+.tag{position:absolute;left:0;top:0;font-family:var(--f-m);font-stretch:87.5%;font-size:11.5px;line-height:1.3;white-space:nowrap;color:var(--ink);opacity:0;transition:opacity .35s}
+.tag small{display:block;color:var(--ash);font-size:10px}
+.tag b{font-weight:500}
+.t-real b{color:var(--ember-hot)}
+.t-virt{color:#d3cac2}
+.t-mcap .n{display:block;font-family:var(--f-d);font-weight:300;font-size:48px;line-height:.95;letter-spacing:-.02em;font-variant-numeric:tabular-nums;font-stretch:100%}
+.t-mcap .n em{font-style:normal;font-size:.36em;letter-spacing:0;margin-left:.25em;color:var(--ash);font-stretch:100%}
+.t-ev b{color:var(--white-hot)}
+.t-diag{color:var(--ash)}
+
+.hero-copy{position:absolute;z-index:2;left:var(--gut);top:clamp(140px,22vh,230px);max-width:520px;pointer-events:none}
+h1{font-weight:300;font-stretch:118%;font-size:clamp(44px,5.6vw,86px);line-height:.93;letter-spacing:-.035em;margin:0 0 24px}
+.lede{color:var(--ash);max-width:31ch;font-size:18px;line-height:1.45}
+.lede b{color:var(--ink);font-weight:400}
+
+.sim{position:absolute;z-index:3;left:var(--gut);bottom:34px;width:min(430px,calc(100% - 2*var(--gut)))}
+.sim-tag{font-family:var(--f-m);font-stretch:87.5%;font-size:10.5px;color:var(--ash);display:flex;align-items:center;gap:8px}
+.sq{width:7px;height:7px;background:var(--ember);display:inline-block;flex:none}
+.sim-hint{font-size:21px;font-stretch:110%;font-weight:400;margin:6px 0 14px;line-height:1.2;min-height:1.2em}
+.heat{position:relative;height:3px;background:rgba(242,233,223,.1)}
+.heat i{position:absolute;left:0;top:0;bottom:0;width:0;background:linear-gradient(90deg,#5c1b08,#d8430f 55%,#ffb46b);transition:width .2s linear}
+.heat.done i{background:#ffb46b}
+.sim-read{font-family:var(--f-m);font-stretch:87.5%;font-size:11px;color:var(--ash);margin-top:9px;line-height:1.5;font-variant-numeric:tabular-nums}
+.sim-read b{color:var(--ink);font-weight:400}
+.keys{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+.key{font-family:var(--f-d);font-stretch:112%;font-size:13.5px;font-weight:500;line-height:1;background:transparent;border:1px solid var(--line-2);border-radius:1px;padding:10px 13px 9px;cursor:pointer;color:var(--ink)}
+.key:hover{border-color:var(--ember-hot);color:var(--ember-hot)}
+.key[aria-pressed="true"]{background:var(--ink);color:var(--coal);border-color:var(--ink)}
+.key:disabled{opacity:.4;cursor:default;border-color:var(--line-2);color:var(--ink)}
+
+.live{position:absolute;z-index:3;right:var(--gut);bottom:34px;max-width:300px;text-align:right}
+.live-tag{font-family:var(--f-m);font-stretch:87.5%;font-size:10.5px;color:var(--ash);display:flex;justify-content:flex-end;align-items:center;gap:8px}
+.dot{width:6px;height:6px;border-radius:50%;background:var(--ash-2);display:inline-block}
+.dot.on{background:#7fd18b;box-shadow:0 0 0 3px rgba(127,209,139,.15)}
+#liveText{font-size:15px;margin-top:6px;line-height:1.35}
+#liveText a{color:var(--ash)}
+
+/* ---------- how ---------- */
+.wrap{max-width:1360px;margin:0 auto;padding-left:var(--gut);padding-right:var(--gut)}
+.how{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);gap:64px;align-items:center;padding-top:150px;padding-bottom:110px}
+h2{font-weight:300;font-stretch:118%;font-size:clamp(34px,3.6vw,54px);line-height:1;letter-spacing:-.03em;margin:0 0 20px}
+h3{font-weight:400;font-stretch:118%;font-size:clamp(22px,2vw,28px);line-height:1.1;letter-spacing:-.02em;margin:46px 0 14px}
+.how-copy p,.aside{color:var(--ash);max-width:40ch}
+.how-copy p b{color:var(--ink);font-weight:400}
+.fig{margin:0}
+.fig svg{display:block;width:100%;height:auto;touch-action:pan-y;cursor:ew-resize}
+.fig text{font-family:var(--f-m);font-stretch:87.5%;font-size:11px;fill:var(--ash)}
+.fig text.hi{fill:var(--ink)}
+.fig text.em{fill:var(--ember-hot)}
+.fig-ctl{display:grid;grid-template-columns:auto 1fr;gap:6px 18px;align-items:center;margin-top:10px}
+.fig-ctl label{font-family:var(--f-m);font-stretch:87.5%;font-size:11px;color:var(--ash)}
+#figOut{grid-column:1/-1;font-family:var(--f-m);font-stretch:87.5%;font-size:11.5px;color:var(--ink);font-variant-numeric:tabular-nums;min-height:1.5em}
+input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:24px;background:transparent;cursor:pointer;margin:0}
+input[type=range]::-webkit-slider-runnable-track{height:1px;background:var(--line-2)}
+input[type=range]::-moz-range-track{height:1px;background:var(--line-2)}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;background:var(--ember);border:0;border-radius:0;margin-top:-6.5px}
+input[type=range]::-moz-range-thumb{width:14px;height:14px;background:var(--ember);border:0;border-radius:0}
+
+/* ---------- stamp ---------- */
+.mark{padding-top:70px;padding-bottom:120px}
+.band{margin:30px 0 0;padding:34px 0;border-top:1.5px solid var(--ember);border-bottom:1.5px solid var(--ember);font-stretch:132%;font-weight:300;font-size:clamp(22px,2.7vw,40px);line-height:1.32;letter-spacing:-.02em;color:var(--ink);max-width:none}
+.band i{display:inline-block;width:.3em;height:.3em;background:var(--ember);margin:0 .1em 0 .45em;vertical-align:.16em}
+.mark .aside{margin-top:22px}
+
+/* ---------- proof ---------- */
+.proof{padding-top:40px;padding-bottom:120px}
+.proof-grid{display:grid;grid-template-columns:minmax(0,4fr) minmax(0,8fr);gap:40px;margin-top:40px;align-items:start}
+.cap{font-family:var(--f-m);font-stretch:87.5%;font-size:11px;color:var(--ash);margin-bottom:12px}
+.cap span{color:var(--ash-2)}
+.tiles{display:grid;gap:10px}
+.tile{display:grid;grid-template-columns:136px minmax(0,1fr);gap:16px;align-items:center;background:var(--coal-2);padding:10px 16px 10px 10px}
+.tile.ex{opacity:.62}
+.tile-fig{position:relative;height:92px;background:var(--coal)}
+.tile-fig canvas,.tile-fig svg{position:absolute;inset:0;width:100%;height:100%;display:block}
+.tile-name{font-weight:500;font-stretch:112%;font-size:15px;line-height:1.2}
+.tile-name span{display:block;font-family:var(--f-m);font-stretch:87.5%;font-weight:400;font-size:10px;color:var(--ash);margin-top:3px}
+.tile-name span.livetag{color:#a6dcae}
+.tile-cap{font-weight:300;font-size:26px;line-height:1;margin:8px 0;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.tile-cap small{font-size:12px;color:var(--ash);letter-spacing:0;margin-left:4px}
+.tile .heat{height:2px}
+.tile-meta{font-family:var(--f-m);font-stretch:87.5%;font-size:10px;color:var(--ash);margin-top:7px}
+.coinhead{display:grid;grid-template-columns:minmax(0,7fr) minmax(0,5fr);background:var(--coal-2)}
+.coinfig{position:relative;min-height:420px;background:var(--coal)}
+.coinfig canvas,.coinfig > svg.still{position:absolute;inset:0;width:100%;height:100%;display:block}
+.coininfo{padding:26px 26px 24px}
+.cp-name{font-weight:500;font-stretch:118%;font-size:22px;line-height:1.1}
+.cp-name span{display:block;font-family:var(--f-m);font-stretch:87.5%;font-weight:400;font-size:10px;color:var(--ash);margin-top:5px}
+.cp-meta{font-family:var(--f-m);font-stretch:87.5%;font-size:10.5px;color:var(--ash);margin-top:10px;line-height:1.6}
+.cp-cap{margin:22px 0 4px;font-weight:300;font-size:52px;line-height:.95;letter-spacing:-.03em;font-variant-numeric:tabular-nums}
+.cp-cap small{font-size:13px;letter-spacing:0;color:var(--ash);margin-left:6px}
+.cp-px{font-family:var(--f-m);font-stretch:87.5%;font-size:11px;color:var(--ash);margin-bottom:16px}
+.cp-heat{font-family:var(--f-m);font-stretch:87.5%;font-size:10.5px;color:var(--ash);margin-top:8px}
+.trade{margin-top:22px;border-top:1px solid var(--line);padding-top:18px}
+.seg{display:inline-flex;border:1px solid var(--line-2)}
+.seg button{background:transparent;border:0;padding:8px 14px 7px;font-stretch:112%;font-size:13px;font-weight:500;cursor:pointer;color:var(--ash)}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--coal)}
+.amt{display:flex;align-items:baseline;gap:10px;margin-top:14px;border-bottom:1px solid var(--line-2);padding-bottom:4px}
+.amt input{flex:1;min-width:0;width:100%;background:transparent;border:0;color:var(--ink);font-family:var(--f-d);font-weight:300;font-size:34px;letter-spacing:-.02em;padding:0;outline:none;font-variant-numeric:tabular-nums}
+.amt span{font-family:var(--f-m);font-stretch:87.5%;font-size:11px;color:var(--ash)}
+.quote{font-size:14px;color:var(--ash);margin-top:10px;min-height:3em;line-height:1.45}
+.quote b{color:var(--ink);font-weight:400}
+.holdbtn{position:relative;display:block;width:100%;margin-top:14px;height:46px;background:transparent;border:1px solid var(--ember);border-radius:1px;cursor:pointer;overflow:hidden;font-stretch:118%;font-weight:500;font-size:15px;color:var(--ink);-webkit-user-select:none;user-select:none;touch-action:manipulation}
+.holdbtn i{position:absolute;left:0;top:0;bottom:0;width:0;background:var(--ember)}
+.holdbtn span{position:relative}
+.holdbtn.holding i{width:100%;transition:width .9s linear}
+.fine{font-family:var(--f-m);font-stretch:87.5%;font-size:10px;color:var(--ash);margin-top:8px;line-height:1.5}
+.slivers{list-style:none;margin:20px 0 0;padding:0;display:grid;gap:7px}
+.slivers li{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 12px;font-family:var(--f-m);font-stretch:87.5%;font-size:10.5px;color:var(--ash)}
+.slivers li i{grid-column:1/-1;height:4px;background:var(--ember);display:block;min-width:3px}
+.slivers li.sell i{background:#8d857f}
+.slivers li span b{color:var(--ink);font-weight:400}
+.slivers li a{color:var(--ash)}
+
+.foot{padding-top:40px;padding-bottom:60px;display:flex;gap:28px;align-items:baseline;flex-wrap:wrap;border-top:1px solid var(--line)}
+.foot .word{font-size:20px}
+.foot p{color:var(--ash);font-size:14px;max-width:62ch}
+
+@media (max-width:1000px){
+  .how{grid-template-columns:minmax(0,1fr);gap:36px;padding-top:110px}
+  .proof-grid{grid-template-columns:minmax(0,1fr)}
+  .coinhead{grid-template-columns:minmax(0,1fr)}
+  .coinfig{min-height:300px}
+}
+@media (max-width:760px){
+  .top{padding-top:16px}
+  .word-sub{display:none}
+  .word{font-size:23px}
+  .hero-copy{top:112px;right:var(--gut)}
+  h1{font-size:40px;margin-bottom:14px}
+  .lede{font-size:15px;max-width:30ch}
+  .stage{min-height:720px}
+  .sim{bottom:20px}
+  .sim-hint{font-size:18px;margin-bottom:12px}
+  .key{font-size:12.5px;padding:9px 10px 8px}
+  .live{position:static;text-align:left;max-width:none;padding:18px var(--gut) 0}
+  .live-tag{justify-content:flex-start}
+  .t-mcap .n{font-size:34px}
+  .tag{font-size:10.5px}
+  .how{padding-top:80px;padding-bottom:70px}
+  .mark{padding-top:30px;padding-bottom:80px}
+  .band{padding:24px 0}
+  .tile{grid-template-columns:112px minmax(0,1fr);gap:12px}
+  .cp-cap{font-size:42px}
+}
+@media (max-width:370px){
+  .faces{transform:scale(.8);transform-origin:top right;margin-bottom:-18px}
+  .word{font-size:20px}
+}
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{transition:none!important;animation:none!important}
+}
+</style>
+</head>
+<body>
+<header class="top" id="top">
+  <div>
+    <a class="word" href="#top">brasa</a>
+    <span class="word-sub">a Solana exchange, on devnet</span>
+  </div>
+  <nav class="faces" aria-label="Site">
+    <svg viewBox="0 0 200 88" width="200" height="88" aria-hidden="true">
+      <polygon class="face f-top" points="166,6 194,20 166,34 138,20"/>
+      <polygon class="face f-left" points="138,20 166,34 166,64 138,50"/>
+      <polygon class="face f-right" points="166,34 194,20 194,50 166,64"/>
+      <polyline class="ld" points="124,11 134,11 160,20"/><rect class="ldot" x="159" y="18.5" width="3" height="3"/>
+      <polyline class="ld" points="124,44 150,44"/><rect class="ldot" x="149" y="42.5" width="3" height="3"/>
+      <polyline class="ld" points="186,72 186,58 181,46"/><rect class="ldot" x="179.5" y="44.5" width="3" height="3"/>
+    </svg>
+    <a class="fl fl-top" href="#how">how it works</a>
+    <span class="fl fl-left" aria-disabled="true">coins <i>· soon</i></span>
+    <span class="fl fl-right" aria-disabled="true">launch <i>· soon</i></span>
+  </nav>
+</header>
+
+<main>
+<section class="hero" aria-label="The block">
+  <div class="stage" id="stage" tabindex="0" aria-describedby="hint">
+    <canvas id="gl" aria-label="A block made of the coin's SOL and tokens. Hold to buy, drag to turn."></canvas>
+    <div id="still" hidden></div>
+    <svg class="leaders" id="leaders" aria-hidden="true"></svg>
+    <div class="tags" id="tags" aria-hidden="true"></div>
+
+    <div class="hero-copy">
+      <h1>The shape<br>is the price.</h1>
+      <p class="lede">Every coin is one block. <b>Width</b> is the SOL inside it, <b>depth</b> the tokens left. Trades reshape it. Nobody can take it apart.</p>
+    </div>
+
+    <div class="sim">
+      <p class="sim-tag"><span class="sq"></span>Simulation. You are driving it.</p>
+      <p class="sim-hint" id="hint" aria-live="polite">Hold the block to buy. Drag to turn it.</p>
+      <div class="heat" id="heat" aria-hidden="true"><i id="heatFill"></i></div>
+      <p class="sim-read" id="simRead">&nbsp;</p>
+      <div class="keys">
+        <button class="key" type="button" id="modeBtn" aria-pressed="false">Sell instead</button>
+        <button class="key" type="button" id="runBtn">Run it to 420</button>
+        <button class="key" type="button" id="resetBtn">Start a new coin</button>
+      </div>
+    </div>
+  </div>
+  <div class="live">
+    <p class="live-tag"><span class="dot" id="liveDot"></span>Live on devnet</p>
+    <p id="liveText">Reading the chain…</p>
+  </div>
+</section>
+
+<section class="wrap how" id="how" aria-labelledby="how-h">
+  <div class="how-copy">
+    <h2 id="how-h">It starts as 30&nbsp;SOL that isn't there.</h2>
+    <p>A new coin is priced against <b>30 virtual SOL</b>, so it opens at a 30&nbsp;SOL market cap. Real SOL moves its corner along one curve: width times depth stays the same.</p>
+    <h3>At 420 SOL it graduates, inside the buy.</h3>
+    <p>The virtual 30 goes, and <b>71.43M tokens (7.14%) burn</b>. The corner drops down the same line, so the price holds. Then it trades on as plain x·y=k. Same pool, same address.</p>
+  </div>
+  <figure class="fig">
+    <svg id="fig" viewBox="0 0 640 420" role="img" aria-label="Top view of the block: its corner on the curve x times y equals k, before and after graduation"></svg>
+    <div class="fig-ctl">
+      <label for="figR">Real SOL in the pool</label>
+      <input type="range" id="figR" min="0" max="200" step="0.25" value="41">
+      <output id="figOut" for="figR"></output>
+    </div>
+  </figure>
+</section>
+
+<section class="wrap mark" aria-labelledby="mark-h">
+  <h2 id="mark-h">Stamped on every coin.</h2>
+  <p class="band">1,000,000,000 supply&#8288;<i></i> no mint authority&#8288;<i></i> no freeze&#8288;<i></i> metadata fixed&#8288;<i></i> 1% a trade, in SOL&#8288;<i></i> half to the creator, half to the platform&#8288;<i></i> no LP token&#8288;<i></i> no way to pull the liquidity, for us either&#8288;<i></i> one pool, one address, for good</p>
+  <p class="aside">Our team launches the coins for now. A launchpad for everyone comes later.</p>
+</section>
+
+<section class="wrap proof" aria-labelledby="proof-h">
+  <h2 id="proof-h">The same block, everywhere.</h2>
+  <p class="aside" id="proofNote">A coin on the board, and the top of its page. Reading devnet…</p>
+  <div class="proof-grid">
+    <div class="board">
+      <p class="cap">Coin board <span>· preview</span></p>
+      <div class="tiles" id="tiles"></div>
+    </div>
+    <div class="coinpage">
+      <p class="cap">Coin page <span>· preview</span></p>
+      <div class="coinhead">
+        <div class="coinfig" id="coinFig"><canvas id="coinCanvas"></canvas><svg class="leaders" id="coinLeaders" aria-hidden="true"></svg><div class="tags" id="coinTags" aria-hidden="true"></div></div>
+        <div class="coininfo" id="coinInfo"></div>
+      </div>
+    </div>
+  </div>
+</section>
+</main>
+
+<footer class="wrap foot">
+  <span class="word">brasa</span>
+  <p id="footText">Runs on Solana devnet. The coin board, coin pages and launches are coming.</p>
+</footer>
+
+<script defer src="/net.js"></script>
+<script defer src="/vendor/chain.js"></script>
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+'use strict';
+var $ = function (s) { return document.querySelector(s); };
+var reduce = false;
+try { reduce = matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) {}
+
+/* ================= the pool, as math (simulation the visitor drives) ================= */
+var VIRT = 30, SUPPLY = 1e9, K0 = VIRT * SUPPLY, FEE = 0.01;
+var GRAD_R = Math.sqrt(420 * VIRT) - VIRT;               // 82.2497 real SOL
+var T_G = K0 / (VIRT + GRAD_R);                          // tokens left at graduation
+var BURN_G = T_G * VIRT / (VIRT + GRAD_R);               // 71.43M
+var T_G2 = T_G - BURN_G, K2 = GRAD_R * T_G2;             // the graduated pool's k
+var A = 2.2 / (VIRT + GRAD_R), B = 2.2 / T_G, BH = 0.42; // world units per SOL, per token; block height
+var FOV = 30;
+
+function fresh() { return { R: 0, T: SUPPLY, grad: false, burned: 0, held: 0, feeC: 0, feeP: 0 }; }
+function xOf(s) { return s.grad ? s.R : VIRT + s.R; }
+function priceOf(s) { return xOf(s) / s.T; }
+function mcapOf(s) { return priceOf(s) * (SUPPLY - s.burned); }
+function buy(s, d) {
+  var fee = d * FEE; s.feeC += fee / 2; s.feeP += fee / 2;
+  var rest = d - fee, out = 0, info = { out: 0, graduated: false, Tpre: 0, burn: 0 };
+  if (!s.grad) {
+    var on = Math.min(rest, GRAD_R - s.R);
+    if (on > 0) { var x = VIRT + s.R, T2 = x * s.T / (x + on); out += s.T - T2; s.T = T2; s.R += on; rest -= on; }
+    if (s.R >= GRAD_R - 1e-9) {
+      s.R = GRAD_R; var burn = s.T * VIRT / (VIRT + s.R);
+      info.Tpre = s.T; info.burn = burn; s.T -= burn; s.burned += burn; s.grad = true; info.graduated = true;
+    }
+  }
+  if (s.grad && rest > 0) { var x2 = s.R, T3 = x2 * s.T / (x2 + rest); out += s.T - T3; s.T = T3; s.R += rest; }
+  s.held += out; info.out = out;
+  return info;
+}
+function sellTokens(s, tok) {
+  if (!(tok > 0)) return 0;
+  var x = xOf(s), newX = x * s.T / (s.T + tok), gross = x - newX, fee = gross * FEE;
+  s.feeC += fee / 2; s.feeP += fee / 2; s.T += tok; s.held -= tok;
+  s.R = Math.max(0, s.grad ? newX : newX - VIRT);
+  return gross - fee;
+}
+function sellSol(s, d) {
+  var x = xOf(s); d = Math.min(d, x * 0.4);
+  var tok = Math.min(s.T * d / (x - d), s.held);
+  if (!(tok > 1)) return 0;
+  sellTokens(s, tok); return tok;
+}
+function dimsOf(s) { return { gw: s.grad ? 0 : VIRT * A, rw: s.R * A, d: s.T * B }; }
+function heatOf(s) { return s.grad ? 1 : (s.R > 0 ? 0.14 + 0.86 * Math.min(1, s.R / GRAD_R) : 0); }
+function stateFromPool(p) {
+  return { R: Number(p.realSol) / 1e9, T: Number(p.tokens) / 1e6, grad: !!p.graduated, burned: Number(p.burned) / 1e6, held: 0, feeC: 0, feeP: 0 };
+}
+function exampleState(sol) { var s = fresh(); while (sol > 0) { var d = Math.min(4, sol); buy(s, d); sol -= d; } return s; }
+
+/* ================= formatting ================= */
+function fSol(v) { return v >= 100 ? v.toFixed(1) : v >= 1 ? v.toFixed(2) : v >= 0.01 || v <= 0 ? v.toFixed(3) : v.toPrecision(2); }
+function fTok(v) { return (v / 1e6).toFixed(v >= 1e8 ? 1 : 2) + 'M'; }
+function fPx(p) { var m = p * 1e6; return m.toFixed(m >= 1 ? 3 : 4); }
+function ago(sec) {
+  if (!sec) return 'unknown';
+  var d = Date.now() / 1000 - sec;
+  if (d < 90) return 'just now';
+  if (d < 5400) return Math.round(d / 60) + ' min ago';
+  if (d < 129600) return Math.round(d / 3600) + ' h ago';
+  return Math.round(d / 86400) + ' days ago';
+}
+function shortKey(k) { var s = String(k); return s.slice(0, 4) + '…' + s.slice(-4); }
+function explorer(what, id) { try { if (window.NET && NET.explorer) return NET.explorer(what, String(id)); } catch (e) {} return null; }
+var RAMP = [[0, [42, 20, 16]], [0.35, [120, 30, 9]], [0.65, [216, 67, 15]], [0.88, [255, 128, 52]], [1, [255, 186, 110]]];
+function heatRGB(h) {
+  h = Math.max(0, Math.min(1, h));
+  for (var i = 1; i < RAMP.length; i++) {
+    if (h <= RAMP[i][0]) {
+      var a = RAMP[i - 1], b = RAMP[i], t = (h - a[0]) / (b[0] - a[0]);
+      return [0, 1, 2].map(function (k) { return Math.round(a[1][k] + (b[1][k] - a[1][k]) * t); });
+    }
+  }
+  return RAMP[RAMP.length - 1][1];
+}
+function heatCss(h) { return 'rgb(' + heatRGB(h).join(',') + ')'; }
+function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
+
+/* ================= a still drawing of the block (no WebGL, offline, thumbnails' fallback) ================= */
+var svgN = 0;
+function isoSVG(s, W, H, o) {
+  o = o || {};
+  var th = o.theta != null ? o.theta : 0.68, ph = o.phi != null ? o.phi : 0.5, pad = o.pad != null ? o.pad : 28;
+  var dm = dimsOf(s), gw = dm.gw, rw = dm.rw, d = dm.d;
+  var ct = Math.cos(th), st = Math.sin(th), cp = Math.cos(ph), sp = Math.sin(ph);
+  function P(x, y, z) { return [x * ct - z * st, -(-x * st * sp + y * cp - z * ct * sp)]; }
+  var minx = 1e9, maxx = -1e9, miny = 1e9, maxy = -1e9;
+  [-gw, rw].forEach(function (x) { [0, BH].forEach(function (y) { [-d, 0].forEach(function (z) {
+    var p = P(x, y, z); minx = Math.min(minx, p[0]); maxx = Math.max(maxx, p[0]); miny = Math.min(miny, p[1]); maxy = Math.max(maxy, p[1]);
+  }); }); });
+  var fx = o.fx || 1, fy = o.fy || 1;
+  var sc = Math.min((W * fx - 2 * pad) / (maxx - minx || 1), (H * fy - 2 * pad) / (maxy - miny || 1));
+  var cx = o.cx != null ? o.cx : W / 2, cy = o.cy != null ? o.cy : H / 2;
+  var ox = cx - (minx + maxx) / 2 * sc, oy = cy - (miny + maxy) / 2 * sc;
+  function Q(x, y, z) { var p = P(x, y, z); return { x: p[0] * sc + ox, y: p[1] * sc + oy }; }
+  function poly(pts, attr) { return '<polygon points="' + pts.map(function (p) { return p.x.toFixed(1) + ',' + p.y.toFixed(1); }).join(' ') + '" ' + attr + '/>'; }
+  function faces(x0, x1, z0, z1) {
+    return { top: [Q(x0, BH, z1), Q(x1, BH, z1), Q(x1, BH, z0), Q(x0, BH, z0)],
+      front: [Q(x0, 0, z1), Q(x1, 0, z1), Q(x1, BH, z1), Q(x0, BH, z1)],
+      right: [Q(x1, 0, z1), Q(x1, 0, z0), Q(x1, BH, z0), Q(x1, BH, z1)] };
+  }
+  var id = 'h' + (++svgN), h = heatOf(s);
+  var out = '<svg class="still" viewBox="0 0 ' + W + ' ' + H + '" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><defs><pattern id="' + id + '" width="7" height="7" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="7" stroke="#c9c0b8" stroke-width="1" stroke-opacity=".55"/></pattern></defs>';
+  var ghostStroke = 'stroke="#d7cec6" stroke-opacity=".75" stroke-width="1"';
+  if (gw > 0) {
+    var g = faces(-gw, 0, -d, 0);
+    out += poly(g.front, 'fill="rgba(201,192,184,.04)" ' + ghostStroke) + poly(g.top, 'fill="url(#' + id + ')" ' + ghostStroke);
+    if (rw <= 0.0005) out += poly(g.right, 'fill="rgba(201,192,184,.04)" ' + ghostStroke);
+  }
+  if (rw > 0.0005) {
+    var f = faces(0, rw, -d, 0);
+    out += poly(f.right, 'fill="' + heatCss(h * 0.62) + '"') + poly(f.front, 'fill="' + heatCss(h) + '"') + poly(f.top, 'fill="#2b211d" stroke="' + heatCss(h) + '" stroke-opacity=".5" stroke-width="1"');
+  }
+  var a = Q(-gw, BH, 0), b = Q(rw, BH, -d);
+  out += '<line x1="' + a.x.toFixed(1) + '" y1="' + a.y.toFixed(1) + '" x2="' + b.x.toFixed(1) + '" y2="' + b.y.toFixed(1) + '" stroke="#fff2df" stroke-opacity=".85" stroke-width="1"/></svg>';
+  return { svg: out, anchors: anchorsOf(dm, Q) };
+}
+function anchorsOf(dm, Q) {
+  var gw = dm.gw, rw = dm.rw, d = dm.d, e = 0.15 * Math.max(0.5, Math.sqrt((gw + rw) * (gw + rw) + d * d));
+  function dir(a, b) { return norm({ x: b.x - a.x, y: b.y - a.y }); }
+  var dep = Q(rw, 0, -d / 2), fr = Q((rw - gw) / 2, 0, 0), lf = Q(-gw, 0, -d / 2);
+  return { nX: dir(dep, Q(rw + e, 0, -d / 2)), nZ: dir(fr, Q((rw - gw) / 2, 0, e)), nXm: dir(lf, Q(-gw - e, 0, -d / 2)), top: Q((rw - gw) / 2, BH, -d / 2), real: Q(rw / 2, 0, 0), virt: Q(-gw / 2, 0, 0), depth: Q(rw, 0, -d / 2),
+    center: Q((rw - gw) / 2, BH / 2, -d / 2), diag: Q(-gw + (rw + gw) * 0.24, BH, -d * 0.24) };
+}
+
+/* ================= numbers pinned to the object ================= */
+function tagLayer(tagsEl, svgEl) {
+  var ns = 'http://www.w3.org/2000/svg', map = {};
+  var L = {
+    set: function (key, html, cls) {
+      var t = map[key];
+      if (!t) {
+        var el = document.createElement('div'); el.className = 'tag ' + (cls || ''); tagsEl.appendChild(el);
+        var g = document.createElementNS(ns, 'g'), ln = document.createElementNS(ns, 'line'), dot = document.createElementNS(ns, 'rect');
+        dot.setAttribute('width', 3); dot.setAttribute('height', 3); g.appendChild(ln); g.appendChild(dot); svgEl.appendChild(g);
+        t = map[key] = { el: el, g: g, ln: ln, dot: dot, html: null, w: 0, h: 0 };
+      }
+      if (t.html !== html) { t.el.innerHTML = html; t.html = html; t.w = t.el.offsetWidth; t.h = t.el.offsetHeight; }
+      return t;
+    },
+    remeasure: function () { Object.keys(map).forEach(function (k) { var t = map[k]; t.w = t.el.offsetWidth; t.h = t.el.offsetHeight; }); },
+    place: function (key, a, dir, len, W, H, minTop, maxY) {
+      var t = map[key]; if (!t) return;
+      if (!a || !isFinite(a.x) || !isFinite(a.y) || a.x < -40 || a.y < -40 || a.x > W + 40 || a.y > H + 40) { L.hide(key); return; }
+      var ex = a.x + dir.x * len, ey = a.y + dir.y * len;
+      var lx = dir.x > 0.35 ? ex + 5 : dir.x < -0.35 ? ex - 5 - t.w : ex - t.w / 2;
+      var ly = dir.y < -0.35 ? ey - t.h - 3 : dir.y > 0.35 ? ey + 3 : ey - t.h / 2;
+      lx = clamp(lx, 8, Math.max(8, W - t.w - 8)); ly = clamp(ly, minTop || 8, Math.max(minTop || 8, (maxY || H - 8) - t.h));
+      t.el.style.transform = 'translate3d(' + Math.round(lx) + 'px,' + Math.round(ly) + 'px,0)';
+      t.el.style.opacity = 1; t.g.style.display = '';
+      t.ln.setAttribute('x1', a.x.toFixed(1)); t.ln.setAttribute('y1', a.y.toFixed(1));
+      t.ln.setAttribute('x2', ex.toFixed(1)); t.ln.setAttribute('y2', ey.toFixed(1));
+      t.dot.setAttribute('x', (a.x - 1.5).toFixed(1)); t.dot.setAttribute('y', (a.y - 1.5).toFixed(1));
+    },
+    hide: function (key) { var t = map[key]; if (t) { t.el.style.opacity = 0; t.g.style.display = 'none'; } },
+    remove: function (key) { var t = map[key]; if (t) { t.el.remove(); t.g.remove(); delete map[key]; } },
+    has: function (key) { return !!map[key]; }
+  };
+  return L;
+}
+function radial(a, c, fb) { var dx = a.x - c.x, dy = a.y - c.y, m = Math.hypot(dx, dy); return m < 2 ? fb : { x: dx / m, y: dy / m }; }
+function norm(v) { var m = Math.hypot(v.x, v.y) || 1; return { x: v.x / m, y: v.y / m }; }
+function pinBlock(layer, s, an, W, H, o) {
+  // the four standing labels around a block, spread away from its centre
+  o = o || {};
+  var dm = dimsOf(s), c = an.center, len = o.len || 30;
+  var sep = norm({ x: an.real.x - an.virt.x, y: an.real.y - an.virt.y });
+  if (dm.gw > 0 && dm.rw > 0.0005) {
+    layer.place('virt', an.virt, norm({ x: an.nZ.x * 0.6 + an.nXm.x - sep.x * 0.5, y: an.nZ.y * 0.6 + an.nXm.y - sep.y * 0.5 + 0.35 }), len, W, H, o.minTop, o.maxY);
+    layer.place('real', an.real, norm({ x: an.nZ.x + sep.x * 0.5, y: an.nZ.y + sep.y * 0.5 + 0.9 }), len * 1.7, W, H, o.minTop, o.maxY);
+  } else if (dm.gw > 0) {
+    layer.place('virt', an.virt, norm({ x: an.nZ.x, y: an.nZ.y + 0.6 }), len, W, H, o.minTop, o.maxY); layer.hide('real');
+  } else {
+    layer.hide('virt'); layer.place('real', an.real, norm({ x: an.nZ.x, y: an.nZ.y + 0.6 }), len, W, H, o.minTop, o.maxY);
+  }
+  layer.place('depth', an.depth, norm({ x: an.nX.x, y: an.nX.y + 0.2 }), len, W, H, o.minTop, o.maxY);
+  if (o.diag) layer.place('diag', an.diag, radial(an.diag, c, { x: -1, y: -0.4 }), 26, W, H, o.minTop, o.maxY); else layer.hide('diag');
+  if (o.top) layer.place('mcap', an.top, { x: 0, y: -1 }, o.topLen || 54, W, H, o.minTop, o.maxY);
+}
+function standingText(layer, s, sim) {
+  layer.set('virt', '<b>30 SOL</b><small>virtual, not really there</small>', 't-virt');
+  layer.set('real', '<b>' + fSol(s.R) + ' SOL</b><small>real, came in</small>', 't-real');
+  layer.set('depth', '<b>' + fTok(s.T) + '</b><small>tokens in the pool</small>', 't-depth');
+  layer.set('diag', 'this slope is the price', 't-diag');
+}
+
+/* ================= three.js pieces ================= */
+var HAS3 = !!window.THREE, TEX = null;
+function col(hex) { return new THREE.Color(hex).convertSRGBToLinear(); }
+function rnd(seed) { var s = seed >>> 0; return function () { s = (Math.imul(s, 1664525) + 1013904223) >>> 0; return s / 4294967296; }; }
+function canvasOf(n, draw) { var c = document.createElement('canvas'); c.width = c.height = n; draw(c.getContext('2d'), n); return c; }
+function textures() {
+  if (TEX) return TEX;
+  var crack = canvasOf(512, function (g, n) {
+    var r = rnd(7); g.fillStyle = 'rgb(26,7,2)'; g.fillRect(0, 0, n, n);
+    for (var i = 0; i < 1100; i++) { g.fillStyle = 'rgba(255,' + (90 + r() * 70 | 0) + ',30,' + (0.06 + r() * 0.28).toFixed(2) + ')'; var q = r() * 2.2 + 0.4; g.fillRect(r() * n, r() * n, q, q); }
+    g.lineCap = 'round'; g.lineJoin = 'round';
+    for (var k = 0; k < 40; k++) {
+      var x = r() * n, y = r() * n, ang = r() * 6.283, len = 30 + r() * 120, w = 0.6 + r() * 2.4, pts = [[x, y]];
+      for (var s = 0; s < len; s += 6) { ang += (r() - 0.5) * 0.9; x += Math.cos(ang) * 6; y += Math.sin(ang) * 6; pts.push([x, y]); }
+      g.lineWidth = w; g.shadowColor = 'rgba(255,110,30,.9)'; g.shadowBlur = 3 + w * 3;
+      g.strokeStyle = 'rgba(255,' + (130 + r() * 90 | 0) + ',' + (40 + r() * 60 | 0) + ',' + (0.55 + r() * 0.45).toFixed(2) + ')';
+      for (var dx = -1; dx <= 1; dx++) for (var dy = -1; dy <= 1; dy++) {
+        g.beginPath(); pts.forEach(function (p, j) { var px = p[0] + dx * n, py = p[1] + dy * n; if (j) g.lineTo(px, py); else g.moveTo(px, py); }); g.stroke();
+      }
+    }
+  });
+  var coal = canvasOf(256, function (g, n) {
+    var r = rnd(11), im = g.createImageData(n, n);
+    for (var i = 0; i < n * n; i++) { var v = 40 + r() * 26; im.data[i * 4] = v + 8; im.data[i * 4 + 1] = v; im.data[i * 4 + 2] = v - 4; im.data[i * 4 + 3] = 255; }
+    g.putImageData(im, 0, 0);
+    for (var k = 0; k < 70; k++) { g.fillStyle = 'rgba(0,0,0,' + (r() * 0.3).toFixed(2) + ')'; g.beginPath(); g.arc(r() * n, r() * n, 4 + r() * 24, 0, 7); g.fill(); }
+  });
+  var hatch = canvasOf(128, function (g, n) {
+    g.clearRect(0, 0, n, n); g.strokeStyle = 'rgba(215,206,198,1)'; g.lineWidth = 2.2;
+    for (var i = -n; i <= 2 * n; i += 16) { g.beginPath(); g.moveTo(i, 0); g.lineTo(i - n, n); g.stroke(); }
+  });
+  var dot = canvasOf(64, function (g, n) {
+    var gr = g.createRadialGradient(n / 2, n / 2, 0, n / 2, n / 2, n / 2);
+    gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.22, 'rgba(255,255,255,.7)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = gr; g.fillRect(0, 0, n, n);
+  });
+  function T(c, srgb) { var t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; if (srgb) t.encoding = THREE.sRGBEncoding; return t; }
+  TEX = { crack: T(crack, true), coal: T(coal, true), hatch: T(hatch, true), dot: T(dot, false) };
+  return TEX;
+}
+function setupRenderer(r) {
+  r.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+  r.outputEncoding = THREE.sRGBEncoding; r.toneMapping = THREE.ACESFilmicToneMapping; r.toneMappingExposure = 1.1;
+  r.shadowMap.enabled = true; r.shadowMap.type = THREE.PCFSoftShadowMap;
+}
+function makeStage(scene) {
+  scene.background = new THREE.Color(0x0d0a09);
+  scene.fog = new THREE.Fog(col(0x0d0a09), 10, 30);
+  var hemi = new THREE.HemisphereLight(col(0x5a463d), col(0x050303), 0.6);
+  var key = new THREE.DirectionalLight(col(0xffe3c8), 1.55);
+  key.castShadow = true; key.shadow.mapSize.set(2048, 2048); key.shadow.bias = -0.0005; key.shadow.normalBias = 0.02; key.shadow.radius = 5;
+  var rim = new THREE.DirectionalLight(col(0x8ea3c0), 0.9);
+  var glows = [0, 1, 2].map(function () { return new THREE.PointLight(col(0xff5a1f), 0, 6, 2); });
+  var floor = new THREE.Mesh(new THREE.PlaneGeometry(400, 400), new THREE.MeshStandardMaterial({ color: col(0x16110f), roughness: 0.95, metalness: 0 }));
+  floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true;
+  scene.add(hemi, key, key.target, rim, floor); glows.forEach(function (g) { scene.add(g); });
+  return {
+    aim: function (c, r, dm, dist) {
+      key.position.set(c.x - r * 1.5, c.y + r * 3.0 + 1, c.z + r * 1.9); key.target.position.copy(c);
+      var sc = key.shadow.camera, e = r * 1.5 + 0.6;
+      sc.left = -e; sc.right = e; sc.top = e; sc.bottom = -e; sc.near = 0.1; sc.far = r * 9 + 8; sc.updateProjectionMatrix();
+      rim.position.set(c.x + r * 1.6, c.y + r * 1.3 + 0.5, c.z - r * 2.6);
+      var along = dm.d > dm.rw;
+      glows.forEach(function (L, i) {
+        var f = (i + 0.5) / 3;
+        if (along) L.position.set(dm.rw / 2, BH * 0.8, -dm.d * f); else L.position.set(dm.rw * f, BH * 0.8, -dm.d / 2);
+        L.distance = r * 1.6 + 1.8;
+      });
+      scene.fog.near = dist * 1.05; scene.fog.far = dist * 3.4;
+    },
+    glow: function (h) { glows.forEach(function (L) { L.intensity = h * 2.4; }); }
+  };
+}
+function makeBlock() {
+  var tex = textures();
+  function box(tx, ty, tz) { var g = new THREE.BoxGeometry(1, 1, 1); g.translate(tx, ty, tz); return g; }
+  var realGeo = box(0.5, 0.5, -0.5), ghostGeo = box(-0.5, 0.5, -0.5);
+  var base = realGeo.attributes.uv.array.slice();
+  var realMat = new THREE.MeshStandardMaterial({ map: tex.coal, color: col(0x8c7b72), roughness: 0.84, metalness: 0.03, emissive: col(0xff5a1f), emissiveMap: tex.crack, emissiveIntensity: 1 });
+  var real = new THREE.Mesh(realGeo, realMat); real.castShadow = true; real.receiveShadow = true;
+  var realEdge = new THREE.LineSegments(new THREE.EdgesGeometry(realGeo), new THREE.LineBasicMaterial({ color: col(0xffc08a), transparent: true, opacity: 0.2 }));
+  var side = new THREE.MeshBasicMaterial({ color: col(0xc9c0b8), transparent: true, opacity: 0.045, depthWrite: false, side: THREE.DoubleSide });
+  var topH = new THREE.MeshBasicMaterial({ map: tex.hatch, color: col(0xc9c0b8), transparent: true, opacity: 0.42, depthWrite: false });
+  var ghost = new THREE.Mesh(ghostGeo, [side, side, topH, side, side, side]);
+  var ghostEdge = new THREE.LineSegments(new THREE.EdgesGeometry(ghostGeo), new THREE.LineBasicMaterial({ color: col(0xdcd3cb), transparent: true, opacity: 0.8 }));
+  var dg = new THREE.BufferGeometry(); dg.setAttribute('position', new THREE.BufferAttribute(new Float32Array(6), 3));
+  var diag = new THREE.Line(dg, new THREE.LineBasicMaterial({ color: col(0xfff2df), transparent: true, opacity: 0.9 }));
+  var group = new THREE.Group(); group.add(real, realEdge, ghost, ghostEdge, diag);
+  var cold = col(0x7a1804), hot = col(0xff7a2a), tmp = new THREE.Color();
+  function uv(geo, w, h, d, s) {
+    var a = geo.attributes.uv.array, dims = [[d, h], [d, h], [w, d], [w, d], [w, h], [w, h]];
+    for (var f = 0; f < 6; f++) for (var v = 0; v < 4; v++) { var i = (f * 4 + v) * 2; a[i] = base[i] * dims[f][0] / s; a[i + 1] = base[i + 1] * dims[f][1] / s; }
+    geo.attributes.uv.needsUpdate = true;
+  }
+  return {
+    group: group,
+    layout: function (dm, hatchSize) {
+      var rw = Math.max(dm.rw, 1e-4), gw = Math.max(dm.gw, 1e-4), d = Math.max(dm.d, 1e-4);
+      real.visible = realEdge.visible = dm.rw > 5e-4; real.scale.set(rw, BH, d); realEdge.scale.copy(real.scale); uv(realGeo, rw, BH, d, 1.5);
+      ghost.visible = ghostEdge.visible = dm.gw > 5e-4; ghost.scale.set(gw, BH, d); ghostEdge.scale.copy(ghost.scale); uv(ghostGeo, gw, BH, d, hatchSize || 0.4);
+      var p = dg.attributes.position.array, y = BH + 0.004;
+      p[0] = -dm.gw; p[1] = y; p[2] = 0; p[3] = dm.rw; p[4] = y; p[5] = -dm.d; dg.attributes.position.needsUpdate = true; dg.computeBoundingSphere();
+    },
+    heat: function (h, flick) {
+      realMat.emissive.copy(tmp.copy(cold).lerp(hot, Math.min(1, h)));
+      realMat.emissiveIntensity = (0.35 + 2.9 * h) * (0.9 + 0.1 * flick);
+    }
+  };
+}
+function frameFor(dm, aspect, fx, fy) {
+  var w = Math.max(0.3, dm.gw + dm.rw), d = Math.max(0.3, dm.d);
+  var r = 0.5 * Math.sqrt(w * w + d * d + BH * BH);
+  var hv = FOV / 2 * Math.PI / 180, hh = Math.atan(Math.tan(hv) * aspect);
+  var half = Math.min(Math.atan(Math.tan(hv) * fy), Math.atan(Math.tan(hh) * fx));
+  return { c: new THREE.Vector3((dm.rw - dm.gw) / 2, BH * 0.5, -dm.d / 2), r: r, dist: r / Math.sin(half) };
+}
+function setCam(cam, c, dist, th, ph) {
+  cam.position.set(c.x + dist * Math.sin(th) * Math.cos(ph), c.y + dist * Math.sin(ph), c.z + dist * Math.cos(th) * Math.cos(ph));
+  cam.near = Math.max(0.02, dist * 0.04); cam.far = dist * 8 + 60; cam.lookAt(c); cam.updateProjectionMatrix();
+}
+function projector(cam, W, H) {
+  var v = new THREE.Vector3();
+  return function (x, y, z) { v.set(x, y, z).project(cam); return { x: (v.x + 1) / 2 * W, y: (1 - v.y) / 2 * H, z: v.z }; };
+}
+
+/* ================= the hero block ================= */
+var stage = $('#stage'), canvas = $('#gl'), still = $('#still');
+var tags = tagLayer($('#tags'), $('#leaders'));
+var S = fresh(), disp = dimsOf(S);
+var renderer = null, scene, camera, rig, lights, gl = false;
+if (HAS3) {
+  try {
+    renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true, powerPreference: 'high-performance' });
+    gl = !!renderer.getContext();
+  } catch (e) { renderer = null; gl = false; }
+}
+var W = 1, H = 1, theta = 0.62, phi = 0.36, swayT = 0;
+var camC = null, camDist = 10, camR = 3;
+var mode = 'buy', pouring = false, pourSide = 'buy', holdT = 0, auto = null, lockUntil = 0, flare = 0, clock = 0;
+var dirty = true, readDirty = true, visible = true, lastInput = -10, simTop = 99999;
+var P = null, sheets = [], fx = null;
+
+function heroFrame() {
+  var wide = W >= 900;
+  return wide ? { ox: -W * 0.17, oy: -H * 0.02, fx: 0.52, fy: 0.56, minTop: 96 } : { ox: 0, oy: -H * 0.055, fx: 0.86, fy: 0.3, minTop: 290, maxY: simTop - 6 };
+}
+
+if (gl) {
+  setupRenderer(renderer);
+  scene = new THREE.Scene(); lights = makeStage(scene); rig = makeBlock(); scene.add(rig.group);
+  camera = new THREE.PerspectiveCamera(FOV, 1, 0.05, 200);
+  camC = new THREE.Vector3(0, BH / 2, -disp.d / 2);
+  // particles: pour sparks (0), burn sparks (1), ash (2), rising sell sparks (3)
+  var MAXP = 1600;
+  P = { n: 0, pos: new Float32Array(MAXP * 3), vel: new Float32Array(MAXP * 3), c0: new Float32Array(MAXP * 3), life: new Float32Array(MAXP), max: new Float32Array(MAXP), kind: new Uint8Array(MAXP), cap: MAXP };
+  P.gpos = new Float32Array(MAXP * 3); P.gcol = new Float32Array(MAXP * 3);
+  var pg = new THREE.BufferGeometry();
+  pg.setAttribute('position', new THREE.BufferAttribute(P.gpos, 3)); pg.setAttribute('color', new THREE.BufferAttribute(P.gcol, 3)); pg.setDrawRange(0, 0);
+  P.geo = pg;
+  P.mat = new THREE.PointsMaterial({ size: 0.05, map: textures().dot, vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, sizeAttenuation: true });
+  P.points = new THREE.Points(pg, P.mat); P.points.frustumCulled = false; scene.add(P.points);
+  // sheets: the tokens a buy takes, peeling off the back
+  var sg = new THREE.BoxGeometry(1, 1, 1); sg.translate(0.5, 0.5, -0.5);
+  for (var i = 0; i < 16; i++) {
+    var m = new THREE.Mesh(sg, new THREE.MeshBasicMaterial({ color: col(0xffd2a8), transparent: true, opacity: 0, depthWrite: false }));
+    m.visible = false; scene.add(m); sheets.push({ m: m, life: 0, dir: 1 });
+  }
+  // graduation debris: the burned slice, the ghost's outline, the old diagonal
+  var slg = new THREE.BoxGeometry(1, 1, 1); slg.translate(0.5, 0.5, 0.5);
+  var slice = new THREE.Mesh(slg, new THREE.MeshBasicMaterial({ color: col(0xfff2df), transparent: true, opacity: 1, depthWrite: false })); slice.visible = false; scene.add(slice);
+  var geg = new THREE.BoxGeometry(1, 1, 1); geg.translate(-0.5, 0.5, -0.5);
+  var gEdges = new THREE.LineSegments(new THREE.EdgesGeometry(geg), new THREE.LineBasicMaterial({ color: col(0xdcd3cb), transparent: true, opacity: 0.8 })); gEdges.visible = false; scene.add(gEdges);
+  var odg = new THREE.BufferGeometry(); odg.setAttribute('position', new THREE.BufferAttribute(new Float32Array(6), 3));
+  var oldDiag = new THREE.Line(odg, new THREE.LineDashedMaterial({ color: col(0xfff2df), dashSize: 0.08, gapSize: 0.06, transparent: true, opacity: 0.8 })); oldDiag.visible = false; scene.add(oldDiag);
+  var debris = { slice: slice, gEdges: gEdges, oldDiag: oldDiag, odg: odg };
+} else {
+  canvas.hidden = true; still.hidden = false;
+}
+
+function emit(x, y, z, vx, vy, vz, life, r, g, b, kind) {
+  if (!P || P.n >= P.cap) return;
+  var i = P.n++, j = i * 3;
+  P.pos[j] = x; P.pos[j + 1] = y; P.pos[j + 2] = z; P.vel[j] = vx; P.vel[j + 1] = vy; P.vel[j + 2] = vz;
+  P.c0[j] = r; P.c0[j + 1] = g; P.c0[j + 2] = b; P.life[i] = P.max[i] = life; P.kind[i] = kind;
+}
+function stepParticles(dt, sc) {
+  var i = 0;
+  while (i < P.n) {
+    var j = i * 3;
+    P.life[i] -= dt;
+    var k = P.kind[i];
+    if (k === 0 && P.pos[j + 1] < BH) P.life[i] = 0;
+    if (P.life[i] <= 0) {
+      var last = --P.n, l3 = last * 3;
+      for (var q = 0; q < 3; q++) { P.pos[j + q] = P.pos[l3 + q]; P.vel[j + q] = P.vel[l3 + q]; P.c0[j + q] = P.c0[l3 + q]; }
+      P.life[i] = P.life[last]; P.max[i] = P.max[last]; P.kind[i] = P.kind[last];
+      continue;
+    }
+    if (k === 1) { P.vel[j + 1] -= dt * sc * 0.25; P.vel[j] *= 0.985; P.vel[j + 2] *= 0.985; }
+    else if (k === 2) { P.vel[j] += (Math.random() - 0.5) * dt * sc * 0.4; P.vel[j + 2] += (Math.random() - 0.5) * dt * sc * 0.4; P.vel[j + 1] -= dt * sc * 0.03; }
+    else if (k === 3) { P.vel[j + 1] *= 0.99; }
+    P.pos[j] += P.vel[j] * dt; P.pos[j + 1] += P.vel[j + 1] * dt; P.pos[j + 2] += P.vel[j + 2] * dt;
+    var f = P.life[i] / P.max[i], fade = k === 2 ? Math.min(1, f * 1.6) * 0.75 : Math.pow(f, 1.3);
+    var cool = k === 1 ? f : 1;
+    P.gpos[j] = P.pos[j]; P.gpos[j + 1] = P.pos[j + 1]; P.gpos[j + 2] = P.pos[j + 2];
+    P.gcol[j] = P.c0[j] * fade; P.gcol[j + 1] = P.c0[j + 1] * fade * (0.45 + 0.55 * cool); P.gcol[j + 2] = P.c0[j + 2] * fade * cool;
+    i++;
+  }
+  P.geo.setDrawRange(0, P.n); P.geo.attributes.position.needsUpdate = true; P.geo.attributes.color.needsUpdate = true;
+  P.mat.size = sc * 0.04;
+}
+function emitSheet(dir, sc) {
+  for (var i = 0; i < sheets.length; i++) {
+    var sh = sheets[i]; if (sh.life > 0) continue;
+    sh.life = 1; sh.dir = dir;
+    var w = Math.max(0.04, disp.gw + disp.rw);
+    sh.m.position.set(-disp.gw, 0, dir > 0 ? -disp.d : -disp.d - sc * 0.8);
+    sh.m.scale.set(w, BH * 0.96, Math.max(0.003, sc * 0.006)); sh.m.visible = true;
+    return;
+  }
+}
+function stepSheets(dt, sc) {
+  sheets.forEach(function (sh) {
+    if (sh.life <= 0) return;
+    sh.life -= dt * 0.85;
+    if (sh.dir > 0) { sh.m.position.z -= dt * sc * 0.5; sh.m.position.y += dt * sc * 0.1; sh.m.material.opacity = 0.2 * Math.max(0, sh.life); }
+    else { sh.m.position.z += dt * sc * 0.95; sh.m.material.opacity = 0.2 * (1 - Math.max(0, sh.life)); if (sh.m.position.z >= -disp.d) sh.life = 0; }
+    if (sh.life <= 0) sh.m.visible = false;
+  });
+}
+
+function onGraduate(info) {
+  auto = null;
+  setHint('Graduated inside that buy. Same pool, same price, plain x·y=k from here.');
+  $('#runBtn').disabled = true;
+  if (!gl || reduce) return;
+  var gw = VIRT * A, d0 = info.Tpre * B, bd = info.burn * B, rw = GRAD_R * A, sc = camR;
+  debris.slice.position.set(0, 0, -d0); debris.slice.scale.set(rw, BH, bd); debris.slice.visible = true;
+  debris.slice.material.opacity = 1; debris.slice.material.color.copy(col(0xfff2df));
+  debris.gEdges.scale.set(gw, BH, d0); debris.gEdges.visible = true; debris.gEdges.material.opacity = 0.8;
+  var p = debris.odg.attributes.position.array; p[0] = -gw; p[1] = BH + 0.006; p[2] = 0; p[3] = rw; p[4] = BH + 0.006; p[5] = -d0;
+  debris.odg.attributes.position.needsUpdate = true; debris.oldDiag.computeLineDistances();
+  debris.oldDiag.material.dashSize = sc * 0.05; debris.oldDiag.material.gapSize = sc * 0.04; debris.oldDiag.visible = true; debris.oldDiag.material.opacity = 0.8;
+  for (var i = 0; i < 380; i++) {
+    emit(-gw * Math.random(), BH * Math.random(), -d0 * Math.random(), (Math.random() - 0.5) * 0.1 * sc, (0.04 + Math.random() * 0.22) * sc, (Math.random() - 0.5) * 0.1 * sc, 2 + Math.random() * 1.8, 0.62, 0.58, 0.55, 2);
+  }
+  fx = { t0: clock, gw: gw, d0: d0, bd: bd, rw: rw };
+  disp.gw = 0; disp.d = (info.Tpre - info.burn) * B; disp.rw = rw;
+  lockUntil = clock + 1.5;
+  tags.set('evG', '<b>30 SOL</b><small>virtual, dropped</small>', 't-ev');
+  tags.set('evB', '<b>' + fTok(info.burn) + '</b><small>tokens burned</small>', 't-ev');
+  tags.set('evD', 'old slope = new slope', 't-diag');
+}
+function stepFx(dt) {
+  var e = clock - fx.t0, sc = camR;
+  var k = clamp(e / 1.5, 0, 1), s = debris.slice;
+  if (s.visible) {
+    s.material.color.copy(col(0xfff2df)).lerp(col(0xff5a1f), Math.min(1, k * 1.6));
+    s.material.opacity = 1 - k; s.scale.y = Math.max(1e-4, BH * (1 - k * k));
+    if (e < 1.4) {
+      var n = Math.round(320 * dt);
+      for (var i = 0; i < n; i++) emit(Math.random() * fx.rw, BH * (1 - k * k) * Math.random(), -fx.d0 + Math.random() * fx.bd, (Math.random() - 0.5) * 0.3 * sc, (0.4 + Math.random() * 0.9) * sc, (Math.random() - 0.5) * 0.3 * sc, 0.9 + Math.random() * 1.3, 1, 0.82, 0.5, 1);
+    }
+    if (k >= 1) s.visible = false;
+  }
+  debris.gEdges.material.opacity = 0.8 * (1 - clamp(e / 1.1, 0, 1));
+  debris.oldDiag.material.opacity = 0.8 * (1 - clamp((e - 2.2) / 2.5, 0, 1));
+  if (e > 5.2) { debris.gEdges.visible = false; debris.oldDiag.visible = false; ['evG', 'evB', 'evD'].forEach(tags.remove); fx = null; }
+}
+
+function setHint(t) { var h = $('#hint'); if (h.textContent !== t) h.textContent = t; }
+function idleHint() {
+  if (S.grad) return;
+  setHint(mode === 'buy' ? 'Hold the block to buy. Drag to turn it.' : 'Hold the block to sell. Drag to turn it.');
+}
+function readout() {
+  var t = S.grad ? '<b>' + fSol(S.R) + '</b> real SOL, graduated' : '<b>' + fSol(S.R) + '</b> of 82.25 real SOL';
+  t += ' · you hold <b>' + fTok(S.held) + '</b><br>fees so far: creator <b>' + fSol(S.feeC) + '</b>, platform <b>' + fSol(S.feeP) + '</b> SOL';
+  $('#simRead').innerHTML = t;
+  $('#heatFill').style.width = (S.grad ? 100 : Math.min(100, S.R / GRAD_R * 100)).toFixed(2) + '%';
+  $('#heat').classList.toggle('done', S.grad);
+}
+function startPour(flip) {
+  pouring = true; holdT = 0; lastInput = clock; auto = null;
+  pourSide = flip ? (mode === 'buy' ? 'sell' : 'buy') : mode;
+  stage.classList.add('pouring');
+}
+function stopPour() { pouring = false; stage.classList.remove('pouring'); if (!fx) idleHint(); }
+function pulse(side) {
+  if (clock < lockUntil) return;
+  if (side === 'buy') { var r = buy(S, 1); if (r.graduated) onGraduate(r); burstPour(1); }
+  else if (!sellSol(S, 1)) setHint('Nothing to sell yet in this simulation. Buy first.');
+  dirty = readDirty = true;
+}
+function burstPour(n) {
+  if (!gl || reduce) return;
+  var sc = camR;
+  for (var i = 0; i < 24 * n; i++) emit(-disp.gw + Math.random() * (disp.gw + disp.rw), BH + sc * (0.3 + Math.random() * 0.7), -Math.random() * disp.d, 0, -sc * (1.4 + Math.random()), 0, 1.2, 1, 0.6 + Math.random() * 0.2, 0.22, 0);
+  emitSheet(1, sc);
+}
+
+/* input: hold to feed, drag to turn */
+var surface = gl ? canvas : still, down = null, holdTimer = 0;
+surface.addEventListener('pointerdown', function (e) {
+  if (e.pointerType === 'mouse' && e.button !== 0) return;
+  down = { x: e.clientX, y: e.clientY, lx: e.clientX, ly: e.clientY, id: e.pointerId, kind: null, shift: e.shiftKey };
+  try { surface.setPointerCapture(e.pointerId); } catch (_) {}
+  clearTimeout(holdTimer);
+  holdTimer = setTimeout(function () { if (down && !down.kind) { down.kind = 'pour'; startPour(down.shift); } }, 170);
+});
+surface.addEventListener('pointermove', function (e) {
+  if (!down || e.pointerId !== down.id) return;
+  var dx = e.clientX - down.lx, dy = e.clientY - down.ly; down.lx = e.clientX; down.ly = e.clientY;
+  if (!down.kind && Math.hypot(e.clientX - down.x, e.clientY - down.y) > 6) { down.kind = 'turn'; clearTimeout(holdTimer); stage.classList.add('turning'); }
+  if (down.kind === 'turn') { theta -= dx * 0.0075; phi = clamp(phi + dy * 0.004, 0.1, 1.2); swayT = 0; lastInput = clock; dirty = true; }
+});
+function endPointer(e) {
+  if (!down || (e && e.pointerId !== down.id)) return;
+  clearTimeout(holdTimer);
+  if (down.kind === 'pour') stopPour();
+  else if (!down.kind && e && e.type === 'pointerup') pulse(down.shift ? (mode === 'buy' ? 'sell' : 'buy') : mode);
+  down = null; stage.classList.remove('turning');
+}
+surface.addEventListener('pointerup', endPointer);
+surface.addEventListener('pointercancel', endPointer);
+surface.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+stage.addEventListener('keydown', function (e) {
+  if (e.target !== stage) return;
+  if ((e.key === ' ' || e.key === 'Enter') && !e.repeat) { e.preventDefault(); startPour(e.shiftKey); }
+  else if (e.key === ' ' || e.key === 'Enter') e.preventDefault();
+  else if (e.key === 'ArrowLeft') { theta += 0.18; dirty = true; e.preventDefault(); }
+  else if (e.key === 'ArrowRight') { theta -= 0.18; dirty = true; e.preventDefault(); }
+  else if (e.key === 'ArrowUp') { phi = clamp(phi + 0.1, 0.1, 1.2); dirty = true; e.preventDefault(); }
+  else if (e.key === 'ArrowDown') { phi = clamp(phi - 0.1, 0.1, 1.2); dirty = true; e.preventDefault(); }
+});
+stage.addEventListener('keyup', function (e) { if ((e.key === ' ' || e.key === 'Enter') && pouring) stopPour(); });
+stage.addEventListener('blur', function () { if (pouring) stopPour(); });
+
+$('#modeBtn').addEventListener('click', function () {
+  mode = mode === 'buy' ? 'sell' : 'buy';
+  this.setAttribute('aria-pressed', mode === 'sell'); this.textContent = mode === 'buy' ? 'Sell instead' : 'Buy instead';
+  idleHint();
+});
+$('#runBtn').addEventListener('click', function () {
+  if (S.grad) return;
+  if (reduce || !gl) { var r = buy(S, (GRAD_R - S.R) / (1 - FEE) + 0.5); if (r.graduated) onGraduate(r); dirty = readDirty = true; return; }
+  auto = 'grad'; holdT = 1.5; setHint('Pouring until it graduates…');
+});
+$('#resetBtn').addEventListener('click', function () {
+  S = fresh(); auto = null; $('#runBtn').disabled = false; idleHint(); dirty = readDirty = true;
+  if (fx) { debris.slice.visible = debris.gEdges.visible = debris.oldDiag.visible = false; ['evG', 'evB', 'evD'].forEach(tags.remove); fx = null; }
+});
+
+function resize() {
+  var r = stage.getBoundingClientRect(); W = Math.max(1, Math.round(r.width)); H = Math.max(1, Math.round(r.height));
+  if (gl) { renderer.setSize(W, H, false); camera.aspect = W / H; }
+  simTop = $('.sim').offsetTop;
+  tags.remeasure(); dirty = true;
+}
+if (window.ResizeObserver) new ResizeObserver(resize).observe(stage); else window.addEventListener('resize', resize);
+resize();
+if ('IntersectionObserver' in window) new IntersectionObserver(function (es) { visible = es[0].isIntersecting; }).observe(stage);
+
+function heroTags(an, wideNum) {
+  standingText(tags, S);
+  var cap = mcapOf(S);
+  tags.set('mcap', '<span class="n" style="font-stretch:' + wideNum + '%">' + fSol(cap) + '<em>SOL</em></span><small>market cap · ' + fPx(priceOf(S)) + ' SOL per 1M tokens</small>', 't-mcap');
+  var f = heroFrame();
+  pinBlock(tags, S, an, W, H, { top: true, diag: W >= 600, minTop: f.minTop, maxY: f.maxY, len: W >= 600 ? 32 : 22, topLen: W >= 600 ? 56 : 30 });
+}
+
+var last = performance.now();
+function loop(now) {
+  requestAnimationFrame(loop);
+  var dt = Math.min(0.05, (now - last) / 1000); last = now;
+  if (!visible) return;
+  clock += dt;
+  /* feeding */
+  var feeding = (pouring || auto) && clock >= lockUntil;
+  if (feeding) {
+    holdT += dt;
+    var side = auto ? 'buy' : pourSide;
+    var rate = auto === 'grad' ? 30 : auto === 'intro' ? 14 : 2.5 + 24 * Math.min(1, holdT / 2.6);
+    var d = rate * dt;
+    if (side === 'buy') {
+      var r = buy(S, d); if (r.graduated) onGraduate(r);
+      if (gl && !reduce) {
+        var sc0 = camR, n = Math.ceil(rate * dt * 6);
+        for (var i = 0; i < n; i++) emit(-disp.gw + Math.random() * (disp.gw + disp.rw), BH + sc0 * (0.5 + Math.random() * 0.8), -Math.random() * disp.d, 0, -sc0 * (1.4 + Math.random()), 0, 1.4, 1, 0.55 + Math.random() * 0.25, 0.2, 0);
+        if (Math.random() < dt * 6) emitSheet(1, sc0);
+      }
+      if (!fx && !auto && !S.grad) setHint('Buying. ' + fSol(Math.max(0, GRAD_R - S.R)) + ' SOL to graduation.');
+      if (!fx && !auto && S.grad) setHint('Buying on the graduated pool.');
+    } else {
+      var got = sellSol(S, d);
+      if (!got) { setHint('Nothing left to sell in this simulation.'); }
+      else {
+        setHint('Selling. The block narrows, tokens go back in.');
+        if (gl && !reduce) {
+          var sc1 = camR;
+          for (var k = 0; k < 3; k++) emit(Math.random() * disp.rw, BH, -Math.random() * disp.d, (Math.random() - 0.5) * 0.1 * sc1, sc1 * (0.4 + Math.random() * 0.5), 0, 1.1, 1, 0.5, 0.15, 3);
+          if (Math.random() < dt * 8) emitSheet(-1, sc1);
+        }
+      }
+    }
+    if (auto === 'intro' && S.R >= 24) { auto = null; idleHint(); }
+    flare = Math.min(1, flare + dt * 2); dirty = readDirty = true; lastInput = clock;
+  } else flare = Math.max(0, flare - dt * 0.7);
+
+  /* shape follows the pool */
+  var tg = dimsOf(S);
+  if (reduce || !gl) disp = tg;
+  else { var kk = 1 - Math.exp(-dt * 9); disp.gw += (tg.gw - disp.gw) * kk; disp.rw += (tg.rw - disp.rw) * kk; disp.d += (tg.d - disp.d) * kk; }
+  if (readDirty) { readout(); readDirty = false; }
+
+  if (!gl) { if (dirty) { drawStill(); dirty = false; } return; }
+
+  var moving = !reduce && (fx || P.n > 0 || pouring || auto || Math.abs(tg.rw - disp.rw) + Math.abs(tg.d - disp.d) + Math.abs(tg.gw - disp.gw) > 1e-4);
+  var idle = !reduce && clock - lastInput > 3.5 && !down;
+  if (idle) swayT += dt;
+  if (!dirty && !moving && !idle) return;
+
+  var f = heroFrame(), aspect = W / H;
+  var fr = frameFor(disp, aspect, f.fx, f.fy);
+  if (reduce) { camC.copy(fr.c); camDist = fr.dist; camR = fr.r; }
+  else { var kc = 1 - Math.exp(-dt * 3); camC.lerp(fr.c, kc); camDist += (fr.dist - camDist) * kc; camR += (fr.r - camR) * kc; }
+  var th = theta + (reduce ? 0 : 0.2 * Math.sin(swayT * 0.22));
+  camera.clearViewOffset(); camera.setViewOffset(W, H, f.ox, f.oy, W, H);
+  setCam(camera, camC, camDist, th, phi);
+  lights.aim(camC, camR, disp, camDist);
+  rig.layout(disp, Math.max(0.22, camR * 0.11));
+  var h = heatOf(S), flick = reduce ? 0.5 : 0.5 + 0.5 * Math.sin(clock * 7.3) * Math.sin(clock * 2.9 + 1);
+  rig.heat(Math.min(1.15, h + flare * 0.12), flick);
+  lights.glow(h * (0.85 + flare * 0.3) * (0.9 + 0.1 * flick));
+  if (!reduce) { stepParticles(dt, camR); stepSheets(dt, camR); if (fx) stepFx(dt); }
+  renderer.render(scene, camera);
+
+  /* labels pinned in 3D */
+  var pr = projector(camera, W, H);
+  var an = anchorsOf(disp, pr);
+  var ratio = (disp.gw + disp.rw) / Math.max(1e-3, disp.d);
+  heroTags(an, Math.round(clamp(100 * Math.pow(ratio, 0.3), 62, 150)));
+  if (fx) {
+    var c = an.center;
+    var g1 = pr(-fx.gw / 2, BH * 0.6, -fx.d0 / 2), g2 = pr(fx.rw / 2, BH, -fx.d0 + fx.bd / 2), g3 = pr(-fx.gw + (fx.rw + fx.gw) * 0.12, BH, -fx.d0 * 0.12);
+    tags.place('evG', g1, radial(g1, c, { x: -1, y: 0 }), 40, W, H, f.minTop, f.maxY);
+    tags.place('evB', g2, radial(g2, c, { x: 1, y: -1 }), 44, W, H, f.minTop, f.maxY);
+    if (W >= 600) tags.place('evD', g3, radial(g3, c, { x: -1, y: -1 }), 30, W, H, f.minTop);
+  }
+  dirty = false;
+}
+
+function drawStill() {
+  var f = heroFrame(), wide = W >= 900;
+  var cx = wide ? W * 0.67 : W / 2, cy = wide ? H * 0.52 : H * 0.575;
+  var r = isoSVG(S, W, H, { fx: wide ? 0.46 : 0.86, fy: wide ? 0.42 : 0.22, cx: cx, cy: cy, pad: 10 });
+  still.innerHTML = r.svg;
+  var ratio = (dimsOf(S).gw + dimsOf(S).rw) / Math.max(1e-3, dimsOf(S).d);
+  heroTags(r.anchors, Math.round(clamp(100 * Math.pow(ratio, 0.3), 62, 150)));
+}
+
+/* opening: a short pour so the block is warm, then it is the visitor's */
+if (reduce || !gl) { buy(S, 24 / (1 - FEE)); disp = dimsOf(S); dirty = readDirty = true; }
+else { auto = 'intro'; setHint('Pouring a little SOL in…'); }
+requestAnimationFrame(loop);
+
+/* ================= the top view: corners on one curve ================= */
+var fig = $('#fig'), figR = $('#figR'), figOut = $('#figOut');
+function figState(v) { return v < GRAD_R ? { grad: false, x: VIRT + v, T: K0 / (VIRT + v), v: v } : { grad: true, x: v, T: K2 / v, v: v }; }
+function drawFig() {
+  var v = parseFloat(figR.value) || 0, s = figState(v);
+  var PL = 70, PR = 620, PT = 28, PB = 384, XM = 200;
+  function X(x) { return PL + x / XM * (PR - PL); }
+  function Y(t) { return PB - t / 1e9 * (PB - PT); }
+  function curve(k, x0, x1) { var d = ''; for (var i = 0; i <= 90; i++) { var x = x0 + (x1 - x0) * i / 90; d += (i ? 'L' : 'M') + X(x).toFixed(1) + ',' + Y(k / x).toFixed(1); } return d; }
+  var xg = VIRT + GRAD_R, out = '';
+  out += '<defs><pattern id="fh" width="7" height="7" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="7" stroke="#c9c0b8" stroke-width="1" stroke-opacity=".5"/></pattern></defs>';
+  // rectangles
+  if (!s.grad) {
+    out += '<rect x="' + X(0) + '" y="' + Y(s.T).toFixed(1) + '" width="' + (X(VIRT) - X(0)).toFixed(1) + '" height="' + (PB - Y(s.T)).toFixed(1) + '" fill="url(#fh)" stroke="#d7cec6" stroke-opacity=".7"/>';
+    out += '<rect x="' + X(VIRT) + '" y="' + Y(s.T).toFixed(1) + '" width="' + Math.max(0, X(s.x) - X(VIRT)).toFixed(1) + '" height="' + (PB - Y(s.T)).toFixed(1) + '" fill="' + heatCss(heatOf({ R: v, grad: false })) + '" fill-opacity=".9"/>';
+  } else {
+    out += '<rect x="' + X(0) + '" y="' + Y(s.T).toFixed(1) + '" width="' + (X(s.x) - X(0)).toFixed(1) + '" height="' + (PB - Y(s.T)).toFixed(1) + '" fill="' + heatCss(1) + '" fill-opacity=".9"/>';
+  }
+  // axes
+  out += '<line x1="' + PL + '" y1="' + PB + '" x2="' + PR + '" y2="' + PB + '" stroke="rgba(242,233,223,.35)"/><line x1="' + PL + '" y1="' + PB + '" x2="' + PL + '" y2="' + PT + '" stroke="rgba(242,233,223,.35)"/>';
+  out += '<text x="' + PR + '" y="' + (PB + 22) + '" text-anchor="end">width: SOL the price counts</text>';
+  out += '<text x="' + (PL - 8) + '" y="' + (PT + 4) + '" text-anchor="end">1B</text><text x="' + (PL + 8) + '" y="' + (PT + 4) + '">depth: tokens in the pool</text>';
+  [30, 112.25, 200].forEach(function (t) { out += '<text x="' + X(t).toFixed(1) + '" y="' + (PB + 22) + '" text-anchor="middle">' + (t === 200 ? '' : t) + '</text>'; });
+  // curves
+  out += '<path d="' + curve(K0, VIRT, xg) + '" fill="none" stroke="#ffae63" stroke-width="1.5"/>';
+  out += '<path d="' + curve(K0, xg, XM) + '" fill="none" stroke="#ffae63" stroke-opacity=".3" stroke-dasharray="3 4"/>';
+  out += '<path d="' + curve(K2, K2 / (SUPPLY - BURN_G), XM) + '" fill="none" stroke="#f2e9df" stroke-width="' + (s.grad ? 1.5 : 1) + '" stroke-opacity="' + (s.grad ? 0.9 : 0.25) + '"' + (s.grad ? '' : ' stroke-dasharray="3 4"') + '/>';
+  // the ray: its slope is the price
+  var ex = Math.min(XM, 1e9 * s.x / s.T), et = ex * s.T / s.x;
+  out += '<line x1="' + X(0) + '" y1="' + Y(0) + '" x2="' + X(ex).toFixed(1) + '" y2="' + Y(et).toFixed(1) + '" stroke="#fff2df" stroke-opacity=".55" stroke-dasharray="2 3"/>';
+  // graduation point
+  out += '<rect x="' + (X(xg) - 4).toFixed(1) + '" y="' + (Y(T_G) - 4).toFixed(1) + '" width="8" height="8" fill="none" stroke="#fff2df" stroke-opacity=".8"/>';
+  out += '<text x="' + (X(xg) + 10).toFixed(1) + '" y="' + (Y(T_G) - 8).toFixed(1) + '" class="hi">420 SOL cap: graduation</text>';
+  if (s.grad) {
+    out += '<line x1="' + X(xg).toFixed(1) + '" y1="' + Y(T_G).toFixed(1) + '" x2="' + X(GRAD_R).toFixed(1) + '" y2="' + Y(T_G2).toFixed(1) + '" stroke="#ff5a1f" stroke-width="2"/>';
+    out += '<text x="' + (X(GRAD_R) - 10).toFixed(1) + '" y="' + (Y(T_G2) + 4).toFixed(1) + '" text-anchor="end" class="em">drops down the line</text>';
+  }
+  // the corner
+  out += '<rect x="' + (X(s.x) - 5).toFixed(1) + '" y="' + (Y(s.T) - 5).toFixed(1) + '" width="10" height="10" fill="#ff5a1f"/>';
+  var lx = X(s.x) + 12, anchor = 'start';
+  if (lx > PR - 150) { lx = X(s.x) - 12; anchor = 'end'; }
+  out += '<text x="' + lx.toFixed(1) + '" y="' + (Y(s.T) - 16).toFixed(1) + '" text-anchor="' + anchor + '" class="hi">' + (s.grad ? fSol(s.x) + ' SOL' : '30 + ' + fSol(v) + ' SOL') + '</text>';
+  out += '<text x="' + lx.toFixed(1) + '" y="' + (Y(s.T) - 2).toFixed(1) + '" text-anchor="' + anchor + '">' + fTok(s.T) + ' tokens</text>';
+  if (!s.grad) out += '<text x="' + (X(VIRT / 2)).toFixed(1) + '" y="' + (PB - 10) + '" text-anchor="middle" class="hi">virtual</text>';
+  fig.innerHTML = out;
+  var cap = s.grad ? s.x / s.T * (SUPPLY - BURN_G) : s.x / s.T * SUPPLY;
+  figOut.textContent = (s.grad ? 'graduated · ' : '') + 'market cap ' + fSol(cap) + ' SOL · price ' + fPx(s.x / s.T) + ' SOL per 1M · width × depth = ' + ((s.x * s.T) / 1e9).toFixed(2) + 'B';
+}
+figR.addEventListener('input', drawFig);
+(function () {
+  var drag = null;
+  fig.addEventListener('pointerdown', function (e) { drag = { x: e.clientX, v: parseFloat(figR.value) }; try { fig.setPointerCapture(e.pointerId); } catch (_) {} });
+  fig.addEventListener('pointermove', function (e) {
+    if (!drag) return;
+    var w = fig.getBoundingClientRect().width * (550 / 640);
+    figR.value = clamp(drag.v + (e.clientX - drag.x) / w * 200, 0, 200); drawFig();
+  });
+  function up() { drag = null; }
+  fig.addEventListener('pointerup', up); fig.addEventListener('pointercancel', up);
+})();
+drawFig();
+
+/* ================= proof: the board and a coin page ================= */
+var thumb = null;
+function getThumb() {
+  if (thumb !== null) return thumb;
+  try {
+    if (!HAS3 || !gl) throw new Error('no webgl');
+    var c = document.createElement('canvas');
+    var r = new THREE.WebGLRenderer({ canvas: c, antialias: true, preserveDrawingBuffer: true });
+    setupRenderer(r);
+    var sc = new THREE.Scene(), li = makeStage(sc), rg = makeBlock(); sc.add(rg.group);
+    thumb = { r: r, sc: sc, li: li, rg: rg, cam: new THREE.PerspectiveCamera(FOV, 1, 0.05, 200) };
+  } catch (e) { thumb = false; }
+  return thumb;
+}
+function paintBlock(s, box, o) {
+  // draws coin s into the box (a canvas, or replaced by an SVG still); returns anchors in CSS px
+  o = o || {};
+  var Wb = Math.max(1, box.clientWidth), Hb = Math.max(1, box.clientHeight), th = getThumb();
+  var cnv = box.querySelector('canvas');
+  if (th && cnv) {
+    var dpr = Math.min(2, window.devicePixelRatio || 1);
+    cnv.width = Math.round(Wb * dpr); cnv.height = Math.round(Hb * dpr);
+    th.r.setPixelRatio(dpr); th.r.setSize(Wb, Hb, false);
+    var dm = dimsOf(s), fr = frameFor(dm, Wb / Hb, o.fx || 0.8, o.fy || 0.7);
+    th.cam.aspect = Wb / Hb; th.cam.clearViewOffset();
+    setCam(th.cam, fr.c, fr.dist, o.theta != null ? o.theta : 0.66, o.phi != null ? o.phi : 0.42);
+    th.li.aim(fr.c, fr.r, dm, fr.dist); th.rg.layout(dm, Math.max(0.22, fr.r * 0.11));
+    var h = heatOf(s); th.rg.heat(h, 0.5); th.li.glow(h * 0.9);
+    th.r.render(th.sc, th.cam);
+    var g = cnv.getContext('2d'); g.clearRect(0, 0, cnv.width, cnv.height); g.drawImage(th.r.domElement, 0, 0, cnv.width, cnv.height);
+    return anchorsOf(dm, projector(th.cam, Wb, Hb));
+  }
+  var res = isoSVG(s, Wb, Hb, { fx: o.fx || 0.8, fy: o.fy || 0.7, pad: 8 });
+  var old = box.querySelector('svg.still'); if (old) old.remove();
+  if (cnv) cnv.style.display = 'none';
+  box.insertAdjacentHTML('afterbegin', res.svg);
+  return res.anchors;
+}
+
+var PROOF = { live: false, pool: null, state: exampleState(9.6), trades: [], side: 'buy' };
+var coinLayer = tagLayer($('#coinTags'), $('#coinLeaders'));
+function tile(t) {
+  var pct = t.s.grad ? 100 : Math.min(100, t.s.R / GRAD_R * 100);
+  return '<article class="tile' + (t.example ? ' ex' : '') + '"><div class="tile-fig"><canvas></canvas></div><div>' +
+    '<p class="tile-name">' + t.name + '<span class="' + (t.example ? '' : 'livetag') + '">' + t.tag + '</span></p>' +
+    '<p class="tile-cap">' + fSol(mcapOf(t.s)) + '<small>SOL cap</small></p>' +
+    '<div class="heat' + (t.s.grad ? ' done' : '') + '"><i style="width:' + pct.toFixed(1) + '%"></i></div>' +
+    '<p class="tile-meta">' + t.meta + '</p></div></article>';
+}
+function renderBoard() {
+  var list = [];
+  if (PROOF.live) list.push({ s: PROOF.state, name: 'Devnet test coin', tag: 'live on devnet · real numbers', meta: (PROOF.state.grad ? 'graduated' : (PROOF.state.R / GRAD_R * 100).toFixed(1) + '% of the way to 420') + ' · ' + PROOF.trades.length + ' trades · opened ' + ago(PROOF.pool.openedAt) });
+  list.push({ s: exampleState(176), example: true, name: 'Example, graduated', tag: 'simulated shape, not a coin', meta: 'wide and flat: bought far past 420' });
+  list.push({ s: exampleState(58), example: true, name: 'Example, running hot', tag: 'simulated shape, not a coin', meta: '70% of the way to 420' });
+  if (!PROOF.live) list.push({ s: PROOF.state, example: true, name: 'Example, just opened', tag: 'simulated shape, not a coin', meta: 'long and thin: mostly virtual' });
+  list.sort(function (a, b) { return heatOf(b.s) * (b.example ? 1 : 2) - heatOf(a.s) * (a.example ? 1 : 2); });
+  if (PROOF.live) list.sort(function (a, b) { return (a.example ? 1 : 0) - (b.example ? 1 : 0); });
+  $('#tiles').innerHTML = list.map(tile).join('');
+  Array.prototype.forEach.call(document.querySelectorAll('#tiles .tile-fig'), function (box, i) { paintBlock(list[i].s, box, { fx: 0.9, fy: 0.85 }); });
+}
+function renderCoinInfo() {
+  var s = PROOF.state, p = PROOF.pool, live = PROOF.live;
+  var mint = live ? String(p.mint) : null, link = live ? explorer('address', mint) : null;
+  var html = '<p class="cp-name">' + (live ? 'Devnet test coin' : 'Example coin') + '<span>' + (live ? 'its test name is hidden here · numbers are read from devnet' : 'simulated: devnet did not answer') + '</span></p>';
+  html += '<p class="cp-meta">' + (live ? (link ? '<a href="' + link + '" target="_blank" rel="noopener">mint ' + shortKey(mint) + ' ↗</a>' : 'mint ' + shortKey(mint)) + ' · opened ' + ago(p.openedAt) : 'one pool for its whole life') + '</p>';
+  html += '<p class="cp-cap">' + fSol(mcapOf(s)) + '<small>SOL market cap</small></p>';
+  html += '<p class="cp-px">' + fPx(priceOf(s)) + ' SOL per 1M tokens</p>';
+  html += '<div class="heat' + (s.grad ? ' done' : '') + '"><i style="width:' + (s.grad ? 100 : Math.min(100, s.R / GRAD_R * 100)).toFixed(1) + '%"></i></div>';
+  html += '<p class="cp-heat">' + (s.grad ? 'graduated · ' + fSol(s.R) + ' real SOL' : fSol(s.R) + ' of 82.25 real SOL · ' + (s.R / GRAD_R * 100).toFixed(1) + '% of the way to 420') + '</p>';
+  html += '<div class="trade"><div class="seg" role="group" aria-label="Side"><button type="button" data-side="buy" aria-pressed="' + (PROOF.side === 'buy') + '">Buy</button><button type="button" data-side="sell" aria-pressed="' + (PROOF.side === 'sell') + '">Sell</button></div>';
+  html += '<label class="amt"><span class="vh">Amount</span><input id="amt" inputmode="decimal" autocomplete="off" value="' + (PROOF.side === 'buy' ? '1' : '1000000') + '"><span id="amtUnit">' + (PROOF.side === 'buy' ? 'SOL' : 'tokens') + '</span></label>';
+  html += '<p class="quote" id="quote"></p>';
+  html += '<button type="button" class="holdbtn" id="holdBtn"><i></i><span>Hold to ' + PROOF.side + '</span></button>';
+  html += '<p class="fine" id="tradeNote">' + (live ? 'Quote from the live pool, exact to the lamport. ' : 'Quote from the simulation. ') + 'Wallets come later: nothing is sent.</p></div>';
+  if (PROOF.trades.length) {
+    var max = Math.max.apply(null, PROOF.trades.map(function (t) { return Number(t.sol); })) || 1;
+    html += '<ol class="slivers" aria-label="Recent trades">' + PROOF.trades.slice().reverse().slice(0, 6).map(function (t) {
+      var u = explorer('tx', t.signature), solv = Number(t.sol) / 1e9, tok = Number(t.tokens);
+      return '<li class="' + (t.buy ? 'buy' : 'sell') + '"><i style="width:' + Math.max(2, Number(t.sol) / max * 100).toFixed(1) + '%"></i><span>' + (t.buy ? 'buy' : 'sell') + ' <b>' + fSol(solv) + ' SOL</b> ' + (t.buy ? '→' : '←') + ' ' + fTok(tok / 1e6) + '</span>' + (u ? '<a href="' + u + '" target="_blank" rel="noopener">' + ago(t.time) + ' ↗</a>' : '<span>' + ago(t.time) + '</span>') + '</li>';
+    }).join('') + '</ol>';
+  }
+  $('#coinInfo').innerHTML = html;
+  Array.prototype.forEach.call(document.querySelectorAll('#coinInfo .seg button'), function (b) {
+    b.addEventListener('click', function () { PROOF.side = b.getAttribute('data-side'); renderCoinInfo(); });
+  });
+  $('#amt').addEventListener('input', renderQuote);
+  wireHold($('#holdBtn'));
+  renderQuote();
+}
+function xr(r) { return Number(r.graduated ? r.realSol : r.virtualSol + r.realSol) / 1e9; }
+function quote(side, amt) {
+  var p = PROOF.pool;
+  if (PROOF.live && window.Chain && Chain.quoteBuy) {
+    try {
+      var r = { virtualSol: p.virtualSol, realSol: p.realSol, tokens: p.tokens, graduationSol: p.graduationSol, graduated: p.graduated };
+      if (side === 'buy') {
+        var q = Chain.quoteBuy(r, BigInt(Math.round(amt * 1e9)), p.feeBps);
+        return { out: Number(q.tokensOut) / 1e6, fee: Number(q.fee) / 1e9, w0: xr(r), w1: xr(q.after), grad: q.graduates };
+      }
+      var q2 = Chain.quoteSell(r, BigInt(Math.round(amt * 1e6)), p.feeBps);
+      return { out: Number(q2.solOut) / 1e9, fee: Number(q2.fee) / 1e9, w0: xr(r), w1: xr(q2.after), grad: false };
+    } catch (e) { /* fall through to the float model */ }
+  }
+  var c = Object.assign({}, PROOF.state); c.held = Infinity;
+  var w0 = xOf(c);
+  if (side === 'buy') { var b = buy(c, amt); return { out: b.out, fee: amt * FEE, w0: w0, w1: xOf(c), grad: b.graduated }; }
+  var got = sellTokens(c, amt); return { out: got, fee: got / (1 - FEE) * FEE, w0: w0, w1: xOf(c), grad: false };
+}
+function renderQuote() {
+  var el = $('#quote'), amt = parseFloat(($('#amt').value || '').replace(',', '.'));
+  if (!(amt > 0)) { el.textContent = 'Type an amount.'; return; }
+  var outside = SUPPLY - PROOF.state.burned - PROOF.state.T;
+  if (PROOF.side === 'sell' && amt > outside) { el.textContent = 'Only ' + fTok(outside) + ' tokens are outside the pool.'; return; }
+  var q = quote(PROOF.side, amt), pct = Math.abs(q.w1 / q.w0 - 1) * 100;
+  el.innerHTML = PROOF.side === 'buy'
+    ? 'You get <b>' + fTok(q.out) + '</b> tokens. Fee <b>' + fSol(q.fee) + '</b> SOL, half to the creator. The block gets <b>' + pct.toFixed(2) + '%</b> wider' + (q.grad ? ' and graduates.' : '.')
+    : 'You get <b>' + fSol(q.out) + '</b> SOL. Fee <b>' + fSol(q.fee) + '</b> SOL. The block gets <b>' + pct.toFixed(2) + '%</b> narrower.';
+}
+function wireHold(btn) {
+  var t = 0;
+  function start(e) { if (e && e.type === 'keydown' && e.key !== ' ' && e.key !== 'Enter') return; if (e) e.preventDefault(); if (btn.classList.contains('holding')) return; btn.classList.add('holding'); t = setTimeout(done, reduce ? 0 : 900); }
+  function stop() { clearTimeout(t); btn.classList.remove('holding'); }
+  function done() { btn.classList.remove('holding'); $('#tradeNote').textContent = 'Nothing was sent. Trading opens with wallets, coming soon.'; }
+  btn.addEventListener('pointerdown', start); btn.addEventListener('pointerup', stop); btn.addEventListener('pointerleave', stop); btn.addEventListener('pointercancel', stop);
+  btn.addEventListener('keydown', start); btn.addEventListener('keyup', stop);
+  btn.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+}
+function renderCoinFig() {
+  var box = $('#coinFig'), s = PROOF.state;
+  var an = paintBlock(s, box, { fx: 0.74, fy: 0.6, theta: 0.7, phi: 0.4 });
+  standingText(coinLayer, s);
+  pinBlock(coinLayer, s, an, box.clientWidth, box.clientHeight, { diag: box.clientWidth > 420, len: 30, minTop: 8 });
+}
+function renderProof() {
+  renderBoard(); renderCoinInfo(); renderCoinFig();
+  $('#proofNote').textContent = PROOF.live
+    ? 'A coin on the board, and the top of its page. The real devnet coin is drawn from its own pool; the dimmed tiles are example shapes.'
+    : 'A coin on the board, and the top of its page. Devnet did not answer, so every block here is an example.';
+}
+var proofW = 0;
+function proofResize() { var w = $('#coinFig').clientWidth; if (Math.abs(w - proofW) > 8) { proofW = w; renderBoard(); renderCoinFig(); } }
+if (window.ResizeObserver) new ResizeObserver(function () { clearTimeout(proofResize.t); proofResize.t = setTimeout(proofResize, 150); }).observe($('#coinFig'));
+renderProof(); proofW = $('#coinFig').clientWidth;
+
+/* ================= live devnet data ================= */
+function withTimeout(p, ms) { return Promise.race([p, new Promise(function (_, no) { setTimeout(function () { no(new Error('timeout')); }, ms); })]); }
+function liveFail() {
+  $('#liveText').textContent = 'Devnet did not answer. Everything above is a simulation either way.';
+  $('#liveDot').classList.remove('on');
+}
+(async function boot() {
+  var prog = window.NET && NET.program, pl = prog ? explorer('address', prog) : null;
+  if (pl) $('#footText').innerHTML = 'Runs on Solana devnet: <a href="' + pl + '" target="_blank" rel="noopener">the program on the explorer ↗</a>. The coin board, coin pages and launches are coming.';
+  if (!window.Chain || !window.NET || !NET.ready) { liveFail(); return; }
+  try {
+    var pools = await withTimeout(Chain.listPools(), 15000);
+    if (!pools.length) { $('#liveText').textContent = 'No coins on devnet yet.'; return; }
+    pools.sort(function (a, b) { return Number(b.volume) - Number(a.volume); });
+    var featured = pools[0], events = [];
+    for (var attempt = 0; attempt < 3 && !events.length; attempt++) {
+      if (attempt) await new Promise(function (ok) { setTimeout(ok, 1500 * attempt); });
+      try { events = await withTimeout(Chain.history(featured.mint), 15000); } catch (e) { events = []; }
+    }
+    var trades = events.filter(function (e) { return e.kind === 'trade'; });
+    var lastT = trades.length ? trades[trades.length - 1].time : featured.openedAt;
+    $('#liveDot').classList.add('on');
+    $('#liveText').innerHTML = pools.length + ' coin' + (pools.length === 1 ? '' : 's') + ', ' + trades.length + ' trade' + (trades.length === 1 ? '' : 's') + ' on the busiest. Last one ' + ago(lastT) + '.' + (pl ? ' <a href="' + pl + '" target="_blank" rel="noopener">Program ↗</a>' : '');
+    PROOF.live = true; PROOF.pool = featured; PROOF.state = stateFromPool(featured); PROOF.trades = trades;
+    renderProof();
+  } catch (e) { liveFail(); }
+})();
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,505 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>forma coins</title>
+<meta name="description" content="Every coin on forma's devnet pool program, each drawn as a black hole whose disk is the real SOL in its pool.">
+<script>window.__errors = []; addEventListener('error', function (e) { __errors.push(String(e.message || e)); }); addEventListener('unhandledrejection', function (e) { __errors.push('promise: ' + String(e.reason && e.reason.message || e.reason)); });</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anybody:wdth,wght@50..150,100..900&family=Martian+Mono:wdth,wght@75..112.5,100..800&display=swap">
+<link rel="stylesheet" href="/assets/forma.css">
+<style>
+/* ===== the board: every coin on devnet as a still black hole (assets/bh.js), its disk as far as its real SOL
+   reaches, jets once it has graduated; the shared look is assets/forma.css ===== */
+
+/* ---------- head: the count over a few pixel stars ---------- */
+.sky { position: relative; background-repeat: repeat; image-rendering: pixelated; }
+.sky::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 96px; background: linear-gradient(transparent, var(--f-bg)); pointer-events: none; }
+.sky > * { position: relative; z-index: 1; }
+.head { padding-top: clamp(28px, 6vw, 88px); padding-bottom: clamp(34px, 5vw, 60px); }
+.head .kick { margin-bottom: 14px; }
+.head h1 { font-size: clamp(34px, 4.8vw, 70px); text-wrap: balance; }
+.totals { margin-top: 20px; font-size: 12px; color: var(--f-mute); font-variant-numeric: tabular-nums; min-height: 1.65em; }
+.totals b { color: var(--f-yellow); font-weight: 500; }
+.key { max-width: 76ch; margin-top: 6px; font-size: 11px; color: var(--f-mute); }
+
+/* ---------- controls: three pixel chips, a select and a search line ---------- */
+.board-sec { padding-bottom: clamp(56px, 8vw, 104px); }
+.ctl { display: flex; flex-wrap: wrap; align-items: center; gap: 16px 32px; font-size: 12px; }
+.seg { display: flex; flex-wrap: wrap; gap: 8px; }
+.seg .btn { gap: 8px; }
+.seg .c { font: 400 10px/1 var(--f-mono); font-stretch: 87.5%; letter-spacing: 0; font-variant-numeric: tabular-nums; opacity: .75; }
+.seg .c:empty { display: none; }
+.sort { display: flex; align-items: center; gap: 10px; }
+.lbl { color: var(--f-mute); }
+.sel { position: relative; display: inline-block; }
+.sel::after { content: ''; position: absolute; right: 2px; top: 50%; margin-top: -2px; border: 4px solid transparent; border-bottom: 0; border-top-color: var(--f-mute); pointer-events: none; }
+.sel select, .find input { -webkit-appearance: none; appearance: none; background: transparent; color: var(--f-cream); border: 0; border-radius: 0; font: inherit; padding: 4px 0; }
+.sel select { border-bottom: 2px solid var(--f-line2); padding-right: 20px; cursor: pointer; }
+.sel select:hover, .sel select:focus-visible { border-bottom-color: var(--f-yellow); }
+.sel select option { background: var(--f-deep); color: var(--f-cream); }
+.find { display: flex; margin-left: auto; width: min(280px, 100%); border-bottom: 2px solid var(--f-line2); }
+.find:focus-within { border-bottom-color: var(--f-yellow); }
+.find input { flex: 1; min-width: 0; outline: none; }
+.find input::placeholder { color: var(--f-mute); opacity: 1; }
+.find input::-webkit-search-cancel-button { display: none; }
+.status { display: flex; align-items: center; gap: 10px; margin-top: 22px; font-size: 11px; color: var(--f-mute); min-height: 1.65em; }
+.dot { flex: none; width: 6px; height: 6px; background: var(--f-purple); }
+.dot.on { background: var(--f-yellow); }
+.dot.wait { animation: c-wait 1.2s steps(1) infinite; }
+@keyframes c-wait { 50% { background: var(--f-yellow); } }
+
+/* ---------- the tiles: outlined cards, one still hole each, the numbers under it ---------- */
+.board { display: grid; grid-template-columns: repeat(auto-fill, minmax(232px, 1fr)); gap: 14px; margin-top: 30px; }
+.coin { display: block; min-width: 0; color: inherit; text-decoration: none; }
+.coin[hidden] { display: none; }
+.coin .card { padding: 16px 16px 18px; height: 100%; }
+.coin canvas { margin: 0 auto 14px; }
+.coin .nm { display: block; font: 850 16px/1.1 var(--f-head); font-stretch: 118%; text-transform: uppercase; overflow-wrap: anywhere; }
+.coin .sy { display: flex; flex-wrap: wrap; column-gap: 1em; margin-top: 4px; font-size: 11px; color: var(--f-mute); }
+.coin .sy i { font-style: normal; white-space: nowrap; }   /* symbol, short mint, when: each piece wraps whole */
+.coin .in { margin-top: 12px; font-size: 12px; font-variant-numeric: tabular-nums; }   /* the SOL in: what the disk shows */
+.coin dl { display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; margin: 6px 0 0; font-size: 11px; font-variant-numeric: tabular-nums; }
+.coin dt { color: var(--f-mute); }
+.coin dd { margin: 0; text-align: right; }
+/* the launch settings that differ from the default, after a dashed line; each piece wraps whole */
+.coin .set { display: flex; flex-wrap: wrap; column-gap: 1.2em; margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--f-line2); font-size: 11px; color: var(--f-yellow); }
+.coin .set i { font-style: normal; white-space: nowrap; }
+a.coin:hover .card, a.coin:focus-visible .card { background: var(--f-line2); }
+/* loading: empty holes drawn dim, and bars; the status pixel blinks */
+.coin.ghost { pointer-events: none; }
+.coin .bar { display: block; height: 8px; margin-top: 10px; background: var(--f-deep); }
+.coin .bar:first-child { height: 12px; margin-top: 0; }
+.coin.empty { pointer-events: auto; }
+.coin.empty .sy { margin-top: 8px; }
+.coin.empty .q { display: inline-block; margin-top: 12px; font-size: 12px; }
+.state { margin-top: 30px; }
+.state[hidden] { display: none; }
+.state p { font: 850 clamp(20px, 2vw, 26px)/1.15 var(--f-head); font-stretch: 118%; text-transform: uppercase; }
+.state small { display: block; max-width: 64ch; margin-top: 10px; font: 400 11px/1.6 var(--f-mono); font-stretch: 87.5%; text-transform: none; color: var(--f-mute); }
+.state .btn { margin-top: 16px; }
+
+/* the strip shows only news: SOL that moved since the page opened, launches and graduations of the last day; with
+   none it keeps its place, empty, as on a coin's page */
+.tick.none { visibility: hidden; }
+
+/* reduced motion (the visitor's setting, or ?motion=reduce): nothing blinks */
+.still .dot.wait, .still .tick .tag i { animation: none; }
+@media (prefers-reduced-motion: reduce) { .dot.wait { animation: none; } }
+
+@media (max-width: 760px) {
+  .ctl { gap: 14px 20px; }
+  .find { margin-left: 0; width: 100%; }
+}
+@media (max-width: 560px) {
+  .tick .tag { padding-left: 16px; }
+  .board { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 24px; }
+  .coin .card { padding: 12px 12px 14px; }
+  .coin .nm { font-size: 14px; }
+  .coin .sy, .coin .in, .coin .set { font-size: 10px; }
+  .coin .in { margin-top: 10px; }
+  .coin dl { font-size: 10px; gap: 2px 6px; }
+}
+</style>
+<script defer src="/assets/bh.js"></script>
+<script defer src="/net.js"></script>
+<script defer src="/vendor/chain.js"></script>
+</head>
+<body>
+
+<div class="tick none" id="tick" role="region" aria-label="News on devnet, newest first: SOL moving in or out of the pools since this page opened, and the last day's launches and graduations">
+  <span class="tag"><i></i>devnet</span>
+  <div class="tape" id="tape"></div>
+</div>
+
+<header class="top">
+  <a class="brand" href="/" aria-label="forma, home"><canvas id="sym" aria-hidden="true"></canvas><b>forma</b></a>
+  <nav class="nav" aria-label="Site">
+    <a href="/#how"><span class="long">how it works</span><span class="short">how</span></a>
+    <a href="/coins" aria-current="page">coins</a>
+    <a class="btn sm" href="/launch">launch</a>
+  </nav>
+</header>
+
+<main>
+<section class="sky" id="top" aria-labelledby="h">
+  <div class="wrap head">
+    <p class="kick">one pool per coin, for life</p>
+    <h1 id="h">Coins on devnet.</h1>
+    <p class="totals" id="totals" aria-live="polite">reading devnet…</p>
+    <p class="key">Each coin is a black hole. Its disk is the real SOL in its pool, and reaches its full width at graduation. Jets mean the coin has graduated.</p>
+  </div>
+</section>
+
+<section class="board-sec">
+  <div class="wrap">
+    <div class="ctl" role="search">
+      <div class="seg" role="group" aria-label="Show" id="show">
+        <button type="button" class="btn sm" data-show="all" aria-pressed="true">all<span class="c" data-n="all"></span></button>
+        <button type="button" class="btn sm ghost" data-show="curve" aria-pressed="false">on the curve<span class="c" data-n="curve"></span></button>
+        <button type="button" class="btn sm ghost" data-show="graduated" aria-pressed="false">graduated<span class="c" data-n="graduated"></span></button>
+      </div>
+      <div class="sort">
+        <label class="lbl" for="sort">sort</label>
+        <span class="sel"><select id="sort">
+          <option value="new">newest</option>
+          <option value="cap">market cap</option>
+          <option value="volume">volume</option>
+          <option value="near">closest to graduation</option>
+        </select></span>
+      </div>
+      <label class="find"><span class="vh">Search coins</span><input type="search" id="q" placeholder="name, symbol or mint" autocomplete="off" spellcheck="false"></label>
+    </div>
+    <p class="status" id="status" aria-live="polite"><span class="dot" id="dot"></span><span id="statusText">reading devnet…</span></p>
+
+    <div class="state" id="state" hidden></div>
+    <div class="board" id="board" role="group" aria-label="Coins"></div>
+  </div>
+</section>
+</main>
+
+<footer class="wrap foot">
+  <a class="brand" href="/" aria-label="forma, home"><canvas id="sym1" aria-hidden="true"></canvas><b>forma</b></a>
+  <p>forma is a working name · devnet only · the team launches the coins for now · <a id="progLink" href="#" target="_blank" rel="noopener">program</a></p>
+</footer>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+'use strict';
+var $ = function (s, r) { return (r || document).querySelector(s); };
+var boardEl = $('#board'), stateEl = $('#state'), totalsEl = $('#totals'), statusEl = $('#statusText'), dotEl = $('#dot'), tapeEl = $('#tape'), tickEl = $('#tick');
+var BH = window.BH;
+
+function esc(v) { return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+// the status and the totals are live regions: they are written only when their words change
+function setStatus(text, on, wait) { if (statusEl.textContent !== text) statusEl.textContent = text; dotEl.classList.toggle('on', !!on); dotEl.classList.toggle('wait', !!wait); }
+function setTotals(html) { if (totalsEl._html !== html) { totalsEl._html = html; totalsEl.innerHTML = html; } }
+function showState(html) { stateEl.innerHTML = html; stateEl.hidden = !html; }
+// the strip: news only, and out of sight when there is none
+function setTape(html) { if (tapeEl._html !== html) { tapeEl._html = html; tapeEl.innerHTML = html; } tickEl.classList.toggle('none', !html); }
+
+if (!BH) {
+  setTotals('');
+  setStatus('part of this page did not load.', false);
+  setTape('');
+  showState('<p>The board could not start.<small>Reload the page to try again.</small></p>');
+  return;
+}
+var Q, reduced = BH.reduced;
+try { Q = new URLSearchParams(location.search); } catch (e) { Q = { get: function () { return null; } }; }
+document.documentElement.classList.toggle('still', reduced);   // reduced motion: the visitor's setting, or ?motion=reduce
+BH.favicon();
+
+var prog = window.NET && NET.program, progLink = $('#progLink');
+if (prog && NET.explorer) progLink.href = NET.explorer('address', prog); else progLink.removeAttribute('href');
+
+/* ================= numbers ================= */
+function num(v) { var n = Number(v); return isFinite(n) ? n : 0; }
+function solOf(v) { return num(v) / 1e9; }
+function fmt(n, d) { return Number(n).toLocaleString('en-US', { maximumFractionDigits: d, minimumFractionDigits: d }); }
+function fSol(v) { return v >= 100 ? fmt(v, 1) : v >= 1 || v <= 0 ? fmt(v, 2) : v >= .001 ? fmt(v, 3) : v.toPrecision(2); }
+function fSet(v) { return Number(v).toLocaleString('en-US', { maximumFractionDigits: 3 }); }
+function fPct(bps) { return (bps / 100).toLocaleString('en-US', { maximumFractionDigits: 2 }) + '%'; }
+function fPer1M(price) { return (num(price) * 1e6).toFixed(4); }
+function shortKey(k) { var s = String(k); return s.slice(0, 4) + '…' + s.slice(-4); }
+function pctText(f) { var v = f * 100; return (v > 0 && v < 10 ? v.toFixed(1) : v.toFixed(0)) + '%'; }
+function ago(sec) {
+  if (!sec) return 'at an unknown time';
+  var d = Date.now() / 1000 - sec;
+  if (d < 90) return 'just now';
+  if (d < 5400) return Math.round(d / 60) + ' min ago';
+  if (d < 129600) return Math.round(d / 3600) + ' h ago';
+  return Math.round(d / 86400) + ' days ago';
+}
+// the program's default launch: 30 SOL virtual, graduating at 420 SOL market cap, a 1% fee
+var L = window.Chain && Chain.LAUNCH;
+var DEF = { V: L ? solOf(L.virtualSol) : 30, M: L ? solOf(L.graduationMcap) : 420, fee: L ? num(L.feeBps) : 100 };
+var DEF_LOOK = BH.look({ virtualSol: DEF.V, graduationMcap: DEF.M, feeBps: DEF.fee });
+
+/* ================= view settings, kept in the address ================= */
+var REFRESH = 30000, SHOWS = ['all', 'curve', 'graduated'], SORTS = ['new', 'cap', 'volume', 'near'];
+var view = { show: 'all', sort: 'new', q: '' };
+if (SHOWS.indexOf(Q.get('show')) >= 0) view.show = Q.get('show');
+if (SORTS.indexOf(Q.get('sort')) >= 0) view.sort = Q.get('sort');
+view.q = (Q.get('q') || '').slice(0, 64);
+function writeQuery() {
+  try {
+    var u = new URL(location.href);
+    if (view.show === 'all') u.searchParams.delete('show'); else u.searchParams.set('show', view.show);
+    if (view.sort === 'new') u.searchParams.delete('sort'); else u.searchParams.set('sort', view.sort);
+    if (!view.q) u.searchParams.delete('q'); else u.searchParams.set('q', view.q);
+    history.replaceState(null, '', u.pathname + u.search + u.hash);
+  } catch (e) {}
+}
+var showBtns = Array.prototype.slice.call(document.querySelectorAll('#show button'));
+function syncControls() {
+  // the chosen filter is a filled chip, the others outlined
+  showBtns.forEach(function (b) { var on = b.getAttribute('data-show') === view.show; b.setAttribute('aria-pressed', String(on)); b.classList.toggle('ghost', !on); });
+  $('#sort').value = view.sort;
+  if ($('#q').value !== view.q) $('#q').value = view.q;
+}
+syncControls();
+showBtns.forEach(function (b) { b.addEventListener('click', function () { view.show = b.getAttribute('data-show'); syncControls(); writeQuery(); applyView(); }); });
+$('#sort').addEventListener('change', function () { view.sort = this.value; writeQuery(); applyView(); });
+var qTimer = 0;
+$('#q').addEventListener('input', function () {
+  view.q = this.value.trim().slice(0, 64); applyView();
+  clearTimeout(qTimer); qTimer = setTimeout(writeQuery, 300);
+});
+
+/* ================= the coins ================= */
+// every tile is a still of its pool (BH.fromPool): the look of its launch settings, its disk as far as its real SOL
+// reaches, jets once it has graduated; framed as the landing frames its devnet coins
+var SP = 3, ZOOM = 1;   // 1: the frame holds the full disk a coin reaches at graduation
+var coins = [], byMint = {}, live = false, lastRead = 0, paints = 0, ghostCvs = [], moves = [];
+
+function nameOf(p) { var n = String(p.name || '').trim(); if (/^DESKTOP-/i.test(n)) return 'Test coin'; return n || 'Unnamed coin'; }
+function progressOf(p) { return p.graduated ? 1 : Math.max(0, Math.min(1, num(p.progress))); }
+function capOf(c) { return num(c.p.marketCap); }
+// a disk time per coin from its mint, so a coin's grain stays the same across refreshes and sorts
+function seed(m) { var h = 0; for (var i = 0; i < m.length; i++) h = (Math.imul(h, 31) + m.charCodeAt(i)) | 0; return (h >>> 0) % 1000 / 1000; }
+
+function makeTile(c) {
+  var a = document.createElement('a');
+  a.className = 'coin';
+  a.innerHTML = '<div class="card"><canvas aria-hidden="true"></canvas><div class="txt"></div></div>';
+  c.el = a; c.cv = $('canvas', a); c.txt = $('.txt', a);
+  return c;
+}
+// what the drawing depends on: the launch settings (its look) and the real SOL against graduation (its disk)
+function sigOf(p) { return [p.virtualSol, p.graduationMcap, p.feeBps, p.realSol, p.graduationSol, p.graduated ? 1 : 0].map(String).join('/'); }
+function absorb(c, p) {
+  c.p = p; c.mint = String(p.mint); c.name = nameOf(p); c.symbol = String(p.symbol || '').trim();
+  var sig = sigOf(p);
+  if (sig !== c.sig) { var f = BH.fromPool(p); c.sig = sig; c.look = f.look; c.st = f.state; c.dirty = true; }
+  c.hay = (c.name + ' ' + c.symbol + ' ' + c.mint).toLowerCase();
+}
+// a still is cheap, so every tile is painted as it comes in (hidden ones too, so a filter needs no painting);
+// a refresh paints again only the tiles whose pool changed
+function paint(c) {
+  BH.still(c.cv, { look: c.look, state: c.st, zoom: ZOOM, t: 2 + seed(c.mint) * 9 });
+  BH.fit(c.cv, SP);
+  c.dirty = false; c.painted = true; paints++;
+}
+
+function near(a, b) { return Math.abs(a - b) < 1e-9; }
+// the launch settings that differ from the default, in the words of the landing's strip: [shown, read aloud]
+function settingsOf(lk) {
+  var out = [];
+  if (!near(lk.V, DEF.V)) out.push([fSet(lk.V) + ' SOL virtual', fSet(lk.V) + ' SOL virtual']);
+  if (!near(lk.M, DEF.M)) out.push(['graduates at ' + fSet(lk.M), 'graduation at ' + fSet(lk.M) + ' SOL market cap']);
+  if (lk.fee !== DEF.fee) out.push(['fee ' + fPct(lk.fee), 'a ' + fPct(lk.fee) + ' fee']);
+  return out;
+}
+function txtHtml(c) {
+  var p = c.p, st = c.st, set = settingsOf(c.look);
+  var when = p.graduated && num(p.graduatedAt) ? 'graduated ' + ago(num(p.graduatedAt)) : 'opened ' + ago(num(p.openedAt));
+  var h = '<b class="nm">' + esc(c.name) + '</b>';
+  h += '<span class="sy">' + (c.symbol ? '<i>' + esc(c.symbol) + '</i>' : '') + '<i>' + esc(shortKey(c.mint)) + '</i><i>' + esc(when) + '</i></span>';
+  h += '<p class="in">' + (p.graduated ? fSol(st.realSol) + ' SOL in the pool' : fSol(st.realSol) + ' of ' + fSol(st.graduationSol) + ' SOL in') + '</p>';
+  h += '<dl><dt>market cap</dt><dd>' + fSol(capOf(c)) + ' SOL</dd><dt>per 1M</dt><dd>' + fPer1M(p.price) + ' SOL</dd><dt>traded</dt><dd>' + fSol(solOf(p.volume)) + ' SOL</dd></dl>';
+  if (set.length) h += '<p class="set">' + set.map(function (s) { return '<i>' + esc(s[0]) + '</i>'; }).join('') + '</p>';
+  return h;
+}
+function labelOf(c) {
+  var p = c.p, st = c.st, set = settingsOf(c.look);
+  return c.name + (c.symbol ? ', ' + c.symbol : '') + '. ' +
+    (p.graduated ? 'Graduated, ' + fSol(st.realSol) + ' SOL in its pool.' : fSol(st.realSol) + ' of ' + fSol(st.graduationSol) + ' SOL in, ' + pctText(progressOf(p)) + ' of the way to graduation.') +
+    ' ' + fPer1M(p.price) + ' SOL per million tokens, market cap ' + fSol(capOf(c)) + ' SOL.' +
+    (set.length ? ' Launched with ' + set.map(function (s) { return s[1]; }).join(', ') + '.' : '') +
+    ' Open its page.';
+}
+function renderText(c) {
+  var h = txtHtml(c);
+  if (h !== c.lastTxt) { c.txt.innerHTML = h; c.lastTxt = h; }
+  c.el.href = '/coin?mint=' + encodeURIComponent(c.mint);
+  c.el.setAttribute('aria-label', labelOf(c));
+}
+
+/* ================= the strip: news the tiles do not already say ================= */
+// SOL that moved in or out of a pool between two reads, and launches and graduations of the last day; older ones are
+// on the tiles already. Nothing new: no strip
+var NEWS = 86400;
+function renderTape() {
+  var ev = [], now = Date.now() / 1000;
+  coins.forEach(function (c) {
+    var p = c.p, who = '<b>' + esc(c.symbol || c.name) + '</b>';
+    if (now - num(p.openedAt) < NEWS) ev.push({ t: num(p.openedAt), cls: '', html: who + ' opened · ' + esc(ago(num(p.openedAt))) });
+    if (p.graduated && num(p.graduatedAt) && now - num(p.graduatedAt) < NEWS) ev.push({ t: num(p.graduatedAt), cls: 'grad', html: who + ' graduated · ' + esc(ago(num(p.graduatedAt))) });
+  });
+  ev.sort(function (a, b) { return b.t - a.t; });
+  var items = moves.map(function (m) { return { cls: m.cls + (m.fresh ? ' new' : ''), html: m.html + ' · ' + esc(ago(m.at / 1000)) }; }).concat(ev).slice(0, 14);
+  moves.forEach(function (m) { m.fresh = false; });
+  setTape(items.map(function (e) { return '<span class="' + e.cls + '"><i></i>' + e.html + '</span>'; }).join(''));
+}
+
+/* ================= filter, sort, search ================= */
+var ORDER = {
+  new: function (a, b) { return num(b.p.openedAt) - num(a.p.openedAt); },
+  cap: function (a, b) { return capOf(b) - capOf(a); },
+  volume: function (a, b) { return solOf(b.p.volume) - solOf(a.p.volume); },
+  near: function (a, b) { var ga = a.p.graduated ? 1 : 0, gb = b.p.graduated ? 1 : 0; return ga - gb || progressOf(b.p) - progressOf(a.p) || ORDER.new(a, b); }
+};
+function matches(c) {
+  if (view.show === 'curve' && c.p.graduated) return false;
+  if (view.show === 'graduated' && !c.p.graduated) return false;
+  return !view.q || c.hay.indexOf(view.q.toLowerCase()) >= 0;
+}
+function applyView() {
+  if (!live) return;
+  var counts = { all: coins.length, curve: 0, graduated: 0 };
+  coins.forEach(function (c) { counts[c.p.graduated ? 'graduated' : 'curve']++; });
+  Array.prototype.forEach.call(document.querySelectorAll('[data-n]'), function (s) { s.textContent = counts[s.getAttribute('data-n')]; });
+  var list = coins.filter(matches).sort(ORDER[view.sort] || ORDER.new);
+  coins.forEach(function (c) { c.el.hidden = list.indexOf(c) < 0; });
+  var shown = Array.prototype.filter.call(boardEl.children, function (el) { return el.classList.contains('coin') && !el.classList.contains('ghost') && !el.hidden; });
+  var same = shown.length === list.length && list.every(function (c, i) { return shown[i] === c.el; });
+  if (!same) {
+    var had = document.activeElement;
+    list.forEach(function (c) { boardEl.appendChild(c.el); });
+    if (had && had !== document.activeElement && had.isConnected) try { had.focus({ preventScroll: true }); } catch (e) {}
+  }
+  if (!coins.length) { showState(''); return; }
+  if (!list.length) {
+    var what = view.q ? 'No coin matches “' + esc(view.q) + '”' + (view.show !== 'all' ? ' here' : '') + '.' : view.show === 'graduated' ? 'No coin has graduated yet.' : 'Every coin here has graduated.';
+    showState('<p>' + what + '</p><button type="button" class="btn sm ghost" id="showAll">show every coin</button>');
+    $('#showAll').addEventListener('click', function () { view = { show: 'all', sort: view.sort, q: '' }; syncControls(); writeQuery(); applyView(); });
+  } else showState('');
+}
+
+/* ================= loading, empty, error ================= */
+// stand-ins while devnet answers: empty holes drawn dim, and bars; with no coins at all, one empty hole and the way to launch
+function ghostSlots(n, empty) {
+  var html = '';
+  for (var i = 0; i < n; i++) {
+    html += '<div class="coin ghost' + (empty ? ' empty' : '') + '"' + (empty ? '' : ' aria-hidden="true"') + '><div class="card"><canvas aria-hidden="true"></canvas><div class="txt">' +
+      (empty ? '<b class="nm">No coins on devnet yet.</b><span class="sy">The team launches the coins for now.</span><a class="q" href="/launch">the launch page</a>'
+        : '<span class="bar" style="width:' + (48 + (i * 17) % 30) + '%"></span><span class="bar" style="width:70%"></span><span class="bar" style="width:' + (36 + (i * 11) % 24) + '%"></span>') +
+      '</div></div></div>';
+  }
+  boardEl.innerHTML = html;
+  ghostCvs = Array.prototype.slice.call(boardEl.querySelectorAll('.coin.ghost canvas'));
+  ghostCvs.forEach(function (cv, i) {
+    BH.still(cv, empty ? { look: DEF_LOOK, progress: 0, zoom: ZOOM, t: 3 } : { look: DEF_LOOK, progress: 0, zoom: ZOOM, t: 2 + i * 2.3, glow: .3, stars: false });
+    BH.fit(cv, SP);
+  });
+}
+
+function withTimeout(p, ms) { return Promise.race([p, new Promise(function (_, no) { setTimeout(function () { no(new Error('timeout')); }, ms); })]); }
+// fees ever charged: what is still owed plus what has been paid out, to the creators and to the treasury
+function totals() {
+  var n = coins.length, g = 0, vol = 0, fees = 0, toCreators = 0, half = true;
+  coins.forEach(function (c) {
+    var p = c.p, cr = solOf(p.creatorFees) + solOf(p.creatorFeesPaid);
+    if (p.graduated) g++;
+    vol += solOf(p.volume); toCreators += cr; fees += cr + solOf(p.treasuryFees) + solOf(p.treasuryFeesPaid);
+    if (num(p.treasuryShareBps) !== 5000) half = false;
+  });
+  var h = n ? n + (n === 1 ? ' coin' : ' coins') + ' on devnet.' : 'Coins on devnet.';
+  if ($('#h').textContent !== h) $('#h').textContent = h;
+  setTotals(n
+    ? '<b>' + g + '</b> graduated · <b>' + fSol(vol) + '</b> SOL traded · <b>' + fSol(fees) + '</b> SOL in fees, ' + (half ? 'half to the creators' : '<b>' + fSol(toCreators) + '</b> to the creators')
+    : 'nothing launched yet.');
+}
+function readAgo() {
+  if (!lastRead) return '';
+  var s = Math.round((Date.now() - lastRead) / 1000);
+  return s < 20 ? 'just now' : s < 90 ? s + ' s ago' : Math.round(s / 60) + ' min ago';
+}
+
+var loading = false, firstDone = false, slowTimer = 0;
+async function load() {
+  if (loading) return;
+  loading = true;
+  var first = !firstDone;
+  if (first) {
+    showState('');
+    if (!boardEl.querySelector('.coin.ghost:not(.empty)')) ghostSlots(4, false);
+    setStatus('reading devnet…', false, true);
+    setTape('');
+    clearTimeout(slowTimer);
+    slowTimer = setTimeout(function () { if (loading && !firstDone) setStatus('devnet is slow to answer, still reading…', false, true); }, 6000);
+  }
+  try {
+    if (Q.get('offline') === '1') throw new Error('offline');   // a check can see the failed board without cutting the network
+    if (!window.Chain || !window.NET || !NET.ready) throw new Error('no chain');
+    var pools = await withTimeout(Promise.resolve().then(function () { return Chain.listPools(); }), 20000);
+    if (!Array.isArray(pools)) throw new Error('bad answer');
+    var seen = {}, isNew = false, now = Date.now();
+    pools.forEach(function (p) {
+      var m = String(p.mint); seen[m] = true;
+      var c = byMint[m], before = c ? solOf(c.p.realSol) : null;
+      if (!c) { c = byMint[m] = makeTile({}); coins.push(c); isNew = true; }
+      absorb(c, p);
+      // SOL that moved in or out of a pool between two reads: a net figure, not single trades
+      var d = before == null ? 0 : solOf(p.realSol) - before;
+      if (Math.abs(d) >= .001) moves.unshift({ at: now, fresh: !reduced, cls: d > 0 ? 'buy' : 'sell', html: '◎' + fSol(Math.abs(d)) + ' net ' + (d > 0 ? 'in' : 'out') + ' · <b>' + esc(c.symbol || c.name) + '</b>' });
+    });
+    moves.length = Math.min(moves.length, 6);
+    coins = coins.filter(function (c) { if (seen[c.mint]) return true; c.el.remove(); delete byMint[c.mint]; return false; });
+    lastRead = now; firstDone = true; live = true;
+    if (first || isNew) { Array.prototype.forEach.call(boardEl.querySelectorAll('.coin.ghost'), function (g) { g.remove(); }); ghostCvs = []; }
+    totals();
+    renderTape();
+    if (!coins.length) { if (!boardEl.querySelector('.coin.empty')) ghostSlots(1, true); }
+    else coins.forEach(function (c) { if (c.dirty) paint(c); renderText(c); if (!c.el.isConnected) boardEl.appendChild(c.el); });
+    applyView();   // the counts too, so they go back to 0 if every coin is gone
+    setStatus('read from devnet just now, again every 30 s', true);
+  } catch (err) {
+    if (!firstDone) {
+      setTotals('');
+      boardEl.innerHTML = ''; ghostCvs = [];
+      setStatus('devnet did not answer.', false);
+      setTape('');
+      var why = err && err.message === 'timeout' ? 'It took longer than 20 seconds.' : err && err.message === 'offline' ? 'Offline view.' : 'The request failed.';
+      showState('<p>Devnet did not answer.<small>' + why + ' Nothing on this board is made up, so it stays empty until devnet answers.</small></p><button type="button" class="btn sm ghost" id="retry">try again</button>');
+      $('#retry').addEventListener('click', function () { this.disabled = true; load(); });
+    } else {
+      setStatus('last read ' + readAgo() + ', and devnet did not answer the latest check; trying again in 30 s', false);
+    }
+  } finally {
+    loading = false; clearTimeout(slowTimer);
+  }
+}
+
+/* refresh every 30 s while the page is in view, painting again only what changed */
+setInterval(function () { if (!document.hidden && firstDone) load(); }, REFRESH);
+document.addEventListener('visibilitychange', function () { if (!document.hidden && firstDone && Date.now() - lastRead > REFRESH) load(); });
+
+/* ================= sizes: whole device pixels, 3 css px a hole pixel (2 on a phone), as on the landing ================= */
+var tileUrl = BH.starTile(128), lastW = 0;
+function layout() {
+  var cw = document.documentElement.clientWidth;
+  lastW = cw; SP = cw < 560 ? 2 : 3;
+  var sky = $('#top'); sky.style.backgroundImage = 'url(' + tileUrl + ')'; sky.style.backgroundSize = 128 * BH.devPx(SP) + 'px';
+  BH.mark($('#sym'), 2); BH.mark($('#sym1'), 2);
+  coins.forEach(function (c) { if (c.painted) BH.fit(c.cv, SP); });
+  ghostCvs.forEach(function (cv) { BH.fit(cv, SP); });
+}
+var rz = 0;
+addEventListener('resize', function () { clearTimeout(rz); rz = setTimeout(function () { if (document.documentElement.clientWidth !== lastW) layout(); }, 140); });
+// a window moved to a screen with another pixel ratio: whole device pixels again
+(function watchRatio() {
+  try { matchMedia('(resolution: ' + (window.devicePixelRatio || 1) + 'dppx)').addEventListener('change', function () { layout(); watchRatio(); }, { once: true }); } catch (e) {}
+})();
+
+// handles for checks and screenshots
+window.__board = {
+  reload: function () { return load(); },
+  coins: function () { return coins.length; },
+  shown: function () { return coins.filter(function (c) { return !c.el.hidden; }).length; },
+  looks: function () { return coins.map(function (c) { return { name: c.name, V: c.look.V, M: c.look.M, fee: c.look.fee, realSol: c.st.realSol, graduationSol: c.st.graduationSol, graduated: c.st.graduated, rOut: BH.rAt(c.look, BH.progress(c.st)) }; }); },
+  paints: function () { return paints; },
+  ghosts: function (n) { ghostSlots(n || 4, false); },   // the loading stand-ins, for a screenshot
+  px: function () { return SP; }
+};
+
+layout();
+ghostSlots(4, false);
+load();
+});
+</script>
+</body>
+</html>

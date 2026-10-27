@@ -1,0 +1,850 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>capi · one pool for life</title>
+<meta name="description" content="A Solana DEX where every coin launches, graduates and keeps trading in the same pool. Capi the capybara keeps it.">
+<script>try{if(localStorage.getItem('capi-theme')==='dark'){document.documentElement.setAttribute('data-theme','dark')}}catch(e){}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=Figtree:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#ffffff; --ink:#16181d; --muted:#5f6772; --soft:#f2f4f6;
+  --ground:#eef0f3; --poolbg:#f5fafc; --tile:#e1edf2;
+  --water:#8fd3e6; --water-hi:#3fa9c9; --water-wash:#e4f4f9;
+  --stone:#e3e6ea; --stone-hi:#f6f7f8;
+  --bubble:#ffffff; --accent:#ff6a1a; --on-accent:#16181d;
+  --fur:#c99368; --fur-d:#a5714c; --snout:#8a5b3c; --cline:#1b1712; --eye:#1b1712; --leaf:#3c9a5f;
+  color-scheme:light;
+}
+:root[data-theme="dark"]{
+  --bg:#0f1217; --ink:#eef0f3; --muted:#9aa2ae; --soft:#181c23;
+  --ground:#171b22; --poolbg:#111820; --tile:#1a2631;
+  --water:#21667b; --water-hi:#4fb1d2; --water-wash:#13303b;
+  --stone:#2b313a; --stone-hi:#363d48;
+  --bubble:#1a1f27; --accent:#ff7a2e; --on-accent:#0f1217;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%;overflow-x:clip}
+@media (prefers-reduced-motion:no-preference){html{scroll-behavior:smooth}}
+body{margin:0;background:var(--bg);color:var(--ink);font:400 17px/1.5 "Figtree",system-ui,-apple-system,"Segoe UI",sans-serif;padding-bottom:96px;overflow-x:clip;transition:background-color .3s,color .3s}
+h1,h2,.bubble,.brand{font-family:"Bricolage Grotesque","Figtree",system-ui,sans-serif}
+button{font-family:inherit}
+:focus-visible{outline:3px solid var(--accent);outline-offset:3px;border-radius:12px}
+.wrap{max-width:1240px;margin:0 auto;padding-left:16px;padding-right:16px}
+@media (min-width:768px){.wrap{padding-left:32px;padding-right:32px}}
+section{scroll-margin-top:12px}
+
+/* top */
+.top{display:flex;align-items:center;gap:12px;height:72px}
+.brand{font-weight:800;font-size:32px;letter-spacing:-.045em;color:var(--ink);text-decoration:none;line-height:1}
+.idot{position:relative;display:inline-block}
+.idot::after{content:"";position:absolute;left:50%;top:.02em;width:.27em;height:.27em;margin-left:-.135em;border-radius:50%;background:var(--accent);box-shadow:0 0 0 2px var(--bg)}
+.net{margin-right:auto;font-size:13px;font-weight:600;color:var(--muted);border:2px dashed var(--stone);border-radius:999px;padding:3px 10px}
+.night{width:44px;height:44px;border-radius:50%;border:2px solid var(--stone);background:var(--bg);color:var(--ink);display:grid;place-items:center;cursor:pointer;padding:0}
+.night svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.night .i-sun{display:none}
+:root[data-theme="dark"] .night .i-sun{display:block}
+:root[data-theme="dark"] .night .i-moon{display:none}
+
+/* hero */
+.hero{display:grid;gap:4px;padding-bottom:56px}
+.kicker{margin:8px 0 0;font-size:15px;font-weight:600;color:var(--muted)}
+h1{font-weight:800;font-size:clamp(48px,12.5vw,116px);line-height:.88;letter-spacing:-.045em;margin:8px 0 16px}
+.lede{text-wrap:pretty;font-size:clamp(17px,1.4vw,20px);color:var(--muted);max-width:30ch;margin:0 0 12px}
+@media (min-width:960px){
+  .hero{grid-template-columns:minmax(0,5fr) minmax(0,7fr);align-items:center;gap:48px;min-height:min(calc(100vh - 136px),820px)}
+  h1{font-size:clamp(64px,6.4vw,96px)}
+  .hero-play{width:100%;max-width:620px;justify-self:end}
+}
+.scene{position:relative;margin:4px -16px 0}
+@media (min-width:768px){.scene{margin:0}}
+.scene svg{display:block;width:100%;height:auto;overflow:hidden}
+.bubble{position:absolute;left:16px;top:0;z-index:2;margin:0;max-width:min(70%,380px);background:var(--bubble);color:var(--ink);border:3px solid var(--ink);border-radius:22px;padding:10px 16px 11px;text-wrap:balance;font-weight:700;font-size:clamp(16px,1.6vw,22px);line-height:1.18;letter-spacing:-.01em}
+.bubble::after{content:"";position:absolute;left:var(--tail,58%);bottom:-11px;width:18px;height:18px;background:var(--bubble);border-right:3px solid var(--ink);border-bottom:3px solid var(--ink);transform:rotate(45deg)}
+.bubble.say{animation:say .35s cubic-bezier(.3,1.6,.5,1)}
+@keyframes say{0%{transform:scale(.94)}100%{transform:scale(1)}}
+.key{display:flex;flex-wrap:wrap;gap:6px 16px;margin:10px 0 0;font-size:14px;color:var(--muted)}
+.key span{display:inline-flex;align-items:center;gap:7px}
+.key i{display:inline-block;width:14px;height:14px;border-radius:50%;border:2px solid var(--ink)}
+.key .kw{background:var(--water);border-radius:4px}
+.key .kf{background:var(--accent);width:22px;border-radius:999px}
+.key .ko{background:var(--accent)}
+.key .kj{background:var(--water-hi);border-radius:3px 3px 5px 5px}
+.controls{margin-top:14px}
+.pills{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.pill{appearance:none;-webkit-appearance:none;border:2.5px solid var(--ink);background:var(--accent);color:var(--on-accent);font-weight:700;font-size:16px;line-height:1;height:46px;padding:0 18px;border-radius:999px;cursor:pointer;box-shadow:0 3px 0 var(--ink);transition:transform .1s,box-shadow .1s,opacity .2s,background-color .2s}
+.pill:active:not(:disabled){transform:translateY(2px);box-shadow:0 1px 0 var(--ink)}
+.pill:disabled{opacity:.38;cursor:not-allowed}
+.pill.ghost{background:var(--bg);color:var(--ink)}
+.textbtn{appearance:none;background:none;border:0;color:var(--muted);font-weight:600;font-size:15px;text-decoration:underline;text-underline-offset:3px;cursor:pointer;padding:0 6px;height:46px}
+.textbtn:disabled{opacity:.4;cursor:not-allowed}
+.reads{margin:14px 0 0;font-size:16px;line-height:1.55;color:var(--muted);max-width:56ch}
+.reads p{margin:0}
+.reads b{color:var(--ink);font-weight:700;font-variant-numeric:tabular-nums}
+.simtag{display:inline-block;font-size:13px;font-weight:600;color:var(--muted);border:2px dashed var(--stone);border-radius:999px;padding:2px 10px;margin-bottom:10px}
+
+/* svg scene parts */
+.ground{fill:var(--ground)}
+.poolbg{fill:var(--poolbg)}
+.tile{fill:none;stroke:var(--tile);stroke-width:2}
+.wall{fill:none;stroke:var(--ink);stroke-width:3.5;stroke-linecap:round;stroke-linejoin:round}
+.coping{fill:var(--stone-hi);stroke:var(--ink);stroke-width:3}
+.full{stroke:var(--muted);stroke-width:2.5;stroke-dasharray:9 8;transition:stroke .3s}
+.lab{fill:var(--muted);font:600 17px "Figtree",sans-serif}
+.lab.big{fill:var(--ink);font-size:18px;font-weight:700}
+#fullLine.flash .full{stroke:var(--accent);stroke-width:4}
+#fullLine.flash .lab{fill:var(--accent)}
+.water{fill:var(--water);opacity:.74}
+.surf{fill:none;stroke:var(--water-hi);stroke-width:3;stroke-linecap:round}
+.rip{fill:none;stroke:var(--water-hi);stroke-width:2;transform-box:fill-box;transform-origin:center;animation:rip .9s ease-out forwards}
+@keyframes rip{from{transform:scale(.3);opacity:.9}to{transform:scale(1.7);opacity:0}}
+.orng{transition:opacity .35s}
+.o-b{fill:var(--accent);stroke:var(--cline);stroke-width:2.5}
+.o-s{stroke:var(--cline);stroke-width:2.5;stroke-linecap:round}
+.o-h{fill:none;stroke:#fff;stroke-width:2;stroke-linecap:round;opacity:.8}
+.fl-body{fill:var(--accent)}
+.fl-band{fill:#fff}
+.fl-line{fill:none;stroke:var(--cline);stroke-width:3}
+.fl-shine{stroke:#fff;stroke-width:3;stroke-linecap:round;opacity:.7}
+.fl-txt{fill:#16181d;font:700 14px "Figtree",sans-serif}
+.floaty{transform-box:fill-box;transform-origin:center}
+.floaty.pop{animation:pop .6s ease-in forwards}
+@keyframes pop{0%{transform:scale(1)}30%{transform:scale(1.08,.86)}100%{transform:scale(.15,.1);opacity:0}}
+.jar{fill:var(--bg);stroke:var(--ink);stroke-width:3}
+.jarfill{fill:var(--water-hi)}
+.lid{fill:var(--stone);stroke:var(--ink);stroke-width:3}
+.drop{fill:var(--water-hi);stroke:var(--ink);stroke-width:1.5}
+.fxt{font:800 20px "Bricolage Grotesque",sans-serif;fill:var(--ink);animation:rise 1.5s ease-out forwards}
+.fxt.hot{fill:var(--accent)}
+@keyframes rise{0%{opacity:0;transform:translateY(6px)}15%{opacity:1}100%{opacity:0;transform:translateY(-40px)}}
+.hit{cursor:pointer}
+
+/* capi */
+.c-fur{fill:var(--fur)}
+.c-dark{fill:var(--fur-d)}
+.c-snout{fill:var(--snout)}
+.c-line{stroke:var(--cline);stroke-width:3;stroke-linejoin:round}
+.c-outline{fill:none;stroke:var(--cline);stroke-width:3;stroke-linejoin:round}
+.c-furline{fill:none;stroke:var(--fur-d);stroke-width:2.5;stroke-linecap:round}
+.c-ink{fill:var(--eye)}
+.c-glint{fill:#fff}
+.c-happy{fill:none;stroke:var(--eye);stroke-width:3;stroke-linecap:round;opacity:0}
+.c-mouth{fill:none;stroke:var(--cline);stroke-width:2.5;stroke-linecap:round}
+.c-mouthopen{transform-box:fill-box;transform-origin:center;transform:scaleY(0)}
+.c-orange{fill:var(--accent)}
+.c-stem{fill:none;stroke:var(--cline);stroke-width:2.5;stroke-linecap:round}
+.c-leaf{fill:var(--leaf);stroke:var(--cline);stroke-width:1.8;stroke-linejoin:round}
+.c-shine{fill:none;stroke:#fff;stroke-width:2.2;stroke-linecap:round;opacity:.85}
+.c-eye{transform-box:fill-box;transform-origin:center;transition:transform .07s}
+.capi.blink .c-eye{transform:scaleY(.1)}
+.capi.happy .c-open{opacity:0}
+.capi.happy .c-happy{opacity:1}
+.c-head{transform-box:fill-box;transform-origin:22% 88%}
+.c-ear{transform-box:fill-box;transform-origin:50% 100%}
+.capi.happy .c-ear,.capi.twitch .c-ear{animation:ear .45s ease}
+@keyframes ear{0%,100%{transform:rotate(0)}30%{transform:rotate(-20deg)}65%{transform:rotate(10deg)}}
+.capi.shake .c-head{animation:shake .7s ease}
+@keyframes shake{0%,100%{transform:rotate(0)}18%{transform:rotate(-7deg)}38%{transform:rotate(6deg)}58%{transform:rotate(-4deg)}78%{transform:rotate(2deg)}}
+.capi.nod .c-head{animation:nod .5s ease}
+@keyframes nod{0%,100%{transform:rotate(0)}45%{transform:rotate(5deg)}}
+.capi.chomp .c-mouthopen{animation:chomp .42s ease 2}
+.capi.chomp .c-head{animation:nod .42s ease 2}
+@keyframes chomp{0%,100%{transform:scaleY(0)}50%{transform:scaleY(1)}}
+
+/* rules */
+.rules{display:grid;gap:18px;grid-template-areas:"head" "scene" "pills";padding-top:64px;padding-bottom:64px}
+.rules-head{grid-area:head}
+.rules-scene{grid-area:scene;max-width:460px;width:100%}
+.rules-pills{grid-area:pills}
+@media (min-width:960px){
+  .rules{grid-template-columns:minmax(0,5fr) minmax(0,6fr);grid-template-areas:"scene head" "scene pills";column-gap:64px;row-gap:20px;align-items:end}
+  .rules-pills{align-self:start}
+  .rules-scene{justify-self:center}
+}
+h2{font-weight:800;font-size:clamp(40px,7vw,76px);line-height:.92;letter-spacing:-.04em;margin:0}
+.tally{margin:12px 0 0;font-size:16px;color:var(--muted);font-weight:600}
+.tally b{color:var(--ink);font-variant-numeric:tabular-nums}
+.bubble.static{position:relative;left:auto;top:auto;max-width:100%;display:flex;align-items:center;min-height:calc(4 * 1.18em + 27px)}
+@media (min-width:960px){.bubble.static{min-height:calc(3 * 1.18em + 27px)}}
+.tub{display:block;width:100%;height:auto;margin-top:2px}
+.tubwater{fill:var(--water);opacity:.55}
+.tubfront{fill:var(--water);opacity:.9}
+.tubrim{fill:none;stroke:var(--ink);stroke-width:3}
+.pill.try.tried{background:var(--bg);color:var(--muted);text-decoration:line-through;text-decoration-thickness:2px}
+
+/* next */
+.next{padding-top:40px;padding-bottom:56px}
+.next .bubble.static{max-width:440px;min-height:0;margin:18px 0 22px;--tail:22%}
+.pond{position:relative;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 10px;padding:8px 10px 30px;background:var(--water-wash);border-radius:32px;border:2.5px solid var(--ink)}
+@media (min-width:900px){.pond{grid-template-columns:repeat(6,minmax(0,1fr));padding:8px 16px 40px}}
+.stone{appearance:none;background:none;border:0;padding:76px 4px 0;display:flex;flex-direction:column;align-items:center;gap:6px;color:var(--ink);cursor:pointer;text-align:center}
+.stone:nth-of-type(even){transform:translateY(26px)}
+.rock{position:relative;display:block;width:min(120px,92%);height:50px;border-radius:52% 48% 46% 54% / 62% 58% 42% 38%;background:var(--stone);border:3px solid var(--ink);overflow:hidden;transition:background-color .25s}
+.rock::before{content:"";position:absolute;left:14%;top:16%;width:30%;height:16%;border-radius:999px;background:var(--stone-hi);opacity:.9}
+.stone.wet .rock::after,.stone.under .rock::after{content:"";position:absolute;left:0;right:0;bottom:0;height:46%;background:var(--water);border-top:3px solid var(--water-hi)}
+.stone.under .rock{border-style:dashed}
+.stone.under .rock::after{height:80%}
+.stone.on .rock{background:var(--accent)}
+.stone.on .rock::before{background:#fff;opacity:.5}
+.st-name{font-weight:700;font-size:15px;line-height:1.2;max-width:14ch}
+.st-when{font-size:13px;font-weight:600;color:var(--muted)}
+.stone.dry .st-when{color:var(--ink)}
+.hopper{position:absolute;left:0;top:0;width:92px;pointer-events:none;z-index:2;transition:transform .55s cubic-bezier(.34,1.4,.64,1)}
+.hopper svg{display:block;width:100%;height:auto;overflow:visible}
+.hopper.hop svg{animation:hop .55s ease}
+@keyframes hop{0%,100%{transform:translateY(0)}45%{transform:translateY(-30px)}}
+
+/* footer */
+.foot{display:flex;flex-wrap:wrap;align-items:center;gap:10px 20px;padding-top:24px;padding-bottom:28px;color:var(--muted);font-size:15px}
+.foot .brand{font-size:24px}
+.foot p{margin:0;max-width:52ch;flex:1 1 260px}
+
+/* pond nav */
+.pondnav{position:fixed;left:50%;bottom:12px;transform:translateX(-50%);z-index:30;display:flex;gap:4px;padding:5px;background:var(--water-wash);border:2.5px solid var(--ink);border-radius:999px;max-width:calc(100vw - 20px)}
+.nst{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;min-width:52px;height:42px;padding:0 11px;border-radius:48% 52% 46% 54% / 58% 54% 46% 42%;background:var(--stone);border:2px solid var(--ink);color:var(--ink);font-weight:700;font-size:14px;line-height:1;text-decoration:none;overflow:hidden;transition:background-color .25s,transform .25s}
+.nst:hover{transform:translateY(-2px)}
+.nst.on{background:var(--accent);color:var(--on-accent)}
+.nst.under{border-style:dashed;background:transparent;color:var(--muted);cursor:default}
+.nst.under:hover{transform:none}
+.nst.under::after{content:"";position:absolute;left:0;right:0;bottom:0;height:52%;background:var(--water);opacity:.6}
+.nst span,.nst small{position:relative;z-index:1}
+.nst small{font-size:10px;font-weight:700;margin-top:3px;color:var(--ink)}
+@media (max-width:359px){.nst{min-width:44px;padding:0 7px;font-size:13px}}
+
+/* math sheet */
+dialog{border:3px solid var(--ink);border-radius:28px;padding:0;width:calc(100vw - 32px);max-width:560px;max-height:calc(100vh - 40px);overflow:auto;background:var(--bg);color:var(--ink)}
+dialog::backdrop{background:rgba(15,18,23,.5)}
+.sheet{padding:24px 22px 22px}
+.sheet h2{font-size:clamp(34px,6vw,46px)}
+.math{list-style:none;padding:0;margin:16px 0 20px;display:grid;gap:8px}
+.math li{background:var(--soft);border-radius:18px;padding:12px 14px;font-size:15.5px;line-height:1.45}
+.math b{display:block;font-family:"Bricolage Grotesque",sans-serif;font-size:17px;margin-bottom:2px}
+.math code{font-family:inherit;font-weight:700;white-space:nowrap}
+
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation:none!important;transition:none!important}
+}
+</style>
+</head>
+<body>
+
+<header class="top wrap">
+  <a class="brand" href="#pool" aria-label="capi, back to the pool">cap<span class="idot">ı</span></a>
+  <span class="net">devnet</span>
+  <button class="night" id="night" type="button" aria-label="Switch to night mode">
+    <svg class="i-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.6A8 8 0 0 1 9.4 4 8 8 0 1 0 20 14.6Z"/></svg>
+    <svg class="i-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M5.3 18.7l1.6-1.6M17.1 6.9l1.6-1.6"/></svg>
+  </button>
+</header>
+
+<main>
+<section id="pool" class="hero wrap" aria-labelledby="h-pool">
+  <div class="hero-copy">
+    <p class="kicker">A Solana DEX</p>
+    <h1 id="h-pool">One pool.<br>For life.</h1>
+    <p class="lede">A coin launches, graduates and keeps trading in the same pool. Nobody can drain it.</p>
+  </div>
+
+  <div class="hero-play">
+    <div class="scene">
+      <p class="bubble" id="say1" aria-live="polite" style="--tail:34px">Hi, I'm Capi. I run this pool.</p>
+      <svg id="poolsvg" viewBox="0 -30 580 470" role="img" aria-label="Capi the capybara sits on a float in a pool. The water is the real SOL in the pool, the float is the 30 virtual SOL, the oranges are the coin's tokens, the two jars collect the fee.">
+        <defs>
+          <pattern id="tiles" width="26" height="26" patternUnits="userSpaceOnUse"><path class="tile" d="M26 0H0V26"/></pattern>
+          <clipPath id="poolClip"><path d="M20 168V390q0 14 14 14H416q14 0 14-14V168Z"/></clipPath>
+          <clipPath id="jarClip"><rect x="-21" y="-62" width="42" height="58" rx="7"/></clipPath>
+        </defs>
+
+        <rect class="ground" x="-50" y="170" width="800" height="300"/>
+        <path class="wall" d="M-20 170H20M430 170H620"/>
+
+        <g transform="translate(474 170)">
+          <rect class="lid" x="-28" y="-76" width="56" height="11" rx="5"/>
+          <rect class="jar" x="-25" y="-66" width="50" height="66" rx="10"/>
+          <rect id="jarCfill" class="jarfill" clip-path="url(#jarClip)" x="-21" y="-4" width="42" height="0"/>
+          <text class="lab big" x="0" y="28" text-anchor="middle">creator</text>
+        </g>
+        <g transform="translate(542 170)">
+          <rect class="lid" x="-28" y="-76" width="56" height="11" rx="5"/>
+          <rect class="jar" x="-25" y="-66" width="50" height="66" rx="10"/>
+          <rect id="jarTfill" class="jarfill" clip-path="url(#jarClip)" x="-21" y="-4" width="42" height="0"/>
+          <text class="lab big" x="0" y="50" text-anchor="middle">treasury</text>
+        </g>
+
+        <path class="poolbg" d="M20 170V390q0 14 14 14H416q14 0 14-14V170Z"/>
+        <path d="M20 170V390q0 14 14 14H416q14 0 14-14V170Z" fill="url(#tiles)"/>
+
+        <g id="fullLine">
+          <line class="full" id="fullL" x1="26" x2="424" y1="0" y2="0"/>
+          <text class="lab" id="fullT" x="32" y="0">full line · 82.25 SOL</text>
+        </g>
+
+        <g id="or1"></g>
+        <g id="capiPos" class="hit" transform="translate(172 378) scale(.8)" data-capi="hero"></g>
+        <g id="floatPos" transform="translate(166 387)">
+          <g id="floatAnim" class="floaty">
+            <rect class="fl-body" x="-86" y="-17" width="172" height="34" rx="17"/>
+            <rect class="fl-band" x="-68" y="-17" width="13" height="34"/>
+            <rect class="fl-band" x="55" y="-17" width="13" height="34"/>
+            <rect class="fl-line" x="-86" y="-17" width="172" height="34" rx="17"/>
+            <text class="fl-txt" x="0" y="5" text-anchor="middle">30 virtual SOL</text>
+          </g>
+        </g>
+        <path id="water" class="water" clip-path="url(#poolClip)" d=""/>
+        <path id="surf" class="surf" d=""/>
+        <g id="or0"></g>
+        <g id="ripples" clip-path="url(#poolClip)"></g>
+        <path class="wall" d="M20 166V390q0 14 14 14H416q14 0 14-14V166"/>
+        <rect class="coping" x="8" y="162" width="26" height="10" rx="4"/>
+        <rect class="coping" x="416" y="162" width="26" height="10" rx="4"/>
+        <g id="fx"></g>
+      </svg>
+    </div>
+
+    <p class="key" aria-hidden="true">
+      <span><i class="kw"></i>water = real SOL</span>
+      <span><i class="kf"></i>float = 30 virtual SOL</span>
+      <span><i class="ko"></i>oranges = tokens</span>
+      <span><i class="kj"></i>jars = the 1% fee</span>
+    </p>
+
+    <div class="controls">
+      <span class="simtag">Simulation · you drive it</span>
+      <div class="pills" role="group" aria-label="Simulated trades">
+        <button class="pill" type="button" data-buy="1">Buy 1 SOL</button>
+        <button class="pill" type="button" data-buy="5">Buy 5 SOL</button>
+        <button class="pill" type="button" data-buy="20">Buy 20 SOL</button>
+        <button class="pill ghost" type="button" id="sellAll" disabled>Sell mine</button>
+        <button class="textbtn" type="button" id="reset">Start over</button>
+        <button class="textbtn" type="button" data-math>The math</button>
+      </div>
+    </div>
+
+    <div class="reads" id="reads" aria-live="polite">
+      <p>The pool holds <b id="rSol">0.00</b> real SOL<span id="rOf">, full at 82.25</span>. Price: <b id="rPrice">0.0300</b> SOL per million tokens.</p>
+      <p>You hold <b id="rHold">0</b> tokens. Fees paid: <b id="rFc">0.000</b> SOL to the creator, <b id="rFt">0.000</b> to the treasury.<span id="rBurn"></span></p>
+    </div>
+  </div>
+</section>
+
+<section id="rules" class="rules wrap" aria-labelledby="h-rules">
+  <div class="rules-head">
+    <h2 id="h-rules">Try to take it.</h2>
+    <p class="tally" id="tally"><b>0</b> tries. <b>0</b> taken.</p>
+  </div>
+  <div class="rules-scene">
+    <p class="bubble static" id="say2" aria-live="polite" style="--tail:64%">Go on. Pick a move. I'll tell you how it ends.</p>
+    <svg class="tub" viewBox="0 0 360 290" aria-hidden="true">
+      <ellipse class="tubwater" cx="180" cy="246" rx="168" ry="34"/>
+      <g transform="translate(168 262) scale(1.25)" data-capi="rules"></g>
+      <path class="tubfront" d="M12 246A168 34 0 0 0 348 246Z"/>
+      <ellipse class="tubrim" cx="180" cy="246" rx="168" ry="34"/>
+    </svg>
+  </div>
+  <div class="rules-pills pills" role="group" aria-label="Moves to try">
+    <button class="pill try" type="button" data-k="sol">Pull the SOL out</button>
+    <button class="pill try" type="button" data-k="lp">Grab the LP tokens</button>
+    <button class="pill try" type="button" data-k="mint">Mint more</button>
+    <button class="pill try" type="button" data-k="freeze">Freeze a wallet</button>
+    <button class="pill try" type="button" data-k="name">Change the name</button>
+    <button class="pill try" type="button" data-k="move">Move the pool</button>
+    <button class="pill try" type="button" data-k="cut">Take a cut</button>
+  </div>
+</section>
+
+<section id="next" class="next wrap" aria-labelledby="h-next">
+  <h2 id="h-next">Dry stones<br>are done.</h2>
+  <p class="bubble static" id="say3" aria-live="polite">Tap a stone. I'll hop over.</p>
+  <div class="pond" id="pond">
+    <div class="hopper" id="hopper" aria-hidden="true"><svg viewBox="-100 -150 220 160"><g data-capi="hop"></g></svg></div>
+    <button class="stone dry on" type="button" data-line="We're here. Pools run on devnet today."><span class="rock"></span><span class="st-name">Pools on devnet</span><span class="st-when">now</span></button>
+    <button class="stone dry" type="button" data-line="For now, only the team launches coins."><span class="rock"></span><span class="st-name">Team launches</span><span class="st-when">now</span></button>
+    <button class="stone wet" type="button" data-line="Soon this page reads the chain. Until then, every number here is the simulation."><span class="rock"></span><span class="st-name">Live numbers here</span><span class="st-when">soon</span></button>
+    <button class="stone wet" type="button" data-line="A board of every coin, and a page to trade each one."><span class="rock"></span><span class="st-name">Coins board</span><span class="st-when">soon</span></button>
+    <button class="stone under" type="button" data-line="Later, anyone can launch a coin here."><span class="rock"></span><span class="st-name">Launchpad for everyone</span><span class="st-when">later</span></button>
+    <button class="stone under" type="button" data-line="Hooks come later. Coins carry none for now."><span class="rock"></span><span class="st-name">Transfer hooks</span><span class="st-when">later</span></button>
+  </div>
+</section>
+</main>
+
+<footer class="foot wrap">
+  <span class="brand">cap<span class="idot">ı</span></span>
+  <p>A Solana DEX, on devnet. Every number on this page comes from the simulation you drive.</p>
+  <button class="pill ghost" type="button" data-math>The math</button>
+</footer>
+
+<nav class="pondnav" aria-label="Sections">
+  <a class="nst on" href="#pool" data-sec="pool"><span>Pool</span></a>
+  <a class="nst" href="#rules" data-sec="rules"><span>Rules</span></a>
+  <a class="nst" href="#next" data-sec="next"><span>Next</span></a>
+  <span class="nst under" aria-disabled="true" title="Coins board, coming soon"><span>Board</span><small>soon</small></span>
+  <span class="nst under" aria-disabled="true" title="Launch a coin, coming soon"><span>Launch</span><small>soon</small></span>
+</nav>
+
+<dialog id="math" aria-labelledby="h-math">
+  <div class="sheet">
+    <h2 id="h-math">The math</h2>
+    <ul class="math">
+      <li><b>Opening</b>The curve counts 30 virtual SOL plus the real SOL in: <code>x = 30 + R</code>. A coin opens at 30 SOL of market cap.</li>
+      <li><b>Buying</b>1% comes off in SOL. With the rest, <code>d</code>, you get <code>T − 30 × 10⁹ ÷ (x + d)</code> tokens, where <code>T</code> is the tokens left in the pool.</li>
+      <li><b>Graduation</b>When <code>R</code> reaches <code>√(420 × 30) − 30 ≈ 82.25</code> SOL, a market cap of 420 SOL. It happens inside the buy that gets there.</li>
+      <li><b>At graduation</b>The 30 virtual SOL is dropped and <code>T × 30 ÷ x</code> tokens are burned, about 7.1% of the supply, so the price stays where it was.</li>
+      <li><b>After</b>The same pool, at the same address, carries on as plain <code>x · y = k</code> on the real SOL and the tokens left.</li>
+      <li><b>Fees</b>1% of every trade, in SOL. Half to the coin's creator, half to the treasury. Nobody else takes a cut.</li>
+      <li><b>Every coin</b>1,000,000,000 supply. No mint authority, no freeze authority, metadata fixed. No LP token: the liquidity stays.</li>
+    </ul>
+    <button class="pill" type="button" id="closeMath">Close</button>
+  </div>
+</dialog>
+
+<script>
+(function(){
+'use strict';
+var RM = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+var NS = 'http://www.w3.org/2000/svg';
+function $(s, r){ return (r || document).querySelector(s); }
+function $$(s, r){ return Array.prototype.slice.call((r || document).querySelectorAll(s)); }
+
+/* ---------- night mode ---------- */
+var root = document.documentElement, nightBtn = $('#night');
+function themeLabel(){ var d = root.getAttribute('data-theme') === 'dark'; nightBtn.setAttribute('aria-label', d ? 'Switch to day mode' : 'Switch to night mode'); }
+nightBtn.addEventListener('click', function(){
+  var dark = root.getAttribute('data-theme') !== 'dark';
+  if (dark) root.setAttribute('data-theme', 'dark'); else root.removeAttribute('data-theme');
+  try { localStorage.setItem('capi-theme', dark ? 'dark' : 'light'); } catch (e) {}
+  themeLabel();
+});
+themeLabel();
+
+/* ---------- Capi, drawn once, used three times ---------- */
+var CAPI =
+'<g class="capi">' +
+ '<g class="c-body">' +
+  '<path class="c-fur c-line" d="M-78,-6 C-88,-42 -66,-80 -20,-86 C22,-92 54,-82 66,-62 L72,-8 C42,4 -50,6 -78,-6 Z"/>' +
+  '<path class="c-furline" d="M-60,-60 C-42,-76 -10,-82 20,-78"/>' +
+  '<path class="c-furline" d="M-70,-30 C-63,-40 -53,-46 -41,-49"/>' +
+ '</g>' +
+ '<g class="c-head">' +
+  '<g class="c-ear"><ellipse class="c-dark c-line" cx="40" cy="-110" rx="9.5" ry="8.5"/><ellipse class="c-snout" cx="41" cy="-109" rx="4.5" ry="4"/></g>' +
+  '<path class="c-fur" d="M28,-84 C28,-104 42,-114 62,-114 L88,-110 C100,-108 106,-100 106,-88 L106,-66 C106,-54 98,-48 86,-48 L52,-48 C36,-48 28,-62 28,-84 Z"/>' +
+  '<path class="c-snout" d="M93,-108 C101,-105 106,-98 106,-88 L106,-66 C106,-59 103,-54 98,-51 C91,-58 88,-72 88,-88 C88,-97 90,-103 93,-108 Z"/>' +
+  '<path class="c-outline" d="M28,-84 C28,-104 42,-114 62,-114 L88,-110 C100,-108 106,-100 106,-88 L106,-66 C106,-54 98,-48 86,-48 L52,-48 C36,-48 28,-62 28,-84 Z"/>' +
+  '<path class="c-furline" d="M40,-70 C46,-62 56,-58 67,-58"/>' +
+  '<ellipse class="c-ink" cx="99" cy="-92" rx="2.4" ry="3.4"/>' +
+  '<g class="c-eye"><ellipse class="c-ink c-open" cx="70" cy="-92" rx="4.3" ry="5.3"/><circle class="c-glint c-open" cx="71.6" cy="-94.2" r="1.4"/><path class="c-happy" d="M64.5,-90.5 Q70,-98 75.5,-90.5"/></g>' +
+  '<path class="c-mouth" d="M86,-57 Q93,-53 100,-58"/>' +
+  '<ellipse class="c-mouthopen c-ink" cx="94" cy="-55" rx="6.5" ry="4.5"/>' +
+  '<g class="c-fruit"><circle class="c-orange c-line" cx="54" cy="-123" r="10"/><path class="c-shine" d="M48,-126 Q49,-130.5 53,-131.5"/><path class="c-stem" d="M55,-133 L57,-138"/><path class="c-leaf" d="M57,-137 C61,-143 68,-143 71,-139 C66,-136 61,-135 57,-137 Z"/></g>' +
+ '</g>' +
+'</g>';
+$$('[data-capi]').forEach(function(g){ g.innerHTML = CAPI; });
+var capiHero = $('[data-capi="hero"] .capi'), capiRules = $('[data-capi="rules"] .capi'), capiHop = $('[data-capi="hop"] .capi');
+
+function react(el, cls, ms){
+  if (!el) return;
+  el.classList.remove(cls);
+  void el.getBoundingClientRect();
+  el.classList.add(cls);
+  clearTimeout(el['_t' + cls]);
+  el['_t' + cls] = setTimeout(function(){ el.classList.remove(cls); }, ms);
+}
+function blinker(el){
+  if (RM || !el) return;
+  function go(){
+    el.classList.add('blink');
+    setTimeout(function(){ el.classList.remove('blink'); }, 120);
+    if (Math.random() < 0.25) setTimeout(function(){ el.classList.add('blink'); setTimeout(function(){ el.classList.remove('blink'); }, 110); }, 300);
+    if (Math.random() < 0.3) setTimeout(function(){ react(el, 'twitch', 500); }, 900);
+    setTimeout(go, 2600 + Math.random() * 3600);
+  }
+  setTimeout(go, 900 + Math.random() * 2200);
+}
+[capiHero, capiRules, capiHop].forEach(blinker);
+
+function sayTo(el, text){
+  if (!el || el.textContent === text) return;
+  el.textContent = text;
+  if (!RM) react(el, 'say', 400);
+}
+
+/* ---------- the pool, simulated ---------- */
+var V = 30, S = 1e9, K0 = V * S, GR = Math.sqrt(420 * 30) - 30, FEE = 0.01;
+var st;
+function fresh(){ st = { R: 0, T: S, grad: false, burned: 0, hold: 0, fc: 0, ft: 0 }; }
+fresh();
+function price(){ return (st.grad ? st.R : V + st.R) / st.T * 1e6; }
+
+function buy(g){
+  var fee = g * FEE, d = g - fee, out = 0, gradNow = false, tBefore = 0;
+  if (!st.grad) {
+    var room = GR - st.R, d1 = Math.min(d, room);
+    var T1 = K0 / (V + st.R + d1);
+    out += st.T - T1; st.T = T1; st.R += d1; d -= d1;
+    if (st.R >= GR - 1e-9) {
+      st.R = GR; tBefore = st.T;
+      var burn = st.T * V / (V + GR);
+      st.T -= burn; st.burned = burn; st.grad = true; gradNow = true;
+    }
+  }
+  if (st.grad && d > 1e-12) {
+    var T2 = st.R * st.T / (st.R + d);
+    out += st.T - T2; st.T = T2; st.R += d;
+  }
+  st.hold += out; st.fc += fee / 2; st.ft += fee / 2;
+  return { out: out, fee: fee, gradNow: gradNow, tBefore: tBefore };
+}
+function sell(){
+  var t = st.hold, gross;
+  if (t <= 0) return null;
+  if (!st.grad) {
+    var x = V + st.R, T2 = st.T + t, x2 = K0 / T2;
+    gross = x - x2; st.R = Math.max(0, st.R - gross); st.T = T2;
+  } else {
+    var R2 = st.R * st.T / (st.T + t);
+    gross = st.R - R2; st.R = R2; st.T += t;
+  }
+  var fee = gross * FEE;
+  st.fc += fee / 2; st.ft += fee / 2; st.hold = 0;
+  return { gross: gross, fee: fee, get: gross - fee };
+}
+function fmtTok(n){
+  if (n >= 1e8) return (n / 1e6).toFixed(0) + 'M';
+  if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+  if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K';
+  return Math.round(n).toString();
+}
+
+/* ---------- scene ---------- */
+var svg = $('#poolsvg');
+var FLOOR = 404, DEPTH = 234, PX0 = 20, PX1 = 430, CAPX = 172, FLX = 166;
+function levelY(R){ return FLOOR - DEPTH * Math.min(0.95, R / 105); }
+var FULLY = levelY(GR);
+$('#fullL').setAttribute('y1', FULLY); $('#fullL').setAttribute('y2', FULLY);
+$('#fullT').setAttribute('y', FULLY + 22);
+
+var waterEl = $('#water'), surfEl = $('#surf'), capiPos = $('#capiPos'), floatPos = $('#floatPos'), floatAnim = $('#floatAnim');
+var fx = $('#fx'), ripG = $('#ripples'), say1 = $('#say1');
+var jarC = $('#jarCfill'), jarT = $('#jarTfill');
+
+var SLOTS = [[262,0],[288,0],[40,0],[314,0],[66,0],[340,0],[275,1],[366,0],[301,1],[392,0],[53,1],[327,1],[414,0],[353,1],[379,1],[403,1]];
+var oranges = SLOTS.map(function(s){
+  var g = document.createElementNS(NS, 'g');
+  g.setAttribute('class', 'orng');
+  g.innerHTML = '<circle class="o-b" r="9.5"/><path class="o-s" d="M0,-9 L1.5,-13.5"/><path class="o-h" d="M-4.5,-3 Q-4,-6.5 -1,-7"/>';
+  (s[1] ? $('#or1') : $('#or0')).appendChild(g);
+  return { x: s[0], row: s[1], el: g, y: FLOOR - 10 };
+});
+
+var surf = FLOOR, capiY = FLOOR - 26, floatOn = true, shownT = S, busy = false;
+var jc = 0, jt = 0, last = 0, running = false, heroVisible = true;
+
+function countN(){ return Math.max(0, Math.min(16, Math.round(shownT / S * 16))); }
+function paintOranges(){ var n = countN(); oranges.forEach(function(o, i){ o.el.style.opacity = i < n ? '1' : '0'; }); }
+
+function wave(x, t){ return RM ? 0 : Math.sin(x / 26 + t * 2) * 2.2 + Math.sin(x / 11 - t * 1.4) * 1.1; }
+function frame(now){
+  var dt = Math.min(0.05, (now - last) / 1000 || 0.016); last = now;
+  var t = now / 1000, target = levelY(st.R);
+  var a = RM ? 1 : 1 - Math.exp(-dt * 3.2);
+  surf += (target - surf) * a;
+  if (Math.abs(target - surf) < 0.05) surf = target;
+  var wet = surf < FLOOR - 0.8;
+  if (wet) {
+    var d = 'M' + (PX0 - 4) + ',' + (FLOOR + 20) + ' L' + (PX0 - 4) + ',' + surf.toFixed(1), s = '';
+    for (var x = PX0; x <= PX1; x += 10) {
+      var y = (surf + wave(x, t)).toFixed(1);
+      d += ' L' + x + ',' + y;
+      s += (s ? ' L' : 'M') + x + ',' + y;
+    }
+    d += ' L' + (PX1 + 4) + ',' + surf.toFixed(1) + ' L' + (PX1 + 4) + ',' + (FLOOR + 20) + ' Z';
+    waterEl.setAttribute('d', d); surfEl.setAttribute('d', s);
+  } else { waterEl.setAttribute('d', ''); surfEl.setAttribute('d', ''); }
+
+  var bob = (RM || surf > FLOOR - 24) ? 0 : Math.sin(t * 1.6) * 2;
+  var fy = Math.min(FLOOR - 17, surf + 3);
+  floatPos.setAttribute('transform', 'translate(' + FLX + ' ' + (fy + bob).toFixed(1) + ')');
+  var cTarget = floatOn ? fy - 9 : Math.min(FLOOR + 2, surf + 30);
+  capiY += (cTarget - capiY) * (RM ? 1 : 1 - Math.exp(-dt * 6));
+  capiPos.setAttribute('transform', 'translate(' + CAPX + ' ' + (capiY + bob).toFixed(1) + ') scale(.8)');
+
+  oranges.forEach(function(o, i){
+    var b = RM ? 0 : Math.sin(t * 2 + i * 1.7) * 1.5;
+    var rest = o.row ? FLOOR - 25 : FLOOR - 10, fl = o.row ? surf + 7 : surf - 3;
+    var y = fl < rest ? fl + b : rest;
+    o.y = y;
+    o.el.setAttribute('transform', 'translate(' + o.x + ' ' + y.toFixed(1) + ')');
+  });
+
+  jc += (jarH(st.fc) - jc) * a; jt += (jarH(st.ft) - jt) * a;
+  jarC.setAttribute('y', (-4 - jc).toFixed(1)); jarC.setAttribute('height', jc.toFixed(1));
+  jarT.setAttribute('y', (-4 - jt).toFixed(1)); jarT.setAttribute('height', jt.toFixed(1));
+
+  placeBubble(capiY + bob);
+  if (heroVisible || Math.abs(target - surf) > 0.3) requestAnimationFrame(frame); else running = false;
+}
+var bx = -1, by = -1;
+function placeBubble(cy){
+  var sw = svg.clientWidth; if (!sw) return;
+  var k = sw / 580, bw = say1.offsetWidth, bh = say1.offsetHeight;
+  var bottom = Math.min(cy - 112 - 12, FULLY - 24);
+  var top = (bottom + 30) * k - bh - 12;
+  var hx = (CAPX + 54) * k;
+  var left = Math.max(8, Math.min(hx - 43, 444 * k - bw, sw - bw - 8));
+  var tail = Math.max(14, Math.min(bw - 34, hx - left - 9));
+  say1.style.setProperty('--tail', tail.toFixed(0) + 'px');
+  if (Math.abs(left - bx) > 0.3 || Math.abs(top - by) > 0.3) { bx = left; by = top; say1.style.left = left.toFixed(1) + 'px'; say1.style.top = top.toFixed(1) + 'px'; }
+}
+function jarH(v){ return 56 * (1 - Math.exp(-v / 0.3)); }
+function kick(){ if (!running) { running = true; last = performance.now(); requestAnimationFrame(frame); } }
+if ('IntersectionObserver' in window) {
+  new IntersectionObserver(function(es){ heroVisible = es[0].isIntersecting; if (heroVisible) kick(); }).observe(svg);
+}
+kick();
+
+/* fx helpers */
+function ease(k){ return k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2; }
+function fly(el, x0, y0, x1, y1, arc, ms, done){
+  fx.appendChild(el);
+  if (RM) { el.remove(); if (done) done(); return; }
+  var t0 = performance.now();
+  function step(now){
+    var k = Math.min(1, (now - t0) / ms), e = ease(k);
+    var x = x0 + (x1 - x0) * e, y = y0 + (y1 - y0) * e - arc * 4 * e * (1 - e);
+    el.setAttribute('transform', 'translate(' + x.toFixed(1) + ' ' + y.toFixed(1) + ')');
+    if (k < 1) requestAnimationFrame(step); else { el.remove(); if (done) done(); }
+  }
+  requestAnimationFrame(step);
+}
+function floatText(x, y, text, hot){
+  if (RM) return;
+  var el = document.createElementNS(NS, 'text');
+  el.setAttribute('x', x); el.setAttribute('y', y); el.setAttribute('text-anchor', 'middle');
+  el.setAttribute('class', 'fxt' + (hot ? ' hot' : ''));
+  el.textContent = text; fx.appendChild(el);
+  setTimeout(function(){ el.remove(); }, 1600);
+}
+function feeDrops(){
+  [474, 542].forEach(function(jx, i){
+    var c = document.createElementNS(NS, 'circle');
+    c.setAttribute('r', '6'); c.setAttribute('class', 'drop');
+    setTimeout(function(){ fly(c, 432, 164, jx, 98, 70 + i * 16, 650); }, i * 90);
+  });
+}
+function tokensOut(prevN, newN){
+  for (var i = newN; i < prevN; i++) {
+    var o = oranges[i], c = o.el.cloneNode(true);
+    c.style.opacity = '1';
+    (function(c, o, i){ setTimeout(function(){ fly(c, o.x, o.y, 460 + Math.random() * 100, -50, 60, 760); }, (i - newN) * 60); })(c, o, i);
+  }
+}
+function ripple(x, y, big){
+  if (RM) return;
+  var el = document.createElementNS(NS, 'ellipse');
+  el.setAttribute('cx', x.toFixed(1)); el.setAttribute('cy', y.toFixed(1));
+  el.setAttribute('rx', big ? 24 : 14); el.setAttribute('ry', big ? 5.5 : 3.5);
+  el.setAttribute('class', 'rip'); ripG.appendChild(el);
+  setTimeout(function(){ el.remove(); }, 950);
+}
+function toSvg(e){
+  var m = svg.getScreenCTM(); if (!m) return { x: -1, y: -1 };
+  var p = svg.createSVGPoint(); p.x = e.clientX; p.y = e.clientY;
+  return p.matrixTransform(m.inverse());
+}
+var lastRip = 0;
+svg.addEventListener('pointermove', function(e){
+  var now = performance.now(); if (now - lastRip < 90 || surf > FLOOR - 6) return;
+  var p = toSvg(e);
+  if (p.x < PX0 + 10 || p.x > PX1 - 10 || Math.abs(p.y - surf) > 44) return;
+  lastRip = now; ripple(p.x, surf);
+});
+svg.addEventListener('pointerdown', function(e){
+  if (surf > FLOOR - 6) return;
+  var p = toSvg(e);
+  if (p.x > PX0 + 10 && p.x < PX1 - 10 && p.y > surf - 30) ripple(p.x, surf, true);
+});
+
+/* readouts */
+function update(){
+  $('#rSol').textContent = st.R.toFixed(2);
+  $('#rOf').textContent = st.grad ? ', graduated' : ', full at ' + GR.toFixed(2);
+  $('#rPrice').textContent = price().toFixed(4);
+  $('#rHold').textContent = fmtTok(st.hold);
+  $('#rFc').textContent = st.fc.toFixed(3);
+  $('#rFt').textContent = st.ft.toFixed(3);
+  $('#rBurn').innerHTML = st.grad ? ' Burned at graduation: <b>' + fmtTok(st.burned) + '</b> (' + (st.burned / S * 100).toFixed(1) + '% of supply).' : '';
+  $('#sellAll').disabled = busy || st.hold <= 0;
+  $$('[data-buy]').forEach(function(b){ b.disabled = busy; });
+  $('#reset').disabled = busy;
+  paintOranges();
+  kick();
+}
+
+/* lines */
+var buys = 0, touched = false;
+function buyLine(){
+  buys++;
+  if (st.grad) return buys % 2 ? 'Still my pool. Still the same address.' : 'No curve now. Just x·y=k.';
+  if (buys === 1) return 'Splash. 1% went into the two jars.';
+  if (buys === 2) return 'More SOL in, higher price.';
+  if (st.R > 62) return 'Nearly at the full line.';
+  return ['Water up, tokens out.', 'Price ticks up with every buy.', 'In it goes. Your tokens are on the way.'][buys % 3];
+}
+
+
+function graduate(){
+  busy = true; update();
+  var pct = (st.burned / S * 100).toFixed(1);
+  if (RM) {
+    floatOn = false; shownT = st.T; floatAnim.style.display = 'none';
+    $('#fullT').textContent = 'graduated here · now x·y=k';
+    sayTo(say1, 'Full line. Float out, ' + pct + '% burned, price unchanged. Same pool from here.');
+    busy = false; update(); return;
+  }
+  sayTo(say1, 'Full line!');
+  react(capiHero, 'happy', 900);
+  react($('#fullLine'), 'flash', 1800);
+  setTimeout(function(){
+    floatAnim.classList.add('pop');
+    sayTo(say1, 'Float out. That was the 30 virtual SOL.');
+    setTimeout(function(){ floatOn = false; }, 260);
+  }, 1000);
+  setTimeout(function(){
+    var n = countN(), o = oranges[Math.max(0, n - 1)], c = o.el.cloneNode(true);
+    c.style.opacity = '1';
+    var mx = CAPX + 94 * 0.8, my = Math.min(FLOOR + 2, surf + 30) - 55 * 0.8;
+    shownT = st.T; paintOranges();
+    fly(c, o.x, o.y, mx, my, 50, 520, function(){
+      react(capiHero, 'chomp', 900);
+      floatText(mx + 20, my - 40, '−' + fmtTok(st.burned) + ' burned', true);
+    });
+    sayTo(say1, 'I burned ' + pct + '% of the supply. The price did not move.');
+  }, 2500);
+  setTimeout(function(){
+    $('#fullT').textContent = 'graduated here · now x·y=k';
+    react($('#fullLine'), 'flash', 1400);
+    sayTo(say1, 'Same pool, same address. Plain x·y=k now.');
+    busy = false; update();
+  }, 4700);
+}
+
+$$('[data-buy]').forEach(function(b){
+  b.addEventListener('click', function(){
+    if (busy) return;
+    touched = true;
+    var prevN = countN();
+    var r = buy(parseFloat(b.getAttribute('data-buy')));
+    feeDrops();
+    floatText(330, Math.min(surf, FLOOR - 30) - 40, '+' + fmtTok(r.out) + ' to you', false);
+    if (r.gradNow) {
+      shownT = r.tBefore;
+      tokensOut(prevN, countN());
+      graduate();
+    } else {
+      shownT = st.T;
+      tokensOut(prevN, countN());
+      sayTo(say1, buyLine());
+      react(capiHero, 'happy', 700);
+    }
+    update();
+  });
+});
+$('#sellAll').addEventListener('click', function(){
+  if (busy) return;
+  touched = true;
+  var r = sell(); if (!r) return;
+  shownT = st.T;
+  feeDrops();
+  floatText(330, Math.min(surf, FLOOR - 30) - 40, r.get.toFixed(2) + ' SOL back', false);
+  if (!st.grad && st.R < 0.001) sayTo(say1, 'All sold. Pool is empty, my float is still here.');
+  else sayTo(say1, 'SOL out, tokens back in. 1% to the jars.');
+  react(capiHero, 'nod', 600);
+  update();
+});
+$('#reset').addEventListener('click', function(){
+  if (busy) return;
+  fresh(); floatOn = true; shownT = S; buys = 0;
+  floatAnim.classList.remove('pop'); floatAnim.style.display = '';
+  $('#fullT').textContent = 'full line · ' + GR.toFixed(2) + ' SOL';
+  sayTo(say1, 'Fresh coin. Empty pool. Float back on.');
+  react(capiHero, 'happy', 700);
+  update();
+});
+capiPos.addEventListener('click', function(){
+  touched = true;
+  sayTo(say1, st.grad ? 'Still here. I never leave this pool.' : "That's me. Try a buy.");
+  react(capiHero, 'happy', 800);
+});
+setTimeout(function(){ if (!touched) sayTo(say1, 'My float is 30 virtual SOL. It sets the opening price.'); }, 6000);
+setTimeout(function(){ if (!touched) sayTo(say1, "Go on, buy something. It's pretend SOL."); }, 14000);
+update();
+
+/* ---------- rules ---------- */
+var ANS = {
+  sol: 'No plug. Nobody has an instruction to take a pool’s SOL. Not you, not me, not the team.',
+  lp: 'There is no LP token. The liquidity just stays in.',
+  mint: 'Mint authority is gone. 1,000,000,000 tokens, and that’s all.',
+  freeze: 'There is no freeze authority. Nobody can lock your tokens.',
+  name: 'Name and metadata are fixed. Forever.',
+  move: 'No migration. After graduation it’s still this pool, same address.',
+  cut: 'Two jars only. The 1% fee goes half to the creator, half to the treasury. Nobody else.'
+};
+var tries = 0, tried = {}, say2 = $('#say2'), tally = $('#tally');
+$$('.try').forEach(function(b){
+  b.addEventListener('click', function(){
+    tries++; tried[b.getAttribute('data-k')] = 1;
+    b.classList.add('tried');
+    sayTo(say2, ANS[b.getAttribute('data-k')]);
+    react(capiRules, 'shake', 750);
+    var all = Object.keys(tried).length === 7;
+    tally.innerHTML = '<b>' + tries + '</b> ' + (tries === 1 ? 'try' : 'tries') + '. <b>0</b> taken.' + (all ? ' That’s every move.' : '');
+  });
+});
+
+/* ---------- stepping stones ---------- */
+var pond = $('#pond'), hopper = $('#hopper'), say3 = $('#say3');
+var stones = $$('.stone', pond), onStone = stones[0];
+function place(stone, animate){
+  var pr = pond.getBoundingClientRect(), rr = stone.querySelector('.rock').getBoundingClientRect();
+  var w = hopper.offsetWidth || 92, h = w * 160 / 220;
+  var x = rr.left - pr.left + rr.width / 2 - w * (100 / 220);
+  var y = rr.top - pr.top - h * (150 / 160) + 12;
+  hopper.style.transition = (animate && !RM) ? '' : 'none';
+  hopper.style.transform = 'translate(' + x.toFixed(1) + 'px,' + y.toFixed(1) + 'px)';
+  if (animate && !RM) react(hopper, 'hop', 600);
+}
+stones.forEach(function(s){
+  s.addEventListener('click', function(){
+    stones.forEach(function(o){ o.classList.toggle('on', o === s); });
+    onStone = s; place(s, true);
+    sayTo(say3, s.getAttribute('data-line'));
+    setTimeout(function(){ react(capiHop, s.classList.contains('dry') ? 'happy' : 'nod', 700); }, RM ? 0 : 520);
+  });
+});
+place(onStone, false);
+window.addEventListener('resize', function(){ place(onStone, false); });
+if (document.fonts && document.fonts.ready) document.fonts.ready.then(function(){ place(onStone, false); });
+window.addEventListener('load', function(){ place(onStone, false); });
+
+/* ---------- pond nav ---------- */
+var navStones = $$('.nst[data-sec]');
+function setActive(id){ navStones.forEach(function(n){ var on = n.getAttribute('data-sec') === id; n.classList.toggle('on', on); if (on) n.setAttribute('aria-current', 'true'); else n.removeAttribute('aria-current'); }); }
+if ('IntersectionObserver' in window) {
+  var io = new IntersectionObserver(function(es){ es.forEach(function(e){ if (e.isIntersecting) setActive(e.target.id); }); }, { rootMargin: '-45% 0px -50% 0px' });
+  ['pool', 'rules', 'next'].forEach(function(id){ io.observe(document.getElementById(id)); });
+}
+
+/* ---------- math sheet ---------- */
+var dlg = $('#math');
+function openMath(){ if (dlg.showModal) dlg.showModal(); else dlg.setAttribute('open', ''); }
+function closeMath(){ if (dlg.close) dlg.close(); else dlg.removeAttribute('open'); }
+$$('[data-math]').forEach(function(b){ b.addEventListener('click', openMath); });
+$('#closeMath').addEventListener('click', closeMath);
+dlg.addEventListener('click', function(e){ if (e.target === dlg) closeMath(); });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,13 @@
+node_modules/
+target/
+# browser profiles and screenshots from design reviews
+**/critique-scratch/
+**/scratch/
+**/scratch$P/
+*.log
+# never commit keys
+.env*
+*keypair*.json
+id.json
+# old copies of the site, kept on disk only
+backup/

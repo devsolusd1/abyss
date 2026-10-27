@@ -1,0 +1,1069 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ramal</title>
+<meta name="description" content="Every coin runs on one line, from launch to forever. A Solana DEX on devnet.">
+<meta name="color-scheme" content="dark">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Overpass:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+<style>
+:root {
+  --ground: #14181b;
+  --ground-2: #1b2024;
+  --ground-3: #242b30;
+  --rule: #2d353a;
+  --ink: #f2f0e9;
+  --ink-2: #b0b7bb;
+  --ink-3: #7a848a;
+  --track: #5f696f;
+  --red: #ff5b24;
+  --yellow: #ffc629;
+  --green: #1fb765;
+  --blue: #3e7bfa;
+  --lilac: #a67cf0;
+  --teal: #15b9ae;
+  --f: "Overpass", "Segoe UI", system-ui, sans-serif;
+}
+* { box-sizing: border-box; }
+html { background: var(--ground); color: var(--ink); scroll-behavior: smooth; scroll-padding-top: 76px; }
+body {
+  margin: 0; background: var(--ground); color: var(--ink); font-family: var(--f);
+  font-size: 17px; line-height: 1.45; -webkit-font-smoothing: antialiased; overflow-x: hidden;
+}
+a { color: inherit; }
+button, input { font: inherit; color: inherit; }
+.num { font-variant-numeric: tabular-nums; }
+.wrap { max-width: 1240px; margin: 0 auto; padding: 0 16px; }
+@media (min-width: 720px) { .wrap { padding: 0 32px; } }
+:focus-visible { outline: 3px solid var(--yellow); outline-offset: 3px; }
+
+/* ---------- header: the page is a line ---------- */
+.top {
+  position: sticky; top: 0; z-index: 20; background: var(--ground);
+  border-bottom: 1px solid var(--rule);
+}
+.top .wrap { display: flex; align-items: center; gap: 20px; height: 64px; }
+.brand { display: flex; align-items: center; gap: 9px; text-decoration: none; flex: none; }
+.brand b { font-weight: 900; font-size: 25px; letter-spacing: -0.02em; line-height: 1; padding-top: 4px; }
+.route { flex: 1; min-width: 0; display: flex; justify-content: flex-end; }
+.route ol { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); width: min(100%, 600px); position: relative; }
+.route li { position: relative; display: flex; justify-content: center; }
+.route li + li::before {
+  content: ""; position: absolute; top: 13px; left: -50%; right: 50%; height: 0;
+  border-top: 6px solid var(--red); z-index: 0;
+}
+.route li.planned::before { border-top: 4px dashed var(--track); top: 14px; }
+.route a, .route .soon {
+  position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; gap: 5px;
+  text-decoration: none; padding: 6px 2px 4px; font-size: 13px; font-weight: 700; color: var(--ink-2);
+  white-space: nowrap;
+}
+.route i {
+  display: block; width: 16px; height: 16px; border-radius: 50%; background: var(--ink);
+  border: 3px solid var(--ground); box-shadow: 0 0 0 0 var(--ink);
+}
+.route .soon i { background: var(--ground); border: 3px solid var(--track); }
+.route .soon { color: var(--ink-3); cursor: default; }
+.route .soon em { font-style: normal; font-weight: 600; font-size: 11px; }
+.route a.current { color: var(--ink); }
+.route a.current i { background: var(--red); box-shadow: 0 0 0 3px var(--ink); }
+.route a:hover { color: var(--ink); }
+.route .label { line-height: 1; }
+@media (max-width: 719px) {
+  .top .wrap { gap: 10px; }
+  .route ol { width: 100%; max-width: 250px; }
+  .route .label { position: absolute; top: 28px; font-size: 11px; opacity: 0; }
+  .route a.current .label { opacity: 1; position: static; }
+  .route a.current { margin-bottom: -14px; }
+  .route .soon .label { display: none; }
+}
+
+/* ---------- section signs ---------- */
+.sign { display: flex; align-items: center; gap: 12px; margin: 0 0 18px; font-size: clamp(28px, 4.2vw, 46px); font-weight: 900; letter-spacing: -0.02em; line-height: 1; }
+.sign span:last-child { padding-top: 0.12em; }
+.bullet {
+  flex: none; display: inline-grid; place-items: center; width: 1.05em; height: 1.05em; border-radius: 50%;
+  background: var(--c, var(--red)); color: var(--ground); font-size: 0.82em; font-weight: 900; line-height: 1;
+}
+.bullet > span { padding-top: 0.14em; }
+.lede { color: var(--ink-2); max-width: 34ch; margin: 0 0 32px; font-size: 19px; }
+.sec { padding-top: 88px; padding-bottom: 24px; }
+@media (max-width: 719px) { .sec { padding-top: 64px; } }
+.tag {
+  display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 800; letter-spacing: 0.02em;
+  padding: 4px 8px 2px; border: 2px solid currentColor; border-radius: 3px; color: var(--yellow); line-height: 1.2;
+}
+.tag.live { color: var(--green); }
+
+/* ---------- hero ---------- */
+.hero { padding-top: 28px; padding-bottom: 8px; }
+.hero-text h1 { margin: 0; font-weight: 900; font-size: clamp(46px, 7.4vw, 88px); line-height: 0.9; letter-spacing: -0.035em; }
+.hero-text h1 .r { color: var(--red); }
+.hero-text p { margin: 16px 0 0; color: var(--ink-2); font-size: 18px; max-width: 29ch; }
+.stage { position: relative; margin-top: 20px; }
+#map { width: 100%; }
+#map svg { display: block; width: 100%; height: auto; overflow: visible; user-select: none; -webkit-user-select: none; }
+.ride-board { margin-top: 12px; }
+@media (min-width: 640px) and (max-width: 1099px) {
+  .stage { display: grid; grid-template-columns: minmax(0, 360px) minmax(0, 1fr); gap: 0 28px; align-items: start; }
+  .hero-text { grid-column: 1 / -1; margin-bottom: 12px; }
+  .ride-board { position: sticky; top: 96px; margin-top: 40px; }
+}
+@media (min-width: 1100px) {
+  .stage { margin-top: 0; }
+  .hero-text { position: absolute; left: 0; top: 2%; width: 40%; z-index: 2; pointer-events: none; }
+  .hero-text * { pointer-events: auto; }
+  .ride-board { position: absolute; right: 0; top: 47%; width: 29%; margin: 0; }
+}
+
+/* svg map classes */
+.ln-base { fill: none; stroke: var(--red); stroke-opacity: 0.32; stroke-linejoin: round; }
+.ln-run { fill: none; stroke: var(--red); stroke-linejoin: round; }
+.vt { fill: none; stroke: var(--track); stroke-dasharray: 12 9; transition: stroke-opacity .5s, stroke .5s; }
+.vt-end { stroke: var(--track); fill: none; transition: stroke-opacity .5s; }
+.closed .vt, .closed .vt-end { stroke-opacity: 0.25; }
+.vt-label { fill: var(--ink-3); font-size: 13px; font-weight: 700; transition: opacity .4s; }
+.spur { fill: none; stroke: var(--yellow); stroke-opacity: 0.35; transition: stroke-opacity .5s; }
+.closed .spur { stroke-opacity: 1; }
+.spur-end { stroke: var(--yellow); }
+.burn-label { fill: var(--ink-3); font-size: 13px; font-weight: 700; transition: fill .4s; }
+.burn-label .big { font-size: 17px; font-weight: 900; }
+.closed .burn-label { fill: var(--yellow); }
+.flame { fill: var(--yellow); opacity: .4; transition: opacity .4s; }
+.closed .flame { opacity: 1; }
+.tok { transition: transform .8s cubic-bezier(.5,0,.2,1), opacity .4s; opacity: 0; }
+.closed .tok { opacity: 1; }
+.st { cursor: pointer; }
+.st .dot { fill: var(--ink); stroke: var(--ground); }
+.st .ring { fill: var(--ground); stroke: var(--ink); }
+.st text { fill: var(--ink-2); font-weight: 800; transition: fill .2s; }
+.st text.sub { fill: var(--ink-3); font-weight: 600; }
+.st.on text:not(.sub) { fill: var(--ink); }
+.st.at text:not(.sub) { fill: var(--red); }
+.st:focus-visible { outline: none; }
+.st:focus-visible .hitc { stroke: var(--yellow); stroke-width: 3; }
+.hit { fill: none; stroke: transparent; cursor: pointer; touch-action: none; }
+#train { cursor: grab; touch-action: none; outline: none; }
+#train.drag { cursor: grabbing; }
+#train:focus-visible .body { stroke: var(--yellow); stroke-width: 3; }
+.end-label { fill: var(--ink-3); font-size: 13px; font-weight: 700; }
+
+/* the departure sign */
+.board-sign { background: var(--ground-2); border-radius: 4px; overflow: hidden; }
+.board-band { display: flex; align-items: center; gap: 10px; background: var(--red); color: var(--ground); padding: 9px 14px 7px; font-weight: 900; font-size: 18px; line-height: 1.1; min-height: 46px; transition: background .4s; }
+.board-band small { display: block; font-size: 11px; font-weight: 800; opacity: .75; letter-spacing: .02em; }
+.board-band.ix { background: var(--yellow); }
+.board-band.open { background: var(--ink); }
+.board-nums { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 18px; padding: 14px 14px 6px; }
+.board-nums div { min-width: 0; }
+.board-nums dt { font-size: 12px; color: var(--ink-3); font-weight: 700; }
+.board-nums dd { margin: 0; font-size: 25px; font-weight: 900; letter-spacing: -0.01em; line-height: 1.1; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.board-nums dd small { font-size: 13px; font-weight: 700; color: var(--ink-3); }
+.board-note { padding: 6px 14px 14px; color: var(--ink-2); font-size: 14px; line-height: 1.35; min-height: 3.2em; }
+.board-note b { color: var(--ink); }
+@media (max-width: 639px) {
+  /* on a phone the sign rides along at the bottom while the line is on screen */
+  .ride-board { position: sticky; bottom: 8px; z-index: 5; margin-top: -8px; }
+  .board-sign { border: 2px solid var(--ground-3); box-shadow: 0 0 0 8px var(--ground); }
+  .board-band { font-size: 16px; min-height: 38px; padding: 6px 12px 4px; }
+  .board-nums { gap: 6px 14px; padding: 8px 12px 2px; }
+  .board-nums dt { font-size: 11px; }
+  .board-nums dd { font-size: 19px; }
+  .board-note { font-size: 13px; padding: 4px 12px 10px; min-height: 0; }
+}
+@media (min-width: 640px) and (max-width: 1099px) {
+  .board-nums { gap: 12px; }
+  .board-nums dd { font-size: 21px; }
+}
+.hint { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; margin-top: 16px; font-size: 14px; color: var(--ink-2); }
+.hint .grow { flex: 1; min-width: 12ch; }
+.sq {
+  display: inline-flex; align-items: center; gap: 8px; border: 2px solid var(--ink); background: transparent; border-radius: 3px;
+  padding: 7px 12px 5px; font-weight: 800; font-size: 14px; cursor: pointer; line-height: 1.2;
+}
+.sq:hover { background: var(--ink); color: var(--ground); }
+.sq svg { flex: none; }
+.livebar { font-size: 13px; color: var(--ink-3); display: flex; align-items: center; gap: 8px; }
+.livebar i { width: 9px; height: 9px; border-radius: 50%; background: var(--track); flex: none; }
+.livebar.ok i { background: var(--green); }
+
+/* ---------- rules ---------- */
+.stops { list-style: none; margin: 0; padding: 0; position: relative; max-width: 780px; }
+.stops::before { content: ""; position: absolute; left: 21px; top: 10px; bottom: 10px; width: 10px; background: var(--blue); border-radius: 5px; }
+.stops li { position: relative; display: grid; grid-template-columns: 52px 56px 1fr; align-items: start; gap: 0 14px; padding: 0 0 34px; }
+.stops li:last-child { padding-bottom: 0; }
+.stops .st-dot { position: relative; z-index: 1; margin: 8px 0 0 13px; width: 26px; height: 26px; border-radius: 50%; background: var(--ink); border: 5px solid var(--ground); }
+.stops h3 { margin: 0 0 4px; font-size: 22px; font-weight: 900; letter-spacing: -0.01em; line-height: 1.15; padding-top: 10px; }
+.stops p { margin: 0; color: var(--ink-2); max-width: 46ch; }
+.picto { width: 56px; height: 56px; }
+@media (max-width: 520px) {
+  .stops li { grid-template-columns: 52px 1fr; }
+  .stops .picto { grid-column: 2; width: 44px; height: 44px; }
+  .stops li > div { grid-column: 2; }
+  .stops h3 { padding-top: 6px; }
+}
+
+/* ---------- fare ---------- */
+.fare { display: grid; gap: 28px; align-items: center; }
+@media (min-width: 960px) { .fare { grid-template-columns: 1fr 1.25fr; } }
+.fare svg { width: 100%; max-width: 620px; height: auto; display: block; }
+.fare-live { margin-top: 18px; font-size: 14px; color: var(--ink-3); }
+.fare-live b { color: var(--ink); font-variant-numeric: tabular-nums; }
+
+/* ---------- network: coin board + coin page ---------- */
+.proof { display: grid; gap: 40px; grid-template-columns: minmax(0, 1fr); }
+.proof > div { min-width: 0; }
+@media (min-width: 1100px) { .proof { grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); align-items: start; } }
+.proof h3 { margin: 0 0 12px; font-size: 14px; font-weight: 800; color: var(--ink-2); display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.panel { background: var(--ground-2); border-radius: 4px; padding: 18px 16px 16px; }
+@media (min-width: 720px) { .panel { padding: 22px 22px 20px; } }
+.axis { position: relative; height: 18px; margin: 0 0 6px; font-size: 12px; font-weight: 800; color: var(--ink-3); }
+.axis span { position: absolute; top: 0; white-space: nowrap; }
+.axis span span { position: static; }
+@media (max-width: 520px) { .axis .long { display: none; } }
+.rows { list-style: none; margin: 0; padding: 0; }
+.row { --c: var(--green); padding: 12px 0 14px; border-top: 1px solid var(--rule); }
+.row-id { display: flex; align-items: center; gap: 10px; font-weight: 900; font-size: 17px; margin-bottom: 8px; min-width: 0; }
+.row-id .bullet { font-size: 19px; }
+.row-id em { font-style: normal; font-size: 12px; font-weight: 700; color: var(--ink-3); }
+.row-nums { display: flex; flex-wrap: wrap; gap: 4px 16px; margin-top: 8px; font-size: 13px; color: var(--ink-3); }
+.row-nums b { color: var(--ink); font-variant-numeric: tabular-nums; }
+.row.planned .row-id { color: var(--ink-3); }
+.row.planned .bullet { background: transparent; border: 3px solid var(--track); color: var(--ink-3); }
+
+.strip { position: relative; height: 26px; }
+.strip .tr { position: absolute; left: 0; right: 0; top: 9px; height: 8px; border-radius: 4px; background: var(--ground-3); }
+.strip .run { position: absolute; left: 0; top: 9px; height: 8px; border-radius: 4px; background: var(--c); }
+.strip .tk { position: absolute; top: 5px; width: 16px; height: 16px; margin-left: -8px; border-radius: 50%; background: var(--ink); border: 3px solid var(--ground-2); }
+.strip .tk.ahead { background: var(--track); width: 12px; height: 12px; margin-left: -6px; top: 7px; border-width: 2px; }
+.strip .ixr { position: absolute; top: 0; width: 26px; height: 26px; margin-left: -13px; border-radius: 50%; background: var(--ground-2); border: 5px solid var(--ink); }
+.strip .trn { position: absolute; top: 5px; width: 34px; height: 16px; margin-left: -17px; border-radius: 4px; background: var(--ink); border: 2px solid var(--ground-2); }
+.strip .trn::after { content: ""; position: absolute; left: 3px; right: 3px; bottom: 2px; height: 3px; background: var(--c); }
+.strip.planned .tr { background: none; border-top: 4px dashed var(--track); border-radius: 0; height: 0; top: 11px; }
+
+.cp-sign { display: flex; align-items: center; gap: 14px; background: var(--c, var(--green)); color: var(--ground); border-radius: 3px; padding: 12px 14px 10px; }
+.cp-sign .bullet { background: var(--ground); color: var(--c); font-size: 26px; }
+.cp-sign h4 { margin: 0; font-size: 24px; font-weight: 900; line-height: 1.05; letter-spacing: -0.01em; }
+.cp-sign p { margin: 2px 0 0; font-size: 13px; font-weight: 700; }
+.cp-sign a { color: inherit; }
+.cp-sign .state { margin-left: auto; font-size: 12px; font-weight: 900; border: 2px solid var(--ground); padding: 3px 7px 1px; border-radius: 3px; white-space: nowrap; }
+.cp-line { margin: 18px 0 6px; }
+.cp-grid { display: grid; gap: 18px; margin-top: 16px; }
+@media (min-width: 640px) { .cp-grid { grid-template-columns: 1fr 1fr; } }
+.cp-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 16px; margin: 0; align-content: start; }
+.cp-stats dt { font-size: 12px; font-weight: 700; color: var(--ink-3); }
+.cp-stats dd { margin: 0; font-size: 21px; font-weight: 900; font-variant-numeric: tabular-nums; line-height: 1.15; }
+.ticket { background: var(--ground-3); border-radius: 3px; padding: 12px; position: relative; }
+.ticket::before, .ticket::after { content: ""; position: absolute; top: 50%; width: 14px; height: 14px; margin-top: -7px; border-radius: 50%; background: var(--ground-2); }
+.ticket::before { left: -7px; } .ticket::after { right: -7px; }
+.seg { display: grid; grid-template-columns: 1fr 1fr; border: 2px solid var(--ink); border-radius: 3px; overflow: hidden; margin-bottom: 10px; }
+.seg button { border: 0; background: transparent; padding: 6px 0 4px; font-weight: 900; cursor: pointer; font-size: 14px; }
+.seg button[aria-pressed="true"] { background: var(--ink); color: var(--ground); }
+.ticket label { display: block; font-size: 12px; font-weight: 700; color: var(--ink-3); margin-bottom: 4px; }
+.ticket input { width: 100%; background: var(--ground); border: 2px solid var(--rule); border-radius: 3px; padding: 8px 10px 6px; font-size: 18px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.ticket input:focus { border-color: var(--ink); outline: none; }
+.quote { margin: 10px 0; font-size: 14px; color: var(--ink-2); min-height: 4.2em; line-height: 1.4; }
+.quote b { color: var(--ink); font-variant-numeric: tabular-nums; }
+.quote .gold { color: var(--yellow); }
+.ticket .go { width: 100%; justify-content: center; border-style: dashed; color: var(--ink-3); border-color: var(--track); cursor: not-allowed; }
+.ticket .go:hover { background: transparent; color: var(--ink-3); }
+.deps { list-style: none; margin: 18px 0 0; padding: 0; }
+.deps-title { font-size: 12px; font-weight: 800; color: var(--ink-3); margin: 18px 0 0; }
+.deps li { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--rule); font-size: 14px; }
+.deps li .k { font-weight: 900; width: 34px; }
+.deps li .k.b { color: var(--green); } .deps li .k.s { color: var(--red); }
+.deps li .v { flex: 1; min-width: 0; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.deps li .t { color: var(--ink-3); white-space: nowrap; }
+.deps li a { color: var(--ink-2); font-weight: 700; white-space: nowrap; }
+.deps .empty { color: var(--ink-3); }
+.note-sim { margin-top: 12px; font-size: 13px; color: var(--ink-3); }
+
+/* ---------- terminus ---------- */
+.terminus { padding-top: 96px; padding-bottom: 56px; }
+.terminus svg { width: 100%; max-width: 760px; height: auto; display: block; }
+.terminus p { color: var(--ink-2); max-width: 44ch; margin: 20px 0 0; }
+.terminus .fine { font-size: 13px; color: var(--ink-3); margin-top: 28px; }
+
+/* draw-in */
+.draw { stroke-dasharray: 1; stroke-dashoffset: 1; transition: stroke-dashoffset 1.4s cubic-bezier(.6,0,.2,1); }
+.in .draw { stroke-dashoffset: 0; }
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .draw { stroke-dasharray: none; stroke-dashoffset: 0; transition: none; }
+  .tok, .vt, .spur, .flame, .board-band, .burn-label { transition: none; }
+}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="#ride" aria-label="Ramal, back to the top">
+      <svg width="34" height="24" viewBox="0 0 34 24" aria-hidden="true">
+        <path d="M3 19H31" stroke="#f2f0e9" stroke-width="5" stroke-linecap="round"/>
+        <path d="M11 19L21 9H25" stroke="#ff5b24" stroke-width="5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+        <circle cx="26" cy="9" r="4" fill="#14181b" stroke="#f2f0e9" stroke-width="2.6"/>
+      </svg>
+      <b>ramal</b>
+    </a>
+    <nav class="route" aria-label="Stations on this page">
+      <ol>
+        <li><a href="#ride" data-sec="ride"><i></i><span class="label">Ride</span></a></li>
+        <li><a href="#rules" data-sec="rules"><i></i><span class="label">Rules</span></a></li>
+        <li><a href="#fare" data-sec="fare"><i></i><span class="label">Fare</span></a></li>
+        <li><a href="#network" data-sec="network"><i></i><span class="label">Network</span></a></li>
+        <li class="planned"><span class="soon" aria-disabled="true" title="The coin board opens later"><i></i><span class="label">Board <em>soon</em></span></span></li>
+        <li class="planned"><span class="soon" aria-disabled="true" title="Open launches come later"><i></i><span class="label">Launch <em>soon</em></span></span></li>
+      </ol>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <section class="hero wrap" id="ride" data-sec="ride">
+    <div class="stage">
+      <div class="hero-text">
+        <h1>No change<br>of trains<span class="r">.</span></h1>
+        <p>Every coin runs on one line. It starts on a curve, crosses the interchange at 420 SOL, and keeps going in the same pool, for good.</p>
+      </div>
+      <div id="map" aria-label="A coin's line. Drag the train to ride it."></div>
+      <div class="ride-board">
+        <div class="board-sign" aria-live="polite">
+          <div class="board-band" id="bBand"><span><small id="bKicker">Now at</small><span id="bNow">Launch</span></span></div>
+          <dl class="board-nums">
+            <div><dt>Real SOL in</dt><dd id="bSol">0</dd></div>
+            <div><dt>Price per 1M tokens</dt><dd id="bPrice">0.030</dd></div>
+            <div><dt>Market cap</dt><dd id="bCap">30</dd></div>
+            <div><dt>Tokens in the pool</dt><dd id="bPool">1,000M</dd></div>
+          </dl>
+          <div class="board-note" id="bNote"></div>
+        </div>
+      </div>
+    </div>
+    <div class="hint">
+      <span class="tag">Simulation</span>
+      <span class="grow">Drag the train, or pick a station.</span>
+      <button class="sq" id="rideBtn" type="button">
+        <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M3 1.5L12 7L3 12.5Z" fill="currentColor"/></svg>
+        <span>Ride the line</span>
+      </button>
+      <span class="livebar" id="liveBar"><i></i><span>Checking devnet</span></span>
+    </div>
+  </section>
+
+  <section class="sec wrap" id="rules" data-sec="rules">
+    <h2 class="sign"><span class="bullet" style="--c:var(--blue)"><span>2</span></span><span>Line rules</span></h2>
+    <p class="lede">Four things no one can change, the team included.</p>
+    <ol class="stops">
+      <li>
+        <span class="st-dot"></span>
+        <svg class="picto" viewBox="0 0 56 56" aria-hidden="true">
+          <path d="M8 16H48V24A4 4 0 0 0 48 32V40H8V32A4 4 0 0 0 8 24Z" fill="none" stroke="#f2f0e9" stroke-width="3.5" stroke-linejoin="round"/>
+          <text x="28" y="33" text-anchor="middle" fill="#f2f0e9" font-family="Overpass, sans-serif" font-weight="900" font-size="14">LP</text>
+          <path d="M10 48L46 8" stroke="#ff5b24" stroke-width="5" stroke-linecap="square"/>
+        </svg>
+        <div><h3>No LP token.</h3><p>Liquidity goes into the pool once and stays there for good.</p></div>
+      </li>
+      <li>
+        <span class="st-dot"></span>
+        <svg class="picto" viewBox="0 0 56 56" aria-hidden="true">
+          <rect x="7" y="12" width="26" height="32" fill="none" stroke="#f2f0e9" stroke-width="3.5"/>
+          <path d="M18 28H40M33 21L40 28L33 35" fill="none" stroke="#f2f0e9" stroke-width="3.5" stroke-linejoin="miter"/>
+          <path d="M47 10V46" stroke="#ff5b24" stroke-width="6"/>
+        </svg>
+        <div><h3>No way out for pool money.</h3><p>No instruction lets anyone take a pool's SOL or tokens.</p></div>
+      </li>
+      <li>
+        <span class="st-dot"></span>
+        <svg class="picto" viewBox="0 0 56 56" aria-hidden="true">
+          <path d="M3 28H53" stroke="#f2f0e9" stroke-width="6"/>
+          <circle cx="28" cy="28" r="10" fill="#14181b" stroke="#f2f0e9" stroke-width="4"/>
+          <path d="M44 20L52 28L44 36" fill="none" stroke="#f2f0e9" stroke-width="3.5"/>
+        </svg>
+        <div><h3>One address, all its life.</h3><p>Graduation happens inside a buy. No migration, no new pool.</p></div>
+      </li>
+      <li>
+        <span class="st-dot"></span>
+        <svg class="picto" viewBox="0 0 56 56" aria-hidden="true">
+          <circle cx="25" cy="27" r="19" fill="none" stroke="#f2f0e9" stroke-width="3.5"/>
+          <text x="25" y="33" text-anchor="middle" fill="#f2f0e9" font-family="Overpass, sans-serif" font-weight="900" font-size="16">1B</text>
+          <path d="M40 40V35H50V40" fill="none" stroke="#ff5b24" stroke-width="3"/>
+          <rect x="36" y="40" width="18" height="13" fill="#ff5b24"/>
+        </svg>
+        <div><h3>A fixed coin.</h3><p>1,000,000,000 supply. No mint authority, no freeze authority, fixed metadata.</p></div>
+      </li>
+    </ol>
+  </section>
+
+  <section class="sec wrap" id="fare" data-sec="fare">
+    <div class="fare">
+      <div>
+        <h2 class="sign"><span class="bullet" style="--c:var(--yellow)"><span>3</span></span><span>The fare</span></h2>
+        <p class="lede" style="margin-bottom:0">1% of every trade, paid in SOL. Half goes to the coin's creator, half to the platform.</p>
+        <p class="fare-live" id="fareLive">Devnet totals load here when the network answers.</p>
+      </div>
+      <svg id="fareSvg" viewBox="0 0 420 210" role="img" aria-label="A 1 SOL trade: 0.99 SOL does the trade, 0.005 SOL goes to the creator, 0.005 SOL to the treasury.">
+        <g font-family="Overpass, sans-serif" font-weight="800">
+          <path class="draw" pathLength="1" d="M18 52H402" fill="none" stroke="#ff5b24" stroke-width="10"/>
+          <path class="draw" pathLength="1" d="M108 52L168 112H402" fill="none" stroke="#ffc629" stroke-width="8" stroke-linejoin="round"/>
+          <path class="draw" pathLength="1" d="M222 112L272 162H402" fill="none" stroke="#3e7bfa" stroke-width="8" stroke-linejoin="round"/>
+          <circle cx="18" cy="52" r="8" fill="#f2f0e9" stroke="#14181b" stroke-width="4"/>
+          <circle cx="108" cy="52" r="12" fill="#14181b" stroke="#f2f0e9" stroke-width="5"/>
+          <circle cx="222" cy="112" r="10" fill="#14181b" stroke="#f2f0e9" stroke-width="4"/>
+          <path d="M402 40V64M402 100V124M402 150V174" stroke="#f2f0e9" stroke-width="5"/>
+          <text x="18" y="28" fill="#f2f0e9" font-size="15">1 SOL trade</text>
+          <text x="396" y="34" text-anchor="end" fill="#b0b7bb" font-size="13">0.99 SOL does the trade</text>
+          <text x="396" y="98" text-anchor="end" fill="#ffc629" font-size="13">Creator, 0.005 SOL</text>
+          <text x="396" y="148" text-anchor="end" fill="#8fb0ff" font-size="13">Treasury, 0.005 SOL</text>
+          <circle cx="142" cy="86" r="17" fill="#ffc629"/>
+          <text x="142" y="92" text-anchor="middle" fill="#14181b" font-size="13" font-weight="900">1%</text>
+        </g>
+        <g id="fareDots"></g>
+      </svg>
+    </div>
+  </section>
+
+  <section class="sec wrap" id="network" data-sec="network">
+    <h2 class="sign"><span class="bullet" style="--c:var(--green)"><span>4</span></span><span>On the network</span></h2>
+    <p class="lede">On the board, each coin is a line. On its own page, you ride with it. Read from devnet.</p>
+    <div class="proof">
+      <div>
+        <h3>Coin board <span class="tag">Page opens later</span> <span class="tag live" id="boardTag">Loading</span></h3>
+        <div class="panel">
+          <div class="axis" aria-hidden="true"><span style="left:0">Launch</span><span style="left:72%;transform:translateX(-50%)"><span class="long">Interchange, </span>420</span><span style="right:0">for good</span></div>
+          <ul class="rows" id="rows"></ul>
+        </div>
+      </div>
+      <div>
+        <h3>Top of a coin page <span class="tag">Page opens later</span></h3>
+        <div class="panel" id="coinPage"></div>
+      </div>
+    </div>
+  </section>
+
+  <footer class="terminus wrap" id="end">
+    <svg viewBox="0 0 760 150" role="img" aria-label="The line runs off the page; a dashed planned branch marks the launchpad for everyone, coming later.">
+      <g font-family="Overpass, sans-serif" font-weight="800">
+        <path class="draw" pathLength="1" d="M10 110H700" fill="none" stroke="#ff5b24" stroke-width="12"/>
+        <path d="M700 96L728 110L700 124Z" fill="#ff5b24"/>
+        <path d="M260 110L330 40H560" fill="none" stroke="#5f696f" stroke-width="6" stroke-dasharray="12 9"/>
+        <circle cx="10" cy="110" r="9" fill="#f2f0e9" stroke="#14181b" stroke-width="4"/>
+        <circle cx="260" cy="110" r="14" fill="#14181b" stroke="#f2f0e9" stroke-width="5"/>
+        <circle cx="560" cy="40" r="9" fill="#14181b" stroke="#5f696f" stroke-width="4"/>
+        <text x="10" y="142" fill="#b0b7bb" font-size="14">Devnet today</text>
+        <text x="260" y="142" text-anchor="middle" fill="#b0b7bb" font-size="14">Team launches</text>
+        <text x="560" y="20" text-anchor="middle" fill="#7a848a" font-size="14">Launchpad for everyone, later</text>
+        <text x="728" y="92" text-anchor="end" fill="#7a848a" font-size="14">keeps running</text>
+      </g>
+    </svg>
+    <p>End of this page, not of the line. Ramal runs on Solana devnet. The first coins are team launches; a launchpad for everyone opens later.</p>
+    <p class="fine">Prototype. Numbers marked Simulation are driven by you; numbers marked devnet are read from the chain.</p>
+  </footer>
+</main>
+
+<script src="/net.js"></script>
+<script src="/vendor/chain.js"></script>
+<script>
+(function () {
+  "use strict";
+  var RM = window.matchMedia ? matchMedia("(prefers-reduced-motion: reduce)") : { matches: false };
+
+  /* ---------------- curve math (the simulation) ---------------- */
+  var V = 30, SUP = 1e9, RG = Math.sqrt(420 * 30) - 30;
+  var XG = V + RG, TG = V * SUP / XG, BURN = TG * V / XG, K = RG * (TG - BURN);
+  function sim(R) {
+    if (R < RG - 1e-9) {
+      var x = V + R, T = V * SUP / x;
+      return { R: R, T: T, burn: 0, price: x / T, cap: (x / T) * SUP, grad: false };
+    }
+    var r = Math.max(R, RG), T2 = K / r, p = r / T2;
+    return { R: r, T: T2, burn: BURN, price: p, cap: p * (SUP - BURN), grad: true };
+  }
+  function capR(m) { return Math.sqrt(V * m) - V; }
+
+  function nf(n, d) { return n.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d }); }
+  function sig(n, s) {
+    s = s || 3;
+    if (!isFinite(n)) return "–";
+    if (n === 0) return "0";
+    var d = Math.max(0, s - 1 - Math.floor(Math.log10(Math.abs(n))));
+    return nf(n, Math.min(d, 9));
+  }
+  function solFmt(n) { return n < 10 ? nf(n, 2) : n < 1000 ? nf(n, 1) : nf(n, 0); }
+  function capFmt(n) { return n < 100 ? nf(n, 1) : nf(n, 0); }
+  function mTok(t) { var m = t / 1e6; return (m >= 100 ? nf(m, 1) : nf(m, 2)) + "M"; }
+  function esc(s) { return String(s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); }
+
+  /* ---------------- the hero line ---------------- */
+  var STATIONS = [
+    { name: "Launch", sub: "30 SOL cap", a: 0, c: 0, R: 0 },
+    { name: "60 SOL cap", sub: "", a: 2, c: 0.7, R: capR(60) },
+    { name: "120 SOL cap", sub: "", a: 4, c: 1.4, R: capR(120) },
+    { name: "240 SOL cap", sub: "", a: 6, c: 2.1, R: capR(240) },
+    { name: "Interchange", sub: "420 SOL cap", a: 8.2, c: 2.8, R: RG, ix: true },
+    { name: "Open track", sub: "x × y = k pool", a: 11, c: 2.8, R: 200 }
+  ];
+  var END = { a: 12.9, c: 2.8, R: 300 };
+  var IX = 4;
+  var LAYOUTS = {
+    wide: { w: 1200, h: 560, ox: 40, oy: 500, ua: 86, uc: 118, al: [1, 0], cl: [0, -1], line: 12, vt: 21, dot: 8, ring: 18, spur: [62, 52], train: 1 },
+    tall: { w: 360, h: 790, ox: 78, oy: 46, ua: 54, uc: 52, al: [0, 1], cl: [1, 0], line: 10, vt: 17, dot: 7, ring: 15, spur: [50, 42], train: 0.85 }
+  };
+  var mapEl = document.getElementById("map");
+  var L = null, G = null, curS = 0, svg = null, els = {};
+
+  function P(a, c) { return [L.ox + L.al[0] * a * L.ua + L.cl[0] * c * L.uc, L.oy + L.al[1] * a * L.ua + L.cl[1] * c * L.uc]; }
+  function mv(p, v, d) { return [p[0] + v[0] * d, p[1] + v[1] * d]; }
+  function geom() {
+    var all = STATIONS.concat([END]);
+    var pts = [P(all[0].a, all[0].c)], idx = [0];
+    for (var i = 1; i < all.length; i++) {
+      var s = all[i - 1], t = all[i];
+      var alongPx = (t.a - s.a) * L.ua, climbPx = (t.c - s.c) * L.uc;
+      var p0 = P(s.a, s.c);
+      if (climbPx > 0) {
+        var flat = (alongPx - climbPx) / 2;
+        var p1 = mv(p0, L.al, flat);
+        var p2 = mv(mv(p1, L.al, climbPx), L.cl, climbPx);
+        pts.push(p1, p2);
+      }
+      pts.push(P(t.a, t.c));
+      idx.push(pts.length - 1);
+    }
+    var cum = [0];
+    for (var j = 1; j < pts.length; j++) cum.push(cum[j - 1] + Math.hypot(pts[j][0] - pts[j - 1][0], pts[j][1] - pts[j - 1][1]));
+    return { pts: pts, cum: cum, sSt: idx.map(function (k) { return cum[k]; }), Rs: all.map(function (x) { return x.R; }), total: cum[cum.length - 1] };
+  }
+  function pointAt(s) {
+    var pts = G.pts, cum = G.cum;
+    s = Math.max(0, Math.min(G.total, s));
+    for (var i = 0; i < pts.length - 1; i++) {
+      if (s <= cum[i + 1] || i === pts.length - 2) {
+        var len = cum[i + 1] - cum[i], t = len ? (s - cum[i]) / len : 0;
+        var a = pts[i], b = pts[i + 1];
+        return { x: a[0] + (b[0] - a[0]) * t, y: a[1] + (b[1] - a[1]) * t, ang: Math.atan2(b[1] - a[1], b[0] - a[0]) * 180 / Math.PI };
+      }
+    }
+  }
+  function project(x, y) {
+    var best = { d: Infinity, s: 0 }, pts = G.pts;
+    for (var i = 0; i < pts.length - 1; i++) {
+      var a = pts[i], b = pts[i + 1], dx = b[0] - a[0], dy = b[1] - a[1], l2 = dx * dx + dy * dy;
+      var t = l2 ? Math.max(0, Math.min(1, ((x - a[0]) * dx + (y - a[1]) * dy) / l2)) : 0;
+      var px = a[0] + dx * t, py = a[1] + dy * t, d = Math.hypot(x - px, y - py);
+      if (d < best.d) best = { d: d, s: G.cum[i] + Math.sqrt(l2) * t };
+    }
+    return best.s;
+  }
+  function RofS(s) {
+    var S = G.sSt, R = G.Rs;
+    for (var k = 0; k < S.length - 1; k++) {
+      if (s <= S[k + 1]) return R[k] + (R[k + 1] - R[k]) * Math.max(0, s - S[k]) / (S[k + 1] - S[k]);
+    }
+    return R[R.length - 1];
+  }
+  function SofR(r) {
+    var S = G.sSt, R = G.Rs;
+    for (var k = 0; k < R.length - 1; k++) {
+      if (r <= R[k + 1]) return S[k] + (S[k + 1] - S[k]) * Math.max(0, r - R[k]) / (R[k + 1] - R[k]);
+    }
+    return G.total;
+  }
+  function normalOff(a, b) {
+    var dx = b[0] - a[0], dy = b[1] - a[1], l = Math.hypot(dx, dy), n = [-dy / l, dx / l];
+    if (n[0] * L.cl[0] + n[1] * L.cl[1] > 0) n = [-n[0], -n[1]];
+    return n;
+  }
+  function offset(pts, d) {
+    var out = [];
+    for (var i = 0; i < pts.length; i++) {
+      var nIn = i > 0 ? normalOff(pts[i - 1], pts[i]) : null;
+      var nOut = i < pts.length - 1 ? normalOff(pts[i], pts[i + 1]) : null;
+      if (nIn && nOut) {
+        var m = [nIn[0] + nOut[0], nIn[1] + nOut[1]], ml = Math.hypot(m[0], m[1]), mu = [m[0] / ml, m[1] / ml];
+        var k = d / (mu[0] * nIn[0] + mu[1] * nIn[1]);
+        out.push([pts[i][0] + mu[0] * k, pts[i][1] + mu[1] * k]);
+      } else {
+        var n = nIn || nOut;
+        out.push([pts[i][0] + n[0] * d, pts[i][1] + n[1] * d]);
+      }
+    }
+    return out;
+  }
+  function cutAt(s) {
+    var out = [];
+    for (var i = 0; i < G.pts.length; i++) {
+      if (G.cum[i] < s) out.push(G.pts[i]);
+      else break;
+    }
+    var p = pointAt(s);
+    out.push([p.x, p.y]);
+    return out;
+  }
+  function d(pts) { return "M" + pts.map(function (p) { return p[0].toFixed(1) + " " + p[1].toFixed(1); }).join("L"); }
+  function r1(n) { return n.toFixed(1); }
+
+  function build() {
+    var key = mapEl.clientWidth >= 900 ? "wide" : "tall";
+    if (L && L.key === key) return;
+    var keepR = G ? RofS(curS) : 0;
+    L = Object.assign({ key: key }, LAYOUTS[key]);
+    G = geom();
+    var wide = key === "wide";
+    var sIx = G.sSt[IX];
+    var ip = pointAt(sIx), I = [ip.x, ip.y];
+    var neg = [-L.cl[0], -L.cl[1]];
+    var sp1 = mv(mv(I, L.al, L.spur[0]), neg, L.spur[0]);
+    var sp2 = mv(sp1, neg, L.spur[1]);
+    var vpts = offset(cutAt(sIx - (wide ? 30 : 26)), L.vt);
+    var ve = vpts[vpts.length - 1], vb = vpts[vpts.length - 2];
+    var vu = [ve[0] - vb[0], ve[1] - vb[1]], vl = Math.hypot(vu[0], vu[1]); vu = [vu[0] / vl, vu[1] / vl];
+    var vp = [-vu[1], vu[0]];
+    var endP = G.pts[G.pts.length - 1];
+    var arrow = [mv(endP, L.al, 26), mv(mv(endP, L.cl, 14), L.al, 0), mv(mv(endP, neg, 14), L.al, 0)];
+    var fs = wide ? 15 : 14, fss = wide ? 12.5 : 11.5;
+
+    var h = [];
+    h.push('<svg viewBox="0 0 ' + L.w + " " + L.h + '" font-family="Overpass, sans-serif" role="group" aria-label="A coin\'s line from launch to the open track">');
+    // virtual track
+    h.push('<path class="vt" d="' + d(vpts) + '" stroke-width="' + (wide ? 6 : 5) + '"/>');
+    h.push('<path class="vt-end" stroke-width="5" d="M' + r1(ve[0] + vp[0] * 11) + " " + r1(ve[1] + vp[1] * 11) + "L" + r1(ve[0] - vp[0] * 11) + " " + r1(ve[1] - vp[1] * 11) + '"/>');
+    if (wide) {
+      h.push('<text class="vt-label" id="vtLabel" x="' + (L.ox + 4) + '" y="' + (L.oy + L.vt + 30) + '">Dashed: 30 SOL of virtual track. It ends at the interchange.</text>');
+    } else {
+      h.push('<text class="vt-label" id="vtLabel" text-anchor="middle" transform="translate(' + (L.ox - L.vt - 18) + " " + (L.oy + 150) + ') rotate(-90)">Dashed: 30 SOL virtual track</text>');
+    }
+    // burn spur
+    h.push('<path class="spur" d="' + d([I, sp1, sp2]) + '" stroke-width="' + (L.line - 3) + '" stroke-linejoin="round"/>');
+    var tb = [mv(sp2, L.al, 13), mv(sp2, L.al, -13)];
+    h.push('<path class="spur-end" stroke-width="5" d="' + d(tb) + '"/>');
+    var fl = mv(sp2, neg, 26);
+    h.push('<path class="flame" transform="translate(' + r1(fl[0]) + " " + r1(fl[1]) + ')" d="M0 -11L7 -2L5 7H-5L-7 -2L-3 -6L0 1Z"/>');
+    if (wide) {
+      h.push('<text class="burn-label" text-anchor="end" x="' + r1(sp2[0] - 24) + '" y="' + r1(sp2[1] + 18) + '"><tspan class="big">71.43M burned</tspan><tspan x="' + r1(sp2[0] - 24) + '" dy="17">7.14% of supply, at graduation</tspan></text>');
+    } else {
+      h.push('<text class="burn-label" text-anchor="middle" x="' + r1(sp2[0] - 4) + '" y="' + r1(sp2[1] + 34) + '"><tspan class="big">71.43M burned</tspan><tspan x="' + r1(sp2[0] - 4) + '" dy="16">7.14% at graduation</tspan></text>');
+    }
+    // the line
+    h.push('<path class="ln-base" d="' + d(G.pts) + '" stroke-width="' + L.line + '"/>');
+    h.push('<path class="ln-run" id="lnRun" d="' + d(G.pts) + '" stroke-width="' + L.line + '"/>');
+    h.push('<path d="' + d(arrow) + 'Z" fill="#ff5b24" fill-opacity=".32"/>');
+    if (wide) h.push('<text class="end-label" text-anchor="end" x="' + r1(endP[0] + 26) + '" y="' + r1(endP[1] - 26) + '">for good</text>');
+    else h.push('<text class="end-label" x="' + r1(endP[0] + 22) + '" y="' + r1(endP[1] + 20) + '">for good</text>');
+    h.push('<path class="hit" id="hit" d="' + d(G.pts) + '" stroke-width="44"/>');
+    // burned tokens
+    h.push('<g class="tok" id="tok"><rect x="-10" y="-10" width="8" height="8" fill="#ffc629"/><rect x="1" y="-10" width="8" height="8" fill="#ffc629"/><rect x="-4.5" y="-21" width="8" height="8" fill="#ffc629"/></g>');
+    // stations
+    STATIONS.forEach(function (st, i) {
+      var p = G.pts[0];
+      var q = pointAt(G.sSt[i]); p = [q.x, q.y];
+      var lab;
+      if (wide) {
+        var anchor = i === 0 ? "start" : "middle", lx = i === 0 ? p[0] - 10 : p[0];
+        var ly = p[1] - (st.ix ? 34 : 26);
+        lab = '<text x="' + r1(lx) + '" y="' + r1(ly - (st.sub ? 16 : 0)) + '" text-anchor="' + anchor + '" font-size="' + fs + '">' + esc(st.name) + "</text>" +
+          (st.sub ? '<text class="sub" x="' + r1(lx) + '" y="' + r1(ly) + '" text-anchor="' + anchor + '" font-size="' + fss + '">' + esc(st.sub) + "</text>" : "");
+      } else {
+        var tx = p[0] + (st.ix ? 26 : 18);
+        lab = '<text x="' + r1(tx) + '" y="' + r1(p[1] + (st.sub ? -1 : 5)) + '" font-size="' + fs + '">' + esc(st.name) + "</text>" +
+          (st.sub ? '<text class="sub" x="' + r1(tx) + '" y="' + r1(p[1] + 14) + '" font-size="' + fss + '">' + esc(st.sub) + "</text>" : "");
+      }
+      var mark = st.ix
+        ? '<circle class="ring" cx="' + r1(p[0]) + '" cy="' + r1(p[1]) + '" r="' + L.ring + '" stroke-width="6"/>'
+        : '<circle class="dot" cx="' + r1(p[0]) + '" cy="' + r1(p[1]) + '" r="' + L.dot + '" stroke-width="4"/>';
+      h.push('<g class="st" data-i="' + i + '" tabindex="0" role="button" aria-label="Go to ' + esc(st.name) + '"><circle class="hitc" cx="' + r1(p[0]) + '" cy="' + r1(p[1]) + '" r="22" fill="transparent"/>' + mark + lab + "</g>");
+    });
+    // train
+    var k = L.train;
+    h.push('<g id="train" tabindex="0" role="slider" aria-label="Train position on the line" aria-valuemin="0" aria-valuemax="100"><g id="trainInner">' +
+      '<circle r="34" fill="transparent"/>' +
+      '<g transform="scale(' + k + ')">' +
+      '<path class="body" d="M-30 -11H18Q30 -11 30 0Q30 11 18 11H-30Z" fill="#f2f0e9" stroke="#14181b" stroke-width="3"/>' +
+      '<rect x="-24" y="-6" width="8" height="7" fill="#14181b"/><rect x="-12" y="-6" width="8" height="7" fill="#14181b"/><rect x="0" y="-6" width="8" height="7" fill="#14181b"/><rect x="13" y="-6" width="9" height="7" fill="#14181b"/>' +
+      '<rect x="-30" y="4" width="54" height="3.5" fill="#ff5b24"/>' +
+      "</g></g></g>");
+    h.push("</svg>");
+    mapEl.innerHTML = h.join("");
+    svg = mapEl.firstChild;
+    els = {
+      run: document.getElementById("lnRun"), train: document.getElementById("train"), inner: document.getElementById("trainInner"),
+      tok: document.getElementById("tok"), vtLabel: document.getElementById("vtLabel"), st: [].slice.call(svg.querySelectorAll(".st")),
+      I: I, sp2: sp2
+    };
+    els.run.style.strokeDasharray = G.total + " " + G.total;
+    bind();
+    curS = SofR(keepR);
+    update(true);
+  }
+
+  var bBand = document.getElementById("bBand"), bKicker = document.getElementById("bKicker"), bNow = document.getElementById("bNow");
+  var bSol = document.getElementById("bSol"), bPrice = document.getElementById("bPrice"), bCap = document.getElementById("bCap"), bPool = document.getElementById("bPool"), bNote = document.getElementById("bNote");
+  var wasGrad = null, lastNote = "";
+  function update() {
+    var s = curS, p = pointAt(s), R = RofS(s), st = sim(R);
+    els.inner.setAttribute("transform", "translate(" + r1(p.x) + " " + r1(p.y) + ") rotate(" + p.ang.toFixed(1) + ")");
+    els.run.style.strokeDashoffset = String(G.total - s);
+    els.train.setAttribute("aria-valuenow", String(Math.round(s / G.total * 100)));
+    // which station
+    var near = -1, between = -1;
+    for (var i = 0; i < STATIONS.length; i++) {
+      if (Math.abs(G.sSt[i] - s) < 9) near = i;
+      if (G.sSt[i] <= s + 9) between = i;
+    }
+    els.st.forEach(function (g, i) { g.classList.toggle("on", G.sSt[i] <= s + 9); g.classList.toggle("at", i === near); });
+    var grad = st.grad;
+    svg.classList.toggle("closed", grad);
+    if (grad !== wasGrad) {
+      var to = grad ? els.sp2 : els.I;
+      els.tok.style.transform = "translate(" + r1(to[0]) + "px," + r1(to[1]) + "px)";
+      if (els.vtLabel) els.vtLabel.textContent = grad
+        ? (L.key === "wide" ? "Virtual track closed at the interchange. Only real SOL from here." : "Virtual track closed")
+        : (L.key === "wide" ? "Dashed: 30 SOL of virtual track. It ends at the interchange." : "Dashed: 30 SOL virtual track");
+      wasGrad = grad;
+    }
+    // board
+    var kicker, now;
+    if (near >= 0) { kicker = "Now at"; now = STATIONS[near].name; }
+    else if (between >= STATIONS.length - 1) { kicker = "Riding on"; now = "The open track, for good"; }
+    else {
+      kicker = "Between";
+      var A = ["Launch", "60", "120", "240", "Interchange"][between], B = ["60", "120", "240", "the interchange", "the open track"][between];
+      now = (/^\d/.test(A) && /^\d/.test(B)) ? A + " and " + B + " SOL cap" : (/^\d/.test(A) ? A + " SOL cap" : A) + " and " + (/^\d/.test(B) ? B + " SOL cap" : B);
+    }
+    bKicker.textContent = kicker; bNow.textContent = now;
+    bBand.classList.toggle("ix", near === IX);
+    bBand.classList.toggle("open", grad && near !== IX);
+    bSol.innerHTML = solFmt(st.R) + " <small>SOL</small>";
+    bPrice.innerHTML = sig(st.price * 1e6, 3) + " <small>SOL</small>";
+    bCap.innerHTML = near === IX ? "420 <small>then " + capFmt(st.cap) + "</small>" : capFmt(st.cap) + " <small>SOL</small>";
+    bPool.textContent = mTok(st.T);
+    var note;
+    if (near === 0) note = "The line opens on <b>30 SOL of virtual track</b>. That sets the first price.";
+    else if (near === IX) note = "<b>Interchange.</b> Inside the buy that reaches 420 SOL, the virtual track ends and <b>71.43M tokens burn</b>. The price holds; the cap now counts 928.57M tokens.";
+    else if (!grad) note = "On the curve. Every buy adds real SOL and moves the price up. <b>" + solFmt(Math.max(0, RG - st.R)) + " SOL</b> to the interchange.";
+    else note = "Open track. A plain <b>x × y = k</b> pool, same address. Market cap counts the 928.57M tokens left after the burn.";
+    if (note !== lastNote) { bNote.innerHTML = note; lastNote = note; }
+    els.train.setAttribute("aria-valuetext", kicker + " " + now + ", " + solFmt(st.R) + " SOL in, market cap " + capFmt(st.cap) + " SOL");
+  }
+
+  /* motion */
+  var anim = null;
+  function stopAnim() { if (anim) { cancelAnimationFrame(anim.raf); anim = null; setRideLabel(false); } }
+  function ease(t) { return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2; }
+  function glide(target, done) {
+    if (anim) cancelAnimationFrame(anim.raf);
+    if (RM.matches) { curS = target; update(); anim = null; if (done) done(); return; }
+    var from = curS, dist = Math.abs(target - from), dur = Math.max(250, Math.min(2600, dist * 3.2)), t0 = performance.now();
+    anim = { raf: 0 };
+    function step(now) {
+      var t = Math.min(1, (now - t0) / dur);
+      curS = from + (target - from) * ease(t);
+      update();
+      if (t < 1) anim.raf = requestAnimationFrame(step);
+      else { anim = null; if (done) done(); }
+    }
+    anim.raf = requestAnimationFrame(step);
+  }
+  var rideBtn = document.getElementById("rideBtn"), riding = false;
+  function setRideLabel(on) {
+    riding = on;
+    rideBtn.querySelector("span").textContent = on ? "Stop" : curS >= G.total - 1 ? "Back to launch" : "Ride the line";
+  }
+  rideBtn.addEventListener("click", function () {
+    if (riding) { stopAnim(); setRideLabel(false); return; }
+    if (curS >= G.total - 1) { glide(0, function () { setRideLabel(false); }); return; }
+    var stops = G.sSt.slice(1).filter(function (x) { return x > curS + 2; });
+    stops.push(G.total);
+    if (RM.matches) { curS = G.total; update(); setRideLabel(false); return; }
+    setRideLabel(true);
+    (function next() {
+      if (!riding) return;
+      var tgt = stops.shift();
+      if (tgt === undefined) { riding = false; setRideLabel(false); return; }
+      glide(tgt, function () { if (!riding) return; setTimeout(function () { if (riding) next(); }, tgt === G.sSt[IX] ? 1300 : 550); });
+    })();
+  });
+
+  /* drag + keys */
+  function toSvg(e) {
+    var m = svg.getScreenCTM();
+    if (!m) return null;
+    var pt = svg.createSVGPoint(); pt.x = e.clientX; pt.y = e.clientY;
+    return pt.matrixTransform(m.inverse());
+  }
+  function bind() {
+    var dragging = false;
+    function down(e) {
+      e.preventDefault();
+      riding = false; stopAnim();
+      dragging = true; els.train.classList.add("drag");
+      try { e.target.setPointerCapture(e.pointerId); } catch (x) {}
+      move(e);
+    }
+    function move(e) {
+      if (!dragging) return;
+      var p = toSvg(e);
+      if (!p) return;
+      curS = project(p.x, p.y);
+      update();
+    }
+    function up() { dragging = false; els.train.classList.remove("drag"); setRideLabel(false); }
+    [els.train, document.getElementById("hit")].forEach(function (el) {
+      el.addEventListener("pointerdown", down);
+      el.addEventListener("pointermove", move);
+      el.addEventListener("pointerup", up);
+      el.addEventListener("pointercancel", up);
+    });
+    els.train.addEventListener("keydown", function (e) {
+      var step = G.total / 100, k = e.key, t = null;
+      if (k === "ArrowRight" || k === "ArrowUp") t = curS + step;
+      else if (k === "ArrowLeft" || k === "ArrowDown") t = curS - step;
+      else if (k === "PageUp") t = G.sSt.concat([G.total]).filter(function (x) { return x > curS + 1; })[0];
+      else if (k === "PageDown") t = G.sSt.filter(function (x) { return x < curS - 1; }).pop();
+      else if (k === "Home") t = 0;
+      else if (k === "End") t = G.total;
+      if (t === null || t === undefined) return;
+      e.preventDefault(); stopAnim();
+      curS = Math.max(0, Math.min(G.total, t)); update(); setRideLabel(false);
+    });
+    els.st.forEach(function (g) {
+      function go() { riding = false; stopAnim(); glide(G.sSt[+g.getAttribute("data-i")], function () { setRideLabel(false); }); }
+      g.addEventListener("click", go);
+      g.addEventListener("keydown", function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); } });
+    });
+  }
+
+  build();
+  var rz;
+  window.addEventListener("resize", function () { clearTimeout(rz); rz = setTimeout(build, 120); });
+  setRideLabel(false);
+  if (!RM.matches) setTimeout(function () { if (curS === 0 && !anim) glide(G.sSt[1], function () { setRideLabel(false); }); }, 700);
+
+  /* ---------------- page line: current station ---------------- */
+  var navLinks = [].slice.call(document.querySelectorAll(".route a[data-sec]"));
+  var secs = ["ride", "rules", "fare", "network"].map(function (id) { return document.getElementById(id); });
+  function setCurrent(id) { navLinks.forEach(function (a) { var on = a.getAttribute("data-sec") === id; a.classList.toggle("current", on); if (on) a.setAttribute("aria-current", "location"); else a.removeAttribute("aria-current"); }); }
+  setCurrent("ride");
+  function onScroll() {
+    var y = window.innerHeight * 0.4, cur = "ride";
+    secs.forEach(function (s) { if (s.getBoundingClientRect().top < y) cur = s.id; });
+    if ((window.innerHeight + window.scrollY) >= document.body.scrollHeight - 4) cur = "network";
+    setCurrent(cur);
+  }
+  window.addEventListener("scroll", onScroll, { passive: true });
+
+  /* draw-in when seen */
+  var drawables = [].slice.call(document.querySelectorAll(".fare, .terminus"));
+  if ("IntersectionObserver" in window && !RM.matches) {
+    var io = new IntersectionObserver(function (entries) { entries.forEach(function (en) { if (en.isIntersecting) { en.target.classList.add("in"); io.unobserve(en.target); } }); }, { threshold: 0.3 });
+    drawables.forEach(function (el) { io.observe(el); });
+  } else drawables.forEach(function (el) { el.classList.add("in"); });
+
+  /* fare: SOL dots moving through the junction */
+  if (!RM.matches) {
+    var fd = document.getElementById("fareDots"), ns = "http://www.w3.org/2000/svg";
+    [["M18 52H402", "#f2f0e9", 0], ["M108 52L168 112H402", "#ffc629", 0.6], ["M108 52L168 112H222L272 162H402", "#3e7bfa", 1.2]].forEach(function (r) {
+      var c = document.createElementNS(ns, "circle");
+      c.setAttribute("r", "4"); c.setAttribute("fill", r[1]); c.setAttribute("stroke", "#14181b"); c.setAttribute("stroke-width", "2");
+      var am = document.createElementNS(ns, "animateMotion");
+      am.setAttribute("dur", "3.6s"); am.setAttribute("repeatCount", "indefinite"); am.setAttribute("path", r[0]); am.setAttribute("begin", r[2] + "s");
+      c.appendChild(am); fd.appendChild(c);
+    });
+  }
+
+  /* ---------------- real data from devnet ---------------- */
+  var PALETTE = ["#1fb765", "#3e7bfa", "#a67cf0", "#15b9ae", "#ffc629"];
+  var LAMP = 1000000000n, BASE = 1000000n;
+  var GRAD_SOL = 82249721604n;
+  function ceilDiv(a, b) { return (a + b - 1n) / b; }
+  function feeOf(a, bps) { return ceilDiv(a * BigInt(bps), 10000n); }
+  function leg(sol, tokens, solIn) { var left = ceilDiv(sol * tokens, sol + solIn); return [tokens - left, left]; }
+  function qBuy(r, solIn, bps) {
+    if (window.Chain && Chain.quoteBuy) { try { return Chain.quoteBuy(r, solIn, bps); } catch (e) {} }
+    var fee = feeOf(solIn, bps), rest = solIn - fee, a = Object.assign({}, r), out = 0n, burned = 0n;
+    if (!a.graduated) {
+      var room = a.graduationSol - a.realSol, on = rest < room ? rest : room;
+      if (on > 0n) { var l1 = leg(a.virtualSol + a.realSol, a.tokens, on); out += l1[0]; a.tokens = l1[1]; a.realSol += on; rest -= on; }
+      if (a.realSol === a.graduationSol) { burned = a.tokens * a.virtualSol / (a.virtualSol + a.realSol); a.tokens -= burned; a.graduated = true; }
+    }
+    if (a.graduated && rest > 0n) { var l2 = leg(a.realSol, a.tokens, rest); out += l2[0]; a.tokens = l2[1]; a.realSol += rest; }
+    return { fee: fee, tokensOut: out, burned: burned, graduates: burned > 0n, after: a };
+  }
+  function qSell(r, tokensIn, bps) {
+    if (window.Chain && Chain.quoteSell) { try { return Chain.quoteSell(r, tokensIn, bps); } catch (e) {} }
+    var off = r.graduated ? 0n : r.virtualSol, x = off + r.realSol, nx = ceilDiv(x * r.tokens, r.tokens + tokensIn), gross = x - nx, fee = feeOf(gross, bps);
+    return { fee: fee, solOut: gross - fee, after: Object.assign({}, r, { realSol: nx - off, tokens: r.tokens + tokensIn }) };
+  }
+  function priceOfR(r) { var sol = r.graduated ? r.realSol : r.virtualSol + r.realSol; return (Number(sol) / 1e9) / (Number(r.tokens) / 1e6); }
+  function ago(t) {
+    var s = Math.max(0, Date.now() / 1000 - t);
+    if (s < 90) return "just now";
+    if (s < 5400) return Math.round(s / 60) + " min ago";
+    if (s < 172800) return Math.round(s / 3600) + " h ago";
+    return Math.round(s / 86400) + " days ago";
+  }
+  function addrOf(k) { return k && k.toBase58 ? k.toBase58() : String(k); }
+  function short(a) { return a.slice(0, 4) + "…" + a.slice(-4); }
+  function link(kind, id) { try { return window.NET && NET.explorer ? NET.explorer(kind, id) : null; } catch (e) { return null; } }
+  function posOf(c) {
+    if (!c.graduated) return Math.max(0, Math.min(1, c.progress)) * 72;
+    return 72 + Math.min(1, Math.max(0, (c.realSolNum - RG) / (300 - RG))) * 28;
+  }
+  function strip(pos, planned) {
+    if (planned) return '<div class="strip planned"><span class="tr"></span><span class="ixr" style="left:72%"></span></div>';
+    var h = '<div class="strip"><span class="tr"></span><span class="run" style="width:' + pos.toFixed(2) + '%"></span>';
+    [0, capR(60), capR(120), capR(240)].forEach(function (r) {
+      var x = r / RG * 72;
+      h += '<span class="tk' + (x > pos + 0.5 ? " ahead" : "") + '" style="left:' + x.toFixed(2) + '%"></span>';
+    });
+    h += '<span class="ixr" style="left:72%"></span><span class="trn" style="left:' + pos.toFixed(2) + '%"></span></div>';
+    return h;
+  }
+
+  function exampleData() {
+    var real = 6500000000n, tokens = 30000000000n * 1000000000000000n / (30000000000n + real);
+    var r = { virtualSol: 30000000000n, realSol: real, tokens: tokens, graduationSol: GRAD_SOL, graduated: false };
+    var price = priceOfR(r);
+    return { live: false, volumeSol: 0, coins: [{ label: "Example coin", example: true, color: PALETTE[0], mint: null, progress: 6.5 / RG, graduated: false, realSolNum: 6.5, cap: price * 1e9, price: price, trades: null, last: null, reserves: r, feeBps: 100 }], trades: [] };
+  }
+
+  async function loadLive() {
+    if (!window.Chain || !Chain.listPools) throw new Error("no chain helper");
+    var pools = await Chain.listPools();
+    if (!pools || !pools.length) throw new Error("no pools");
+    var coins = pools.slice(0, 5).map(function (p, i) {
+      var mint = addrOf(p.mint);
+      return {
+        label: "Test coin " + (pools.length - i), example: false, color: PALETTE[i % PALETTE.length], mint: mint,
+        progress: p.progress, graduated: p.graduated, realSolNum: Number(p.realSol) / 1e9, cap: p.marketCap, price: p.price,
+        trades: null, last: null, feeBps: p.feeBps || 100,
+        reserves: { virtualSol: p.virtualSol, realSol: p.realSol, tokens: p.tokens, graduationSol: p.graduationSol, graduated: p.graduated },
+        pool: p
+      };
+    });
+    var volumeSol = pools.reduce(function (a, p) { return a + Number(p.volume || 0n) / 1e9; }, 0);
+    var feesSol = pools.reduce(function (a, p) { return a + Number(p.volume || 0n) / 1e9 * (p.feeBps || 100) / 10000; }, 0);
+    var trades = [];
+    var hist = await Promise.allSettled(coins.slice(0, 3).map(function (c) { return Chain.history(c.mint); }));
+    hist.forEach(function (h, i) {
+      if (h.status !== "fulfilled") return;
+      var t = h.value.filter(function (e) { return e.kind === "trade"; });
+      coins[i].trades = t.length;
+      coins[i].last = t.length ? t[t.length - 1].time : null;
+      if (i === 0) trades = t.slice(-5).reverse();
+    });
+    return { live: true, volumeSol: volumeSol, feesSol: feesSol, coins: coins, trades: trades, poolCount: pools.length };
+  }
+
+  function renderBoard(data) {
+    var rows = data.coins.map(function (c, i) {
+      var pos = posOf(c);
+      var pct = c.graduated ? "graduated" : nf(Math.min(1, c.progress) * 100, 1) + "% of the way";
+      return '<li class="row" style="--c:' + c.color + '">' +
+        '<div class="row-id"><span class="bullet"><span>' + (data.coins.length - i) + '</span></span><span>' + esc(c.label) + '</span><em>' + (c.example ? "simulation" : "devnet") + "</em></div>" +
+        strip(pos, false) +
+        '<div class="row-nums"><span><b>' + capFmt(c.cap) + "</b> SOL cap</span><span><b>" + pct + "</b></span>" +
+        (c.trades !== null ? "<span><b>" + c.trades + "</b> trade" + (c.trades === 1 ? "" : "s") + "</span>" : "") +
+        (c.last ? "<span>last trade " + ago(c.last) + "</span>" : "") + "</div></li>";
+    }).join("");
+    rows += '<li class="row planned"><div class="row-id"><span class="bullet"><span>+</span></span><span>Next line</span><em>team launch, coming</em></div>' + strip(0, true) + '<div class="row-nums"><span>Planned. Not open yet.</span></div></li>';
+    document.getElementById("rows").innerHTML = rows;
+    var tag = document.getElementById("boardTag");
+    tag.textContent = data.live ? "Live on devnet" : "Simulation";
+    tag.className = data.live ? "tag live" : "tag";
+  }
+
+  var tradeMode = "buy", coinNow = null;
+  function renderCoin(data) {
+    var c = data.coins[0]; coinNow = c;
+    var mintLink = c.mint ? link("address", c.mint) : null;
+    var state = c.graduated ? "Open track" : "On the curve";
+    var toGo = Math.max(0, RG - c.realSolNum);
+    var h = '<div class="cp-sign" style="--c:' + c.color + '"><span class="bullet"><span>' + (c.example ? "1" : data.coins.length) + '</span></span><div><h4>' + (c.example ? "Example coin" : "Devnet test coin") + "</h4><p>" +
+      (c.mint ? (mintLink ? '<a href="' + esc(mintLink) + '" target="_blank" rel="noopener">' + esc(short(c.mint)) + " ↗</a>" : esc(short(c.mint))) : "Simulation, devnet not reachable") +
+      '</p></div><span class="state">' + state + "</span></div>";
+    h += '<div class="cp-line" style="--c:' + c.color + '">' + strip(posOf(c), false) + '</div>';
+    h += '<div class="axis" aria-hidden="true"><span style="left:0">Launch</span><span style="left:72%;transform:translateX(-50%)">420</span><span style="right:0">for good</span></div>';
+    h += '<div class="cp-grid"><dl class="cp-stats">' +
+      "<div><dt>Price per 1M</dt><dd>" + sig(c.price * 1e6, 3) + "</dd></div>" +
+      "<div><dt>Market cap</dt><dd>" + capFmt(c.cap) + " SOL</dd></div>" +
+      "<div><dt>Real SOL in</dt><dd>" + solFmt(c.realSolNum) + "</dd></div>" +
+      "<div><dt>" + (c.graduated ? "Pool" : "To interchange") + "</dt><dd>" + (c.graduated ? "x × y = k" : solFmt(toGo) + " SOL") + "</dd></div>" +
+      "</dl>" +
+      '<form class="ticket" id="ticket" onsubmit="return false"><div class="seg" role="group" aria-label="Trade side"><button type="button" data-m="buy" aria-pressed="true">Buy</button><button type="button" data-m="sell" aria-pressed="false">Sell</button></div>' +
+      '<label for="amt" id="amtLabel">SOL to spend</label><input id="amt" inputmode="decimal" value="1" autocomplete="off">' +
+      '<div class="quote" id="quote"></div>' +
+      '<button class="sq go" type="button" disabled>Wallet trading opens later</button></form></div>';
+    h += '<p class="deps-title">Last departures</p><ul class="deps">';
+    if (data.trades.length) {
+      data.trades.forEach(function (t) {
+        var url = link("tx", t.signature);
+        var sol = Number(t.sol) / 1e9, tok = Number(t.tokens) / 1e6;
+        h += '<li><span class="k ' + (t.buy ? "b" : "s") + '">' + (t.buy ? "Buy" : "Sell") + '</span><span class="v">' + sig(sol, 3) + " SOL, " + mTok(tok) + ' tokens</span><span class="t">' + (t.time ? ago(t.time) : "") + "</span>" +
+          (url ? '<a href="' + esc(url) + '" target="_blank" rel="noopener" aria-label="View trade on the explorer">tx ↗</a>' : "") + "</li>";
+      });
+    } else {
+      h += '<li class="empty">' + (data.live ? "No trades yet on this line." : "Real trades show here when devnet answers.") + "</li>";
+    }
+    h += "</ul>";
+    h += '<p class="note-sim">' + (data.live ? "The quote uses this coin's live devnet reserves. Nothing is sent." : "Simulation: an example coin with 6.5 SOL in. Nothing here is live.") + "</p>";
+    var box = document.getElementById("coinPage");
+    box.innerHTML = h;
+    box.querySelectorAll(".seg button").forEach(function (b) {
+      b.addEventListener("click", function () {
+        tradeMode = b.getAttribute("data-m");
+        box.querySelectorAll(".seg button").forEach(function (x) { x.setAttribute("aria-pressed", String(x === b)); });
+        var amt = document.getElementById("amt");
+        document.getElementById("amtLabel").textContent = tradeMode === "buy" ? "SOL to spend" : "Tokens to sell";
+        amt.value = tradeMode === "buy" ? "1" : "1000000";
+        quote();
+      });
+    });
+    document.getElementById("amt").addEventListener("input", quote);
+    quote();
+  }
+  function quote() {
+    var out = document.getElementById("quote"), c = coinNow;
+    if (!out || !c) return;
+    var v = parseFloat(String(document.getElementById("amt").value).replace(/,/g, ""));
+    if (!(v > 0) || !isFinite(v)) { out.innerHTML = "Type an amount."; return; }
+    try {
+      if (tradeMode === "buy") {
+        if (v > 100000) { out.innerHTML = "That is more SOL than this line can carry in one trip."; return; }
+        var lam = BigInt(Math.round(v * 1e9)), q = qBuy(c.reserves, lam, c.feeBps);
+        var fee = Number(q.fee) / 1e9;
+        out.innerHTML = "You get about <b>" + mTok(Number(q.tokensOut) / 1e6) + "</b> tokens.<br>Fare <b>" + sig(fee, 3) + " SOL</b>, half to the creator, half to the treasury." +
+          (q.graduates ? '<br><span class="gold">This buy reaches the interchange: ' + mTok(Number(q.burned) / 1e6) + " burned on the way.</span>" : "<br>Price after: <b>" + sig(priceOfR(q.after) * 1e6, 3) + "</b> per 1M.");
+      } else {
+        var base = BigInt(Math.round(v * 1e6)), s = qSell(c.reserves, base, c.feeBps);
+        out.innerHTML = "You get about <b>" + sig(Number(s.solOut) / 1e9, 3) + " SOL</b>.<br>Fare <b>" + sig(Number(s.fee) / 1e9, 3) + " SOL</b>, half to the creator, half to the treasury.<br>Price after: <b>" + sig(priceOfR(s.after) * 1e6, 3) + "</b> per 1M.";
+      }
+    } catch (e) { out.innerHTML = "No quote for that amount."; }
+  }
+
+  function renderLiveBits(data) {
+    var bar = document.getElementById("liveBar"), fare = document.getElementById("fareLive");
+    if (data.live) {
+      var c = data.coins[0], tradesTxt = c.trades !== null ? ", " + c.trades + " trade" + (c.trades === 1 ? "" : "s") + " on the newest" : "";
+      bar.className = "livebar ok";
+      bar.querySelector("span").textContent = "Devnet now: " + data.poolCount + " line" + (data.poolCount === 1 ? "" : "s") + " open" + tradesTxt;
+      fare.innerHTML = "On devnet so far: <b>" + sig(data.volumeSol, 3) + " SOL</b> traded, <b>" + sig(data.feesSol, 3) + " SOL</b> in fares.";
+    } else {
+      bar.className = "livebar";
+      bar.querySelector("span").textContent = "Devnet not reachable. Everything here is a simulation.";
+      fare.textContent = "Devnet not reachable right now, so no live totals.";
+    }
+  }
+
+  function renderAll(data) { renderBoard(data); renderCoin(data); renderLiveBits(data); }
+  renderAll(exampleData());
+  document.getElementById("boardTag").textContent = "Loading";
+  document.getElementById("liveBar").querySelector("span").textContent = "Checking devnet";
+  loadLive().then(renderAll).catch(function () { renderLiveBits({ live: false }); document.getElementById("boardTag").textContent = "Simulation"; document.getElementById("boardTag").className = "tag"; });
+})();
+</script>
+</body>
+</html>

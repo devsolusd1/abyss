@@ -1,0 +1,150 @@
+# Pool: desenho da v1
+
+Projeto novo, separado de qualquer outro. O nome é provisório: a pasta se chama `dex` e o programa `dex`.
+
+**Estado (2026-10-22): na devnet** em `CbAjrrCk8WEyh9uTQ1cNJWxNGJk2ipJtxK5p8yBwnURK`.
+- A autoridade de upgrade é a carteira de devnet `7f2Mi…hPAA`. A chave do endereço do programa está no WSL em `~/dex-target/pool/deploy/`.
+- Não está na mainnet. A mainnet vai ter carteira própria, com a autoridade de upgrade numa multisig.
+- `../examples/devnet.mjs` lançou a moeda de teste `5uZ9tNmDM8pTaCtXQDeb4mAJ6g8m6pxFANpFEtv7ozJS` (o nome saiu errado, "DESKTOP-DN2LL2B": o script lia a variável NAME, que no WSL é o nome do computador; agora usa COIN_NAME), com a primeira compra na mesma transação, uma venda e outra compra. O registro está em `../examples/devnet.json`.
+
+## Em uma frase
+
+Um único programa em que a curva de lançamento **é** o pool. Quando a moeda gradua, a liquidez virtual sai, uma parte fixa dos tokens é queimada e o mesmo pool segue negociando como uma AMM comum. Não há migração, nem outro endereço, nem token de LP.
+
+## Vida de uma moeda
+
+1. **Lançamento**, uma instrução só (`launch`). O programa:
+   - cria o mint Token-2022 com os metadados;
+   - cunha 1 bilhão de tokens para o cofre do pool;
+   - tira todas as autoridades.
+
+   A primeira compra do criador pode ir na mesma transação.
+2. **Curva**: produto constante com SOL virtual. Enquanto dura a curva, o preço nunca fica abaixo do de abertura.
+3. **Graduação**: acontece dentro da compra que alcança o limite.
+   - A curva só aceita SOL até o limite exato. O resto da mesma compra passa pela AMM já graduada.
+   - O SOL virtual sai, e a queima é sempre a mesma, conhecida desde o lançamento.
+   - O preço não dá salto, e a liquidez fica travada para sempre.
+4. **Depois**: o mesmo pool, as mesmas instruções.
+
+**Hooks:** as moedas saem sem transfer hook nesta versão, por decisão do usuário. O caminho das negociações já repassa as contas de um hook, e o pool guarda o campo `hook_program` (hoje vazio). Uma versão futura pode trazer um hook próprio do projeto sem reescrever as negociações.
+
+## Números da curva (decididos pelo usuário)
+
+Supply de 1.000.000.000 com 6 decimais. A curva abre com 30 SOL de market cap e gradua com 420 SOL (14×).
+
+- SOL virtual = 30 SOL.
+- A moeda gradua quando o pool tem **82,25 SOL reais**, já sem as taxas; os compradores pagam cerca de 83,08 SOL com 1% de taxa. Nesse momento foram vendidos 732,7 M de tokens.
+- Na graduação são queimados **71,43 M de tokens (7,14%)**. O pool fica com 82,25 SOL e 195,8 M de tokens, no mesmo preço.
+- Depois da queima, o supply circulante é 928,6 M. Sites que usam o supply atual mostram **390 SOL** de market cap na graduação.
+- **Depois da graduação o preço pode cair abaixo do de abertura** (até cerca de 0,62× se todos venderem). Cerca de 17 SOL ficam no pool para sempre.
+- Para o código:
+  - limite gravado no lançamento: `R_g = ceil_isqrt(M_g·V) − V`;
+  - queima: `B = floor(T·V/x)`;
+  - compra: `T_novo = ceil(k/(x+dx))`;
+  - venda: `x_novo = ceil(k/(T+dt))`;
+  - taxa: `ceil(valor·bps/10.000)`;
+  - todas as contas em u128.
+
+  `reference/` tem a mesma matemática em JavaScript com testes de propriedade.
+
+## Taxas
+
+- **1% por negociação, em SOL**: na compra, sai do SOL que entra; na venda, do SOL que sai. Metade vai para o criador e metade para a tesouraria. Sem anti-sniper.
+- **Tetos fixos no programa**:
+  - taxa no máximo 3%;
+  - SOL virtual entre 1 e 1.000 SOL;
+  - graduação entre 2× e 100× a abertura;
+  - taxa de lançamento no máximo 1 SOL.
+- Os parâmetros ficam gravados no pool no lançamento e nunca mudam.
+- **Saque das taxas**: o criador saca a parte dele com `claim_creator_fees`. Qualquer pessoa chama `claim_treasury_fees`, que sempre paga a tesouraria gravada naquele pool.
+- **Launchpad depois**: curva e taxa já são escolhas de cada lançamento, dentro dos tetos. Assim o launchpad pode dar mais liberdade aos criadores sem mudar o programa.
+
+## Contas
+
+- **`Config` em `["config"]`**:
+  - admin, `launcher` e tesouraria para moedas novas;
+  - taxa de lançamento, taxa mínima e a parte da tesouraria em cada taxa;
+  - `launches_open`.
+
+  Só a autoridade de upgrade cria a config. A tesouraria tem que ser uma carteira comum com o próprio aluguel.
+- **`Pool` em `["pool", mint]`**, zero-copy:
+  - mint, criador e a tesouraria gravada no lançamento;
+  - o cofre e `hook_program` (vazio);
+  - as reservas **anotadas** (`virtual_sol`, `real_sol`, `token_reserve`), nunca lidas dos saldos;
+  - limite de graduação, queima, taxas devidas e pagas, volume, datas, taxa, parte da tesouraria;
+  - 64 bytes reservados.
+- **SOL**: fica no próprio `Pool`, acima do aluguel. Invariante: `lamports = aluguel + real_sol + taxas devidas`.
+- **Cofre**: a ATA do `Pool` para o mint.
+
+## Instruções
+
+| Instrução | Quem chama | O que faz |
+|---|---|---|
+| `init_config` | autoridade de upgrade, uma vez | cria a config |
+| `update_config` | admin | muda a config, só para moedas **novas** |
+| `launch` | admin ou `launcher` (todos, quando `launches_open`) | cria a moeda e o pool |
+| `buy(sol_in, min_tokens_out)` | qualquer um | compra; gradua no limite |
+| `sell(tokens_in, min_sol_out)` | qualquer um | vende |
+| `claim_creator_fees` / `claim_treasury_fees` | criador / qualquer um | saca taxas |
+| `set_creator` | criador | passa os direitos; paga ao criador antigo o que já era dele |
+
+Não existe instrução que tire dinheiro de um pool para o admin, nem pausa de vendas. Os erros são numerados a partir de 7000. Eventos: `Launched`, `TradeEvent` (com `recipient`), `Graduated`, `FeesClaimed`, `CreatorChanged`, `ConfigUpdated`.
+
+## Como chamar (para o site)
+
+`../examples/devnet.mjs` monta todas as instruções à mão e serve de referência.
+
+- **`buy` e `sell`**: trader (assina, gravável), pool (gravável), mint (**gravável**, por causa da queima da graduação), cofre (gravável), conta de token do trader (gravável), Token-2022, System. Na compra, criar antes a ATA do comprador na mesma transação.
+- **`launch`**: 9 contas, e o mint assina.
+- **Compute medido**:
+
+  | Operação | Compute |
+  |---|---|
+  | lançamento | 78 mil a 83 mil |
+  | primeira compra (com criação da conta) | 34 mil |
+  | compra | 21 mil |
+  | venda | 12 mil |
+  | compra que gradua | 27 mil |
+
+  Pedir 200 mil para lançamento com compra, e 60 mil para uma troca.
+
+## Segurança sem auditoria (por enquanto)
+
+1. **Anchor 1.2**, com `seeds`, `has_one` e `address` em toda conta.
+2. **Reservas anotadas**: doação direta não muda o preço.
+3. **Matemática em u128, arredondando a favor do pool, com `min_out` obrigatório.**
+4. **Sem token de LP.**
+5. **O admin não alcança o dinheiro dos pools**; a tesouraria de cada pool é fixa; as vendas não pausam.
+6. **Mint fechado**: só os metadados, nenhuma autoridade, conferido depois de criar.
+7. **Tetos fixos** para taxas e curva.
+8. **O pool só paga em contas limpas.** Recusa contas congeladas ou com extensões herdadas de um mint anterior no mesmo endereço (o ataque das contas "intransferíveis"). A correção definitiva é o mint ser uma PDA do programa. Vale a pena quando os lançamentos abrirem para qualquer criador.
+9. **Multisig com timelock** para a autoridade de upgrade, antes da mainnet.
+10. **Começo controlado**: só a equipe lança.
+
+Testes:
+- 9 de matemática em `src/math.rs`;
+- 14 de integração em LiteSVM com o Token-2022 de verdade (`../pool-tests`), entre eles a reprodução do ataque das contas "intransferíveis";
+- `../test.sh` roda tudo.
+
+O binário tem 428 KB, cerca de 2,2 SOL de aluguel.
+
+## Revisões (2026-10-22)
+
+- **Desenho:** um revisor tentou quebrar, outro conferiu as ferramentas, um terceiro refez a matemática. Acharam o `init_config` aberto, a falta de tetos e a graduação que comprava tudo com liquidez virtual. Tudo corrigido.
+- **Código:** dois revisores. Acharam as contas "intransferíveis" deixadas por um mint anterior, as taxas que mudavam de dono na troca de criador, a tesouraria sem validação, um tamanho de metadados que travava o lançamento, os códigos de erro e a falta de eventos. Tudo corrigido e coberto por testes.
+
+## Fora da v1
+
+Hooks, Jupiter e OKX (exigem SDK), LP de terceiros, pares além do SOL, taxa de transferência e auditoria.
+
+## Etapas
+
+1. ~~Programa e testes locais.~~
+2. ~~Devnet.~~
+3. **Site próprio**, em andamento.
+4. **Mainnet**: carteira nova, multisig, deploy (cerca de 2,2 SOL de aluguel) e o token principal do projeto lançado na DBC normal, decisão do usuário.
+
+## Em aberto
+
+- Nome e marca.
+- Se a graduação sobe para 450 SOL, para os sites mostrarem 420 depois da queima.

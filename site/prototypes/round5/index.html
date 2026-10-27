@@ -1,0 +1,894 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>forma</title>
+<meta name="description" content="forma (working name): a Solana DEX where every coin keeps one pool for life. Design prototype, round 5.">
+<script>window.__errors = []; addEventListener('error', function (e) { __errors.push(String(e.message || e)); }); addEventListener('unhandledrejection', function (e) { __errors.push('promise: ' + String(e.reason && e.reason.message || e.reason)); });</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anybody:wdth,wght@50..150,100..900&family=Martian+Mono:wdth,wght@75..112.5,100..800&display=swap">
+<style>
+/* ===== forma, round 5: flat objects on one pixel grid, the brief's seven colours and nothing else ===== */
+:root {
+  --f-bg: #111315; --f-surface: #1D2228; --f-deep: #102C60; --f-blue: #398BFF; --f-ice: #B9E6FF; --f-paper: #F2EFE7; --f-orange: #FF7852;
+  --f-mute: rgba(242, 239, 231, .58); --f-mute-ink: rgba(17, 19, 21, .58);
+  --f-gut: clamp(16px, 4.4vw, 64px);
+  --f-head: 'Anybody', system-ui, sans-serif; --f-mono: 'Martian Mono', ui-monospace, Menlo, monospace;
+}
+* { box-sizing: border-box; }
+html { background: var(--f-bg); -webkit-text-size-adjust: 100%; scroll-padding-top: 8px; }
+body { margin: 0; background: var(--f-bg); color: var(--f-paper); font: 400 13px/1.65 var(--f-mono); font-stretch: 87.5%; overflow-x: hidden; }
+a { color: inherit; }
+canvas { display: block; image-rendering: pixelated; }
+button { font: inherit; color: inherit; background: none; border: 0; padding: 0; margin: 0; cursor: pointer; border-radius: 0; }
+h1, h2 { font-family: var(--f-head); font-weight: 800; font-stretch: 125%; margin: 0; line-height: 1; letter-spacing: -.005em; }
+p { margin: 0; }
+.wrap { max-width: 1240px; margin: 0 auto; padding: 0 var(--f-gut); }
+:focus-visible { outline: 2px solid var(--f-blue); outline-offset: 4px; }
+.paper { background: var(--f-paper); color: var(--f-bg); }
+.mute { color: var(--f-mute); }
+.paper .mute { color: var(--f-mute-ink); }
+
+/* ---------- header (on warm white, with the hero) ---------- */
+.top { display: flex; align-items: center; justify-content: space-between; height: 84px; max-width: 1240px; margin: 0 auto; padding: 0 var(--f-gut); }
+.brand { display: flex; align-items: flex-end; gap: calc(var(--cell, 8px) * 2); text-decoration: none; }
+.nav { display: flex; gap: 32px; font-size: 12px; }
+.nav a { text-decoration: none; color: var(--f-mute-ink); text-underline-offset: 6px; text-decoration-thickness: 2px; }
+.nav a:hover, .nav a:focus-visible { color: var(--f-bg); text-decoration: underline; text-decoration-color: var(--f-blue); }
+.nav .short { display: none; }
+
+/* ---------- hero ---------- */
+.hero { padding-top: 8px; padding-bottom: clamp(56px, 8vh, 96px); text-align: center; }
+.kick { color: var(--f-mute-ink); font-size: 12px; margin-bottom: 14px; }
+.hero h1 { font-size: clamp(34px, 4.55vw, 66px); font-stretch: 122%; }
+.stagegrid { display: grid; grid-template-columns: 1fr auto 1fr; align-items: end; margin-top: clamp(4px, 1.4vh, 16px); }
+.stage { position: relative; justify-self: center; }
+.hit { position: absolute; left: 0; top: 0; touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
+.hit:focus-visible { outline-offset: 2px; }
+.vlab { position: absolute; transform: translate(-50%, -50%); text-align: center; font-size: 11px; font-stretch: 75%; line-height: 1.5; white-space: nowrap; pointer-events: none; transition: opacity .16s; }
+.vlab b { display: block; color: var(--f-blue); font-weight: 600; }
+.vlab span { display: block; color: var(--f-mute-ink); }
+.vlab.off { opacity: 0; }
+.vlab.one span { display: none; }
+.n { padding-bottom: var(--padb, 16px); }
+.n b { display: block; font-size: clamp(22px, 2.3vw, 32px); font-weight: 500; letter-spacing: -.02em; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.n span { display: block; font-size: 11px; line-height: 1.55; white-space: nowrap; }
+.n .l1 { margin-top: 6px; }
+.n.l { text-align: right; padding-right: clamp(16px, 3.2vw, 52px); }
+.n.r { text-align: left; padding-left: clamp(16px, 3.2vw, 52px); }
+/* one line under the block: the hint ends at the centre, the two buttons start there, so nothing moves when the hint changes */
+.ctl { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: 26px; height: 22px; align-items: center; margin-top: 18px; font-size: 12px; white-space: nowrap; }
+.ctl .hint { text-align: right; overflow: hidden; text-overflow: ellipsis; }
+.ctl .btns { display: flex; gap: 24px; justify-content: flex-start; }
+.q { color: var(--f-mute-ink); text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 5px; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; touch-action: manipulation; }
+.q:hover, .q:focus-visible, .q.on { color: var(--f-bg); }
+
+/* ---------- sections ---------- */
+.sec { padding: clamp(80px, 11vw, 150px) 0; }
+.sec h2 { font-size: clamp(30px, 3.8vw, 54px); }
+.lead { max-width: 31em; margin-top: 20px; color: var(--f-mute); font-size: 13px; }
+.paper .lead { color: var(--f-mute-ink); }
+
+/* set-ups: each one drawn as its piece alone (the base stays in the hero) */
+.setups { display: grid; grid-template-columns: repeat(4, 1fr); align-items: start; gap: 48px clamp(20px, 3vw, 44px); margin-top: clamp(48px, 6vw, 80px); }
+.setup { display: block; text-align: left; }
+.setup canvas { margin-bottom: 22px; }
+.setup .nm { display: flex; align-items: center; gap: 12px; font-family: var(--f-head); font-weight: 800; font-stretch: 125%; font-size: 22px; line-height: 1; }
+.slot { position: relative; display: inline-block; flex: none; width: 10px; height: 10px; box-shadow: inset 0 0 0 2px var(--f-mute); }
+.slot::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 0; background: var(--f-blue); transition: height .18s steps(2, end); }
+.setup.on .slot, .setup:hover .slot { box-shadow: inset 0 0 0 2px var(--f-blue); }
+.setup.on .slot::after { height: 10px; }
+.setup .pr { margin-top: 14px; font-size: 12px; line-height: 1.75; }
+.setup .pr span { display: block; }
+.setup .pr .mute { font-size: 11px; margin-top: 4px; }
+
+/* one pool, hooks */
+.split { display: grid; grid-template-columns: auto 1fr; gap: clamp(36px, 8vw, 128px); align-items: center; }
+.split.rev { grid-template-columns: 1fr auto; }
+#poolCv { cursor: pointer; }
+.tag { margin-top: 26px; font-size: 12px; font-weight: 500; }
+
+/* coins */
+.coinhead { display: flex; justify-content: space-between; align-items: flex-end; gap: 24px; flex-wrap: wrap; }
+.note { font-size: 11px; color: var(--f-mute); }
+.coins { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 48px 28px; margin-top: 56px; }
+.coin { display: block; text-decoration: none; }
+.coin canvas { margin-bottom: 16px; }
+.coin b { display: block; font-family: var(--f-head); font-weight: 700; font-stretch: 115%; font-size: 17px; line-height: 1.2; overflow-wrap: anywhere; }
+.coin span { display: block; font-size: 11px; color: var(--f-mute); margin-top: 3px; }
+.coin:hover b { text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 4px; }
+
+/* footer */
+.foot { display: flex; justify-content: space-between; align-items: flex-end; flex-wrap: wrap; gap: 22px 40px; padding-top: 40px; padding-bottom: 60px; font-size: 11px; color: var(--f-mute); }
+.foot a { text-underline-offset: 4px; }
+
+@media (max-width: 900px) {
+  .setups { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 760px) {
+  .top { height: 64px; }
+  .nav { gap: 16px; font-size: 11px; }
+  .nav .long { display: none; }
+  .nav .short { display: inline; }
+  .hero { padding-top: 4px; }
+  .kick { font-size: 11px; margin-bottom: 10px; }
+  .hero h1 { font-size: clamp(30px, 9.4vw, 44px); line-height: 1.02; }
+  .vlab { font-size: 9.5px; }
+  .stagegrid { grid-template-columns: 1fr 1fr; align-items: start; margin-top: 10px; }
+  .stage { grid-column: 1 / -1; order: -1; }
+  .n { padding-bottom: 0; margin-top: 10px; }
+  .n.l { text-align: left; padding-right: 8px; }
+  .n.r { text-align: right; padding-left: 8px; }
+  .n b { font-size: 22px; }
+  .ctl { column-gap: 16px; margin-top: 16px; font-size: 11px; }
+  .ctl .btns { gap: 16px; }
+  .setup .pr { font-size: 11px; }
+  .setup .nm { font-size: 20px; }
+  .split, .split.rev { grid-template-columns: 1fr; }
+  .split.rev .art { order: -1; }
+  .coins { grid-template-columns: repeat(2, 1fr); gap: 36px 18px; }
+  .foot { padding-bottom: 44px; }
+}
+</style>
+<script defer src="/assets/palettes.js"></script>
+<script defer src="/assets/block.js"></script>
+<script defer src="/net.js"></script>
+<script defer src="/vendor/chain.js"></script>
+</head>
+<body>
+
+<div class="paper">
+<header class="top">
+  <a class="brand" href="#top" aria-label="forma, top of the page"><canvas id="sym" aria-hidden="true"></canvas><canvas id="wm" aria-hidden="true"></canvas></a>
+  <nav class="nav" aria-label="Sections">
+    <a href="#how"><span class="long">how it works</span><span class="short">how</span></a>
+    <a href="#coins">coins</a>
+    <a href="/launch">launch</a>
+  </nav>
+</header>
+
+<main>
+<!-- ===== hero: the base is the pool, the blue piece is real SOL, the outline is virtual SOL ===== -->
+<section class="hero wrap" id="top">
+  <p class="kick">a new dex on solana</p>
+  <h1>Every coin, its own way.</h1>
+  <div class="stagegrid" id="stagegrid">
+    <div class="n l"><b id="nPx">0.0300</b><span class="l1">SOL per 1M tokens</span><span class="mute">simulated</span></div>
+    <div class="stage" id="stage">
+      <canvas id="heroCv" aria-hidden="true"></canvas>
+      <p class="vlab" id="vlab" aria-hidden="true"><b id="vlabV">30 virtual SOL</b><span>not in the vault</span></p>
+      <button class="hit" id="hit" type="button" aria-label="Hold to buy in the simulation"></button>
+    </div>
+    <div class="n r"><b id="nSol">0.00</b><span class="l1">real SOL in</span><span class="mute" id="nSolL">of 82.25 to graduate</span></div>
+  </div>
+  <div class="ctl">
+    <span class="hint" id="hint" aria-live="polite">hold the block to buy</span>
+    <span class="btns"><button class="q" id="sell" type="button" aria-label="Hold to sell">hold to sell</button><button class="q" id="reset" type="button">start over</button></span>
+  </div>
+</section>
+</div>
+
+<!-- ===== settings ===== -->
+<section class="sec" id="how">
+  <div class="wrap">
+    <h2>Set at launch.</h2>
+    <p class="lead">Each coin picks where its price starts, when it graduates and its fee. Tap one to try it above.</p>
+    <div class="setups" id="setups"></div>
+  </div>
+</section>
+
+<!-- ===== one pool for life ===== -->
+<section class="sec paper" id="pool">
+  <div class="wrap split">
+    <div class="art"><canvas id="poolCv" aria-hidden="true" title="Play again"></canvas></div>
+    <div>
+      <h2>One pool for life.</h2>
+      <p class="lead">Launch, graduation and every trade after: one pool. No migration, and nobody can pull the liquidity.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ===== hooks next ===== -->
+<section class="sec" id="hooks">
+  <div class="wrap split rev">
+    <div>
+      <h2>Hooks next.</h2>
+      <p class="lead">A hook is code that runs on every transfer of a coin. Hooks are not in this version. The pool's trading path already carries their accounts.</p>
+      <p class="tag">Settings now. Hooks next.</p>
+    </div>
+    <div class="art"><canvas id="hookCv" aria-hidden="true"></canvas></div>
+  </div>
+</section>
+
+<!-- ===== real devnet coins ===== -->
+<section class="sec" id="coins">
+  <div class="wrap">
+    <div class="coinhead">
+      <div>
+        <h2>On devnet.</h2>
+        <p class="lead" id="coinLead">Real coins, read from devnet. Only the team launches for now; a launchpad for creators comes later.</p>
+      </div>
+      <p class="note" id="coinNote">reading devnet</p>
+    </div>
+    <div class="coins" id="coinGrid"></div>
+  </div>
+</section>
+</main>
+
+<footer class="wrap foot">
+  <a class="brand" href="#top" aria-label="forma"><canvas id="sym1" aria-hidden="true"></canvas><canvas id="wm1" aria-hidden="true"></canvas></a>
+  <p>forma is a working name · devnet only · the block at the top is a simulation · <a id="progLink" href="#" target="_blank" rel="noopener">program</a></p>
+</footer>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+'use strict';
+var $ = function (s) { return document.querySelector(s); };
+var reduce = false;
+try { reduce = matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) {}
+var Q; try { Q = new URLSearchParams(location.search); } catch (e) { Q = { get: function () { return null; } }; }
+if (Q.get('motion') === 'reduce') reduce = true;     // lets a screenshot check the reduced-motion path
+// palettes.js (loaded only so block.js can run) writes the old palette onto <html>; this page uses its own --f-* names
+window.__frames = 0;
+var dpr = Math.min(2, window.devicePixelRatio || 1);
+var CELL = 8, PHONE = false;                          // ONE cell size for every drawing on the page (8 css px on desktop, 5 on a phone)
+
+/* ================= palette as indices (0 = the canvas background) ================= */
+var HEX = [null, '#1D2228', '#111315', '#102C60', '#398BFF', '#B9E6FF', '#F2EFE7', '#FF7852'];
+var GR = 1, INK = 2, DEEP = 3, BLUE = 4, PAPER = 6, ORANGE = 7;
+var BG_DARK = '#111315', BG_PAPER = '#F2EFE7';
+
+/* ================= a raster of grid cells, blitted as merged runs ================= */
+function Raster(w, h) { this.w = w; this.h = h; this.b = new Uint8Array(w * h); }
+Raster.prototype.clear = function () { this.b.fill(0); };
+Raster.prototype.rect = function (x, y, w, h, c) {
+  var x0 = Math.max(0, x), y0 = Math.max(0, y), x1 = Math.min(this.w, x + w), y1 = Math.min(this.h, y + h);
+  if (x1 <= x0) return;
+  for (var j = y0; j < y1; j++) this.b.fill(c, j * this.w + x0, j * this.w + x1);
+};
+Raster.prototype.px = function (x, y, c) { if (x >= 0 && y >= 0 && x < this.w && y < this.h) this.b[y * this.w + x] = c; };
+function blit(cv, r, gd, bgHex, mono) {
+  var ctx = cv.getContext('2d'); if (!ctx) return;
+  ctx.imageSmoothingEnabled = false;
+  if (bgHex) { ctx.fillStyle = bgHex; ctx.fillRect(0, 0, cv.width, cv.height); } else ctx.clearRect(0, 0, cv.width, cv.height);
+  var W = r.w, B = r.b, cur = '';
+  for (var y = 0; y < r.h; y++) {
+    var row = y * W, x = 0;
+    while (x < W) {
+      var c = B[row + x], e = x + 1;
+      while (e < W && B[row + e] === c) e++;
+      if (c) { var col = mono || HEX[c]; if (col !== cur) { ctx.fillStyle = col; cur = col; } ctx.fillRect(x * gd, y * gd, (e - x) * gd, gd); }
+      x = e;
+    }
+  }
+}
+// whole device pixels per cell, so every cell edge lands on a device pixel
+function sizeCanvas(cv, cols, rows) {
+  var gd = Math.max(1, Math.round(CELL * dpr));
+  if (cv.width !== cols * gd || cv.height !== rows * gd) { cv.width = cols * gd; cv.height = rows * gd; }
+  cv.style.width = (cols * gd / dpr) + 'px'; cv.style.height = (rows * gd / dpr) + 'px';
+  return gd;
+}
+
+/* ================= geometry: a base of cells, a cavity of bricks (b cells each), at most D bricks deep ================= */
+var D = 7, WMAX = 8;
+// every block: bricks of 3 x 3 cells, a cavity about a third of the width and well over half the height, solid on three sides
+var G_HERO = { id: 'hero', BW: 60, BH: 38, CX: 12, b: 3 };
+var G_POOL = { id: 'pool', BW: 52, BH: 36, CX: 10, b: 3 };
+var G_CARD = { id: 'card', CX: 0, b: 3 };
+var G_TILE = { id: 'tile', BW: 24, BH: 13, CX: 4, b: 1, corner: 1 };    // a devnet coin: the same block on a smaller grid, one cell per brick
+function colX(g, c) { return g.CX + 1 + c * g.b; }
+function rowY(g, a) { return (D - 1 - a) * g.b; }             // top cell row of brick row a (a = 0 is the bottom row)
+function padDepths(dep) { var o = new Array(WMAX).fill(0); for (var i = 0; i < dep.length; i++) o[i] = dep[i]; return o; }
+// depth of the opening per cell column (0 = solid): the cavity, one cell of play around the piece, an optional socket
+function holeOf(g, dep, socket) {
+  var h = new Array(g.BW).fill(0), b = g.b, n = 0, c, i;
+  for (c = 0; c < dep.length; c++) if (dep[c] > 0) n = c + 1;
+  if (n) {
+    for (c = 0; c < n; c++) for (i = 0; i < b; i++) h[colX(g, c) + i] = dep[c] * b + 1;
+    h[g.CX] = dep[0] * b + 1; h[colX(g, n)] = dep[n - 1] * b + 1;
+    for (c = 0; c < n - 1; c++) {                     // one cell of play beside each step face
+      var L = dep[c], R = dep[c + 1];
+      if (L > R) h[colX(g, c + 1)] = L * b + 1; else if (R > L) h[colX(g, c + 1) - 1] = R * b + 1;
+    }
+  }
+  if (socket) for (i = 0; i < socket.w; i++) h[socket.x + i] = Math.max(h[socket.x + i], socket.d);
+  return h;
+}
+function drawBase(r, g, ox, oy, hole, col) {
+  for (var x = 0; x < g.BW; x++) {
+    var top = hole[x], bot = g.BH - 1;
+    if (!hole[x] && ((x > 0 && hole[x - 1]) || (x < g.BW - 1 && hole[x + 1]))) top = 1;   // rim corners: one stepped cell
+    if (g.corner === 1) { if (x === 0 || x === g.BW - 1) { top = Math.max(top, 1); bot = g.BH - 2; } }   // small blocks: one step
+    else if (x === 0 || x === g.BW - 1) { top = Math.max(top, 2); bot = g.BH - 3; }         // outer corners: two steps
+    else if (x === 1 || x === g.BW - 2) { top = Math.max(top, 1); bot = g.BH - 2; }
+    if (bot >= top) r.rect(ox + x, oy + top, 1, bot - top + 1, col);
+  }
+}
+function dither(r, g, ox, oy, col) {                  // a sparse shadow, one cell down and right
+  for (var x = 3; x <= g.BW; x += 2) r.px(ox + x, oy + g.BH, col);
+  for (var y = 4; y < g.BH - 1; y += 2) r.px(ox + g.BW, oy + y, col);
+}
+function ring(r, x, y, w, h, c) { r.rect(x, y, w, 1, c); r.rect(x, y + h - 1, w, 1, c); r.rect(x, y + 1, 1, h - 2, c); r.rect(x + w - 1, y + 1, 1, h - 2, c); }
+
+/* a set-up's bricks, independent of brick size: the lining (k bottom bricks of each column, the virtual SOL),
+   the real slots above it, and the order the cavity fills after graduation (everything drops by k) */
+function analyse(sh) {
+  var w = sh.depths.length, k = sh.k, fl = sh.depths.map(function (d) { return D - d; }), pre = [], post = [], rest = [], a, c;
+  for (a = 0; a < D; a++) for (c = 0; c < w; c++) {
+    if (a >= fl[c] + k) pre.push([c, a]);
+    if (a >= fl[c] && a < D - k) post.push([c, a]); else if (a >= fl[c]) rest.push([c, a]);
+  }
+  sh.w = w; sh.fl = fl; sh.pre = pre; sh.post = post.concat(rest); sh.real = pre.length; sh.all = sh.post.length; sh.dep = padDepths(sh.depths);
+}
+// the lining as cells: one connected piece. Where a step is too tall for the bands to touch, a one-cell riser in the
+// play beside the step face joins them. Only its outline is drawn; each cell knows the row below which it hides.
+var liningCache = {};
+function liningOf(g, sh) {
+  var key = g.id + ':' + sh.id; if (liningCache[key]) return liningCache[key];
+  var on = {}, cells = [], b = g.b, w = sh.w, c, a, i, j;
+  function add(x, y, clip) { var kk = x + ',' + y; if (on[kk] !== undefined) return; on[kk] = 1; cells.push([x, y, clip]); }
+  for (c = 0; c < w; c++) for (a = sh.fl[c]; a < sh.fl[c] + sh.k; a++) for (j = 0; j < b; j++) for (i = 0; i < b; i++) add(colX(g, c) + i, rowY(g, a) + j, sh.depths[c] * b);
+  for (c = 0; c < w - 1; c++) {
+    var L = sh.depths[c], R = sh.depths[c + 1]; if (L === R) continue;
+    var deep = L > R ? c : c + 1, shal = L > R ? c + 1 : c;
+    if (sh.fl[shal] <= sh.fl[deep] + sh.k - 1) continue;             // the bands already share an edge
+    var x = L > R ? colX(g, c + 1) : colX(g, c + 1) - 1, y1 = sh.depths[deep] * b;
+    for (var y = (D - sh.fl[shal]) * b; y < y1; y++) add(x, y, y1);
+  }
+  var edge = cells.filter(function (q) { var x = q[0], y = q[1]; return !(on[(x - 1) + ',' + y] && on[(x + 1) + ',' + y] && on[x + ',' + (y - 1)] && on[x + ',' + (y + 1)]); });
+  var minY = Infinity; edge.forEach(function (q) { minY = Math.min(minY, q[1]); });
+  return (liningCache[key] = { edge: edge, minY: minY });
+}
+function drawLining(r, ox, oy, L, dy) { for (var i = 0; i < L.edge.length; i++) { var q = L.edge[i], y = q[1] + dy; if (y < q[2]) r.px(ox + q[0], oy + y, BLUE); } }
+
+/* ================= the pool's math, for any set-up (same rules as Block for the house settings) ================= */
+function Pool(V, M, feeBps) {
+  var G = Math.sqrt(M * V) - V, fee = feeBps / 1e4;
+  var P = {
+    V: V, M: M, fee: fee, G: G,
+    fresh: function () { return { R: 0, T: 1e9, grad: false, burned: 0, held: 0 }; },
+    x: function (s) { return s.grad ? s.R : V + s.R; },
+    price: function (s) { return P.x(s) / s.T; },
+    buy: function (s, d) {
+      var rest = d - d * fee, out = 0, info = { graduated: false, burn: 0 };
+      if (!s.grad) {
+        var on = Math.min(rest, G - s.R);
+        if (on > 0) { var x = V + s.R, T2 = x * s.T / (x + on); out += s.T - T2; s.T = T2; s.R += on; rest -= on; }
+        if (s.R >= G - 1e-9) { s.R = G; var burn = s.T * V / (V + s.R); s.T -= burn; s.burned += burn; s.grad = true; info.graduated = true; info.burn = burn; }
+      }
+      if (s.grad && rest > 0) { var x2 = s.R, T3 = x2 * s.T / (x2 + rest); out += s.T - T3; s.T = T3; s.R += rest; }
+      s.held += out; return info;
+    },
+    sellTokens: function (s, tok) {
+      if (!(tok > 0)) return 0;
+      var x = P.x(s), nx = x * s.T / (s.T + tok), gross = x - nx;
+      s.T += tok; s.held -= tok; s.R = Math.max(0, s.grad ? nx : nx - V);
+      return gross - gross * fee;
+    },
+    sellSol: function (s, d) {
+      var x = P.x(s); d = Math.min(d, x * 0.4);
+      var tok = Math.min(s.T * d / (x - d), s.held);
+      if (!(tok > 1)) return 0;
+      P.sellTokens(s, tok); return tok;
+    }
+  };
+  return P;
+}
+function fSol(v) { return v >= 100 ? v.toFixed(1) : v >= 1 || v <= 0 ? v.toFixed(2) : v.toFixed(3); }
+function fPx(p) { return window.Block ? Block.fPx(p) : (p * 1e6).toFixed(4); }
+function fTok(v) { return window.Block ? Block.fTok(v) : (v / 1e6).toFixed(2) + 'M'; }
+function fNum(v) { return String(Math.round(v)).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
+
+/* the set-ups: real launch parameters inside the program's bounds (1-1,000 virtual SOL, 2-100x, fee up to 3%).
+   Each shape is asymmetric, and its lining area matches the virtual share at graduation:
+   house 12 of 40 bricks (virtual share at graduation 27%), curve 12/35 (33%), tray 16/30 (50%), L cut 14/37 (38%). */
+var SETUPS = [
+  { id: 'house', name: 'house', V: 30, M: 420, fee: 100, depths: [7, 7, 7, 7, 6, 6], k: 2 },
+  { id: 'curve', name: 'curve', V: 20, M: 180, fee: 200, depths: [7, 7, 7, 6, 4, 4], k: 2 },
+  { id: 'tray', name: 'tray', V: 200, M: 800, fee: 150, depths: [4, 4, 4, 4, 4, 4, 3, 3], k: 2 },
+  { id: 'ell', name: 'L cut', V: 60, M: 420, fee: 300, depths: [7, 7, 7, 4, 4, 4, 4], k: 2 }
+];
+SETUPS.forEach(function (s) { analyse(s); s.pool = Pool(s.V, s.M, s.fee); s.unit = s.pool.G / s.real; });
+function findSetup(id) { for (var i = 0; i < SETUPS.length; i++) if (SETUPS[i].id === id) return SETUPS[i]; return null; }
+
+// the house set-up must agree with Block (assets/block.js) to the last digit that matters
+window.__mathCheck = (function () {
+  try {
+    if (!window.Block) return 'Block missing';
+    var B = Block, P = SETUPS[0].pool, a = B.fresh(), b = P.fresh(), err = Math.abs(B.GRAD_R - P.G) / B.GRAD_R;
+    [['b', 5], ['b', 20], ['s', 3], ['b', 70], ['s', 10], ['b', 15], ['s', 40]].forEach(function (o) {
+      if (o[0] === 'b') { B.buy(a, o[1]); P.buy(b, o[1]); } else { B.sellSol(a, o[1]); P.sellSol(b, o[1]); }
+      ['R', 'T', 'burned', 'held'].forEach(function (k) { err = Math.max(err, Math.abs(a[k] - b[k]) / Math.max(1e-9, Math.abs(a[k]))); });
+      err = Math.max(err, Math.abs(B.priceOf(a) - P.price(b)) / B.priceOf(a));
+    });
+    return err;
+  } catch (e) { return 'error ' + e.message; }
+})();
+
+/* ================= motion: a fall with weight, then a soft settle on the grid ================= */
+var GRAV = 0.0009;                                    // cells per ms^2
+function fallDur(d) { return reduce ? 0 : Math.sqrt(2 * Math.abs(d) / GRAV); }
+var SQ = 70, ST = 100;                                // a landing: squash (top row gives, foot spreads), one-row rebound, rest: 170 ms
+function anVal(an, t) {
+  if (!an) return 0;
+  if (an.dur <= 0 || t >= an.t0 + an.dur) return an.to;
+  if (t <= an.t0) return an.from;
+  var p = (t - an.t0) / an.dur;
+  return an.from + (an.to - an.from) * p * p;          // it speeds up as it falls
+}
+function settlePhase(an, t) {                         // 0 rest or moving, 1 squash, 2 rebound
+  if (!an || !an.settle || reduce) return 0;
+  var e = an.t0 + an.dur;
+  if (t < e) return 0; if (t < e + SQ) return 1; if (t < e + SQ + ST) return 2; return 0;
+}
+function anDone(an, t) { return !an || t >= an.t0 + an.dur + (an.settle && !reduce ? SQ + ST : 0); }
+function moving(an, t) { return !!an && t < an.t0 + an.dur; }
+var REST = {};
+// one brick; mode 1 squash, 2 rebound; its bottom row takes the one darker shade when nothing is under it
+function paintBrick(r, x, y, b, mode, shade, footL, footR) {
+  var bot = shade ? DEEP : BLUE;
+  if (mode === 1) {                                   // the foot spreads one cell only into the cavity, never over the play or a wall
+    r.rect(x, y + 1, b, b - 2, BLUE); r.rect(x, y + b - 1, b, 1, bot);
+    if (footL) r.px(x - 1, y + b - 1, BLUE); if (footR) r.px(x + b, y + b - 1, BLUE);
+  } else if (mode === 2) { r.rect(x, y - 1, b, b, BLUE); r.rect(x, y + b - 1, b, 1, bot); }
+  else { r.rect(x, y, b, b - 1, BLUE); r.rect(x, y + b - 1, b, 1, bot); }
+}
+
+/* ================= Mold: one animated block on its own canvas ================= */
+function Mold(cv, o) {
+  this.cv = cv; this.o = o; this.g = o.g;
+  this.padL = o.padL; this.padR = o.padR; this.padT = o.padT; this.padB = o.padB;
+  this.cols = this.g.BW + this.padL + this.padR; this.rows = this.g.BH + this.padT + this.padB;
+  this.r = new Raster(this.cols, this.rows);
+  this.clock = 0; this.timers = []; this.flyers = []; this.morph = null; this.visible = false; this.onStep = null; this.holding = null; this.gd = 4;
+  this.reset(o.shape);
+}
+var MP = Mold.prototype;
+MP.reset = function (sh) {
+  this.shape = sh; this.dep = sh.dep.slice(); this.hole = holeOf(this.g, this.dep, null); this.phase = 'pre';
+  this.lining = { L: liningOf(this.g, sh), an: null };
+  this.piece = []; this.slots = sh.pre; this.flyers = []; this.timers = []; this.morph = null;
+};
+MP.setPost = function () { this.phase = 'post'; this.lining = null; this.slots = this.shape.post; };
+MP.at = function (ms, fn) { this.timers.push({ t: this.clock + ms, fn: fn }); };
+MP.fill = function (n) { this.piece = []; for (var i = 0; i < n && i < this.slots.length; i++) this.piece.push({ c: this.slots[i][0], a: this.slots[i][1], an: null }); };
+MP.setCount = function (n) {
+  var stagger = 0, g = this.g;
+  while (this.piece.length < n && this.piece.length < this.slots.length) {
+    var s = this.slots[this.piece.length], from = -(this.padT + rowY(g, s[1]) + g.b);
+    this.piece.push({ c: s[0], a: s[1], an: { t0: this.clock + stagger, dur: fallDur(from), from: from, to: 0, settle: true } });
+    stagger += 45;
+  }
+  while (this.piece.length > n) { var p = this.piece.pop(); this.lift(p, 0); }
+};
+MP.lift = function (p, delay) {                       // a brick taken back out: a small unstick, then up and away
+  var g = this.g, dyNow = anVal(p.an, this.clock), to = -(this.padT + rowY(g, p.a) + g.b + 2);
+  this.flyers.push({ c: p.c, a: p.a, an: { t0: this.clock + delay + (reduce ? 0 : 40), dur: reduce ? 0 : Math.sqrt(2 * Math.abs(to - dyNow) / (GRAV * 1.4)), from: Math.round(dyNow) - (reduce ? 0 : 1), to: to } });
+};
+MP.sinkLining = function (delay) {                   // the outline sinks into the floor and is gone (it is drawn behind the base)
+  if (!this.lining) return;
+  var to = D * this.g.b + 2;
+  this.lining.an = { t0: this.clock + delay, dur: fallDur(to) * 0.8, from: 0, to: to, sink: true };
+};
+// graduation: the outline sinks away, then the whole piece drops into its place in one motion, top edge settling once
+MP.graduate = function (cb) {
+  var self = this, g = this.g, k = this.shape.k;
+  this.sinkLining(reduce ? 0 : 60);
+  this.at(reduce ? 0 : 60 + 130, function () {
+    var dur = fallDur(k * g.b), an = { t0: self.clock, dur: dur, from: -k * g.b, to: 0 }, top = {};
+    self.piece.forEach(function (p) { p.a -= k; if (top[p.c] === undefined || p.a > top[p.c]) top[p.c] = p.a; });
+    var anTop = { t0: an.t0, dur: dur, from: an.from, to: 0, settle: true, grp: an };
+    self.piece.forEach(function (p) { p.an = p.a === top[p.c] ? anTop : an; });
+    self.at(dur + (reduce ? 0 : SQ + ST), function () { self.setPost(); if (cb) cb(); });
+  });
+};
+// re-forming: the bricks leave, the outline sinks, the opening re-shapes one whole brick per step, a new outline drops in
+var MSTEPS = [90, 90, 100, 110, 120, 135, 150, 165];   // each step a little slower: it eases out
+MP.reform = function (sh, cb) {
+  var self = this, g = this.g, P = this.piece.slice().reverse(), st = Math.min(14, 300 / Math.max(1, P.length));
+  P.forEach(function (p, j) { self.lift(p, reduce ? 0 : j * st); });
+  this.piece = [];
+  this.sinkLining(reduce ? 0 : 30);
+  var from = this.dep.slice(), to = sh.dep.slice(), n = 0;
+  for (var c = 0; c < WMAX; c++) n = Math.max(n, Math.abs(to[c] - from[c]));
+  this.at(reduce ? 0 : Math.max(260, Math.min(400, 140 + P.length * st)), function () {   // after the old outline has sunk
+    var total = 0, times = [];
+    if (!reduce) for (var i = 0; i < n; i++) { total += MSTEPS[Math.min(i, MSTEPS.length - 1)]; times.push(total); }
+    if (n && !reduce) self.morph = { t0: self.clock, from: from, to: to, times: times, cache: {} };
+    self.at(reduce ? 0 : total, function () {
+      self.morph = null; self.dep = to; self.hole = holeOf(g, to, null); self.shape = sh; self.phase = 'pre'; self.slots = sh.pre; self.piece = [];
+      var L = liningOf(g, sh), dist = self.padT + L.minY + 2, dur = fallDur(dist);
+      self.lining = { L: L, an: { t0: self.clock + (reduce ? 0 : 60), dur: dur, from: -dist, to: 0, settle: true } };
+      self.at((reduce ? 0 : 60 + SQ + ST) + dur, function () { if (cb) cb(); });
+    });
+  });
+};
+MP.holeNow = function () {
+  var m = this.morph; if (!m) return this.hole;
+  var e = this.clock - m.t0, i = 0;
+  while (i < m.times.length && e >= m.times[i]) i++;
+  i = Math.min(m.times.length, i + 1);                // the first step happens at once
+  if (!m.cache[i]) { var d = m.from.map(function (f, c) { var t = m.to[c]; return f + Math.sign(t - f) * Math.min(Math.abs(t - f), i); }); m.cache[i] = holeOf(this.g, d, null); }
+  return m.cache[i];
+};
+MP.step = function (dt) {
+  this.clock += dt;
+  var t = this.clock, due = this.timers.filter(function (x) { return x.t <= t; });
+  this.timers = this.timers.filter(function (x) { return x.t > t; });
+  due.forEach(function (x) { x.fn(); });
+  this.flyers = this.flyers.filter(function (f) { return t < f.an.t0 + f.an.dur; });
+  this.piece.forEach(function (p) { if (p.an && anDone(p.an, t)) p.an = null; });
+  if (this.lining && this.lining.an) { var a = this.lining.an; if (a.sink && t >= a.t0 + a.dur) this.lining = null; else if (!a.sink && anDone(a, t)) this.lining.an = null; }
+  if (this.onStep) this.onStep(t);
+};
+MP.settled = function () { return !this.timers.length && !this.morph && this.piece.every(function (p) { return !p.an; }); };
+MP.busy = function () {
+  if (this.timers.length || this.flyers.length || this.morph) return true;
+  if (this.lining && this.lining.an) return true;
+  for (var i = 0; i < this.piece.length; i++) if (this.piece[i].an) return true;
+  return !!(this.holding && this.holding());
+};
+MP.size = function () { this.gd = sizeCanvas(this.cv, this.cols, this.rows); this.paint(); };
+MP.paint = function () {
+  var r = this.r, g = this.g, t = this.clock, ox = this.padL, oy = this.padT, b = g.b, hole = this.holeNow(), o = this.o;
+  r.clear();
+  // the outline is drawn before the base: when it sinks, it goes behind the floor
+  if (this.lining) {
+    var la = this.lining.an, ph = settlePhase(la, t), dy = Math.round(anVal(la, t));
+    if (ph === 1) dy += 1; else if (ph === 2) dy -= 1;
+    drawLining(r, ox, oy, this.lining.L, dy);
+  }
+  drawBase(r, g, ox, oy, hole, o.body);
+  if (o.shadow) dither(r, g, ox, oy, o.body);
+  // bricks that rest, or move together, merge into one piece; only its bottom edge takes the deep shade
+  // (a brick that rests on the outline merges with it: the piece reads as solid real SOL over hollow virtual SOL)
+  var occ = {}, sh = this.shape, lin = this.lining && !(this.lining.an && this.lining.an.sink && t >= this.lining.an.t0);
+  this.piece.forEach(function (p) { occ[p.c + ',' + p.a] = moving(p.an, t) ? (p.an.grp || p.an) : REST; });
+  this.piece.forEach(function (p) {
+    var me = occ[p.c + ',' + p.a], below = occ[p.c + ',' + (p.a - 1)], above = occ[p.c + ',' + (p.a + 1)];
+    var x = ox + colX(g, p.c), y = oy + rowY(g, p.a) + Math.round(anVal(p.an, t));
+    var mode = settlePhase(p.an, t); if (mode && above === REST) mode = 0;
+    var onLining = lin && me === REST && p.a - 1 >= sh.fl[p.c] && p.a - 1 < sh.fl[p.c] + sh.k;
+    paintBrick(r, x, y, b, mode, !onLining && (below === undefined || below !== me), mode === 1 && p.c > 0 && p.a >= sh.fl[p.c - 1], mode === 1 && p.c < sh.w - 1 && p.a >= sh.fl[p.c + 1]);
+  });
+  this.flyers.forEach(function (f) { paintBrick(r, ox + colX(g, f.c), oy + rowY(g, f.a) + Math.round(anVal(f.an, t)), b, 0, true); });
+  blit(this.cv, r, this.gd, o.bgHex);
+};
+
+/* ================= one loop for every animated block; it sleeps when nothing moves ================= */
+var molds = [], raf = 0, lastT = 0;
+function wake() { if (raf || document.hidden) return; lastT = performance.now(); raf = requestAnimationFrame(frame); }
+function frame(now) {
+  raf = 0;
+  if (window.__frozen) return;                         // screenshots can hold a frame still
+  var dt = Math.min(40, Math.max(0, now - lastT)), again = false; lastT = now;
+  for (var i = 0; i < molds.length; i++) {
+    var m = molds[i];
+    if (!m.visible || !m.busy()) continue;
+    m.step(dt); m.paint();
+    if (m.busy()) again = true;
+  }
+  window.__frames++;
+  if (again) raf = requestAnimationFrame(frame);
+}
+document.addEventListener('visibilitychange', function () { if (document.hidden) { if (raf) cancelAnimationFrame(raf); raf = 0; } else wake(); });
+var io = 'IntersectionObserver' in window ? new IntersectionObserver(function (es) {
+  es.forEach(function (e) { var m = e.target.__mold; if (!m) return; var was = m.visible; m.visible = e.isIntersecting; if (m.visible && !was) { m.paint(); if (m.onShow) m.onShow(); wake(); } if (!m.visible && was && m.onHide) m.onHide(); });
+}, { threshold: [0, 0.3] }) : null;
+function track(m) { molds.push(m); m.cv.__mold = m; if (io) io.observe(m.cv); else m.visible = true; }
+
+/* ================= static drawings: brand marks, set-up pieces, hooks, coins ================= */
+function paintStatic(cv, r, bgHex, mono) { var gd = sizeCanvas(cv, r.w, r.h); blit(cv, r, gd, bgHex, mono); }
+function drawBricks(r, g, ox, oy, cells, onLining) { // resting bricks as one piece, deep shade on its bottom edge (not where it sits on the outline)
+  var occ = {}; cells.forEach(function (s) { occ[s[0] + ',' + s[1]] = 1; });
+  cells.forEach(function (s) { paintBrick(r, ox + colX(g, s[0]), oy + rowY(g, s[1]), g.b, 0, !onLining && !occ[s[0] + ',' + (s[1] - 1)]); });
+}
+// a set-up drawn as its piece alone, at graduation: the outline (virtual SOL) under the blue (real SOL)
+function pieceRaster(sh) {
+  var g = G_CARD, r = new Raster(1 + WMAX * g.b + 1, D * g.b + 1);
+  drawLining(r, 0, 0, liningOf(g, sh), 0);
+  drawBricks(r, g, 0, 0, sh.pre, true);
+  return r;
+}
+// the hooks drawing: a graduated coin in its cavity and, beside it, an empty socket cut into the base
+var SOCKET = { x: 38, w: 8, d: 5 };
+function hookRaster() {
+  var g = G_POOL, sh = SETUPS[0], r = new Raster(g.BW, g.BH);
+  drawBase(r, g, 0, 0, holeOf(g, sh.dep, SOCKET), PAPER);
+  ring(r, SOCKET.x + 1, 0, SOCKET.w - 2, SOCKET.d - 1, ORANGE);
+  drawBricks(r, g, 0, 0, sh.post.slice(0, sh.real));
+  return r;
+}
+// the symbol: a block with an off-centre slot a third of its width, a piece in it with one cell of play (works in one colour)
+var SYMBOL = ['.#...####.', '##PP.#####', '##PP.#####', '##########', '##########', '.########.'];
+function bitmap(rows, ink, piece) {
+  var r = new Raster(rows[0].length, rows.length);
+  rows.forEach(function (row, y) { for (var x = 0; x < row.length; x++) { if (row[x] === '#') r.px(x, y, ink); else if (row[x] === 'P') r.px(x, y, piece); } });
+  return r;
+}
+// the wordmark: wide, compact pixel letters on the same grid; the o holds the piece in one corner of its counter
+var GLYPH = {
+  f: ['.###', '.#..', '###.', '.#..', '.#..', '.#..'],
+  o: ['.....', '.....', '.###.', '#...#', '#P..#', '.###.'],
+  r: ['....', '....', '.###', '#...', '#...', '#...'],
+  m: ['.......', '.......', '.#####.', '#..#..#', '#..#..#', '#..#..#'],
+  a: ['......', '......', '.####.', '#...#.', '#...#.', '.#####']
+};
+function wordRaster(ink, piece) {
+  var rows = ['', '', '', '', '', ''];
+  'forma'.split('').forEach(function (ch, i) { GLYPH[ch].forEach(function (g, y) { rows[y] += (i ? '.' : '') + g; }); });
+  return bitmap(rows, ink, piece);
+}
+// a devnet coin: the same block, one cell per brick, filled exactly as far as its real SOL reaches toward graduation
+var TILE_DEP = [6, 6, 6, 6, 6, 6], TILE_CELLS = 36;   // 6 x 6 cells of real SOL up to graduation
+function tileRaster(c) {
+  var g = G_TILE, r = new Raster(g.BW, g.BH), n = 0, i = 0, a, x;
+  drawBase(r, g, 0, 0, holeOf(g, TILE_DEP, null), PAPER);
+  if (c.grad) n = TILE_CELLS; else if (c.gradSol > 0) n = Math.min(TILE_CELLS, Math.round(c.realSol / c.gradSol * TILE_CELLS));
+  for (a = D - TILE_DEP[0]; a < D && i < n; a++) for (x = 0; x < TILE_DEP.length && i < n; x++, i++) r.px(colX(g, x), rowY(g, a), BLUE);
+  return r;
+}
+
+/* ================= the hero ================= */
+var heroCv = $('#heroCv'), hit = $('#hit'), sellBtn = $('#sell'), vlab = $('#vlab');
+var H = { su: findSetup(Q.get('setup')) || SETUPS[0], s: null, hold: null, nextT: 0, ticks: 0, locked: false, gradPending: false, gradAnim: false, burn: 0, justGrad: false, full: false, queued: null };
+H.s = H.su.pool.fresh();
+var sol0 = parseFloat(Q.get('sol'));
+if (sol0 > 0) { H.su.pool.buy(H.s, sol0 / (1 - H.su.pool.fee)); if (H.s.grad) H.burn = H.s.burned; }
+var hero = new Mold(heroCv, { g: G_HERO, padL: 1, padR: 1, padT: 8, padB: 2, shape: H.su, bgHex: BG_PAPER, body: GR });
+function cells() {
+  var su = H.su, s = H.s;
+  if (!s.grad) { if (s.R <= 1e-9) return 0; return Math.max(1, Math.min(su.real - 1, Math.round(s.R / su.unit))); }
+  return Math.max(0, Math.min(su.all, Math.round(s.R / su.unit)));
+}
+if (H.s.grad) hero.setPost();
+hero.fill(cells());
+H.full = H.s.grad && cells() >= H.su.all;
+hero.holding = function () { return !!H.hold; };
+
+function buyOne() {                                   // one brick of real SOL (the fee is on top)
+  var su = H.su, P = su.pool, s = H.s, n = cells();
+  if (s.grad && n >= su.all) { H.full = true; return false; }   // the cavity is full: the demo stops at the rim
+  var net = (!s.grad && n + 1 >= su.real) ? (P.G - s.R) + su.unit * 1e-4 : (n + 1) * su.unit - s.R;
+  if (!(net > 0)) net = su.unit * 0.5;
+  var info = P.buy(s, net / (1 - P.fee));
+  if (info.graduated) { H.burn = info.burn; H.gradPending = true; }
+  H.justGrad = false;
+  if (s.grad && cells() >= su.all) H.full = true;
+  return true;
+}
+function sellOne() {
+  var su = H.su, P = su.pool, s = H.s, n = cells();
+  if (n <= 0 || s.held <= 1) return false;
+  var d = n - 1 <= 0 ? s.R : s.R - (n - 1) * su.unit;
+  if (!(d > 0)) return false;
+  var tok = P.sellSol(s, d);
+  if (s.R < 1e-9) s.R = 0;
+  H.full = false; H.justGrad = false;
+  return tok > 0;
+}
+hero.onStep = function (t) {
+  if (H.gradPending && !H.locked && hero.settled()) {
+    H.gradPending = false; H.locked = true; H.gradAnim = true;
+    hero.graduate(function () { H.locked = false; H.gradAnim = false; H.justGrad = true; render(); flushQueue(); });
+    render(); return;
+  }
+  if (!H.hold || H.locked || H.gradPending) return;
+  if (t >= H.nextT) {
+    var ok = H.hold === 'buy' ? buyOne() : sellOne();
+    if (ok) { hero.setCount(cells()); H.ticks++; }
+    H.nextT = t + Math.max(70, 200 - H.ticks * 16);
+    render();
+  }
+};
+function startHold(kind) { if (H.hold === kind) return; H.hold = kind; H.ticks = 0; H.nextT = hero.clock; render(); wake(); }
+function stopHold() { if (!H.hold) return; H.hold = null; render(); }
+
+function setText(sel, v) { var el = $(sel); if (el && el.textContent !== v) el.textContent = v; }
+function render() {
+  var su = H.su, P = su.pool, s = H.s, showGrad = s.grad && !H.gradPending && !H.gradAnim;   // the readout follows the picture through graduation
+  setText('#nPx', fPx(P.price(s)));
+  setText('#nSol', fSol(s.R));
+  setText('#nSolL', showGrad ? 'graduated, same pool' : 'of ' + fSol(P.G) + ' to graduate');
+  setText('#vlabV', su.V + ' virtual SOL');
+  vlab.classList.toggle('off', !(cells() === 0 && !s.grad && !H.locked && !H.hold && hero.piece.length === 0));
+  var hint;
+  if (H.hold === 'buy') hint = H.full ? 'and so on' : 'buying';
+  else if (H.hold === 'sell') hint = cells() > 0 ? 'selling' : 'nothing to sell';
+  else if (H.locked && !s.grad) hint = su.name === 'house' ? 'house settings' : su.name;
+  else if (s.grad && !showGrad) hint = 'graduating';
+  else if (H.full) hint = PHONE ? 'and so on' : 'and so on, in the same pool';
+  else if (s.grad && H.justGrad) hint = PHONE ? 'same price · ' + Math.round(H.burn / 1e6) + 'M burned' : 'same price · ' + fTok(H.burn) + ' tokens burned in the pool';
+  else if (s.grad) hint = PHONE ? 'graduated · trading' : 'graduated · same pool, still trading';
+  else hint = 'hold the block to buy';
+  setText('#hint', hint);
+  sellBtn.classList.toggle('on', H.hold === 'sell');
+}
+// the "virtual SOL" words sit inside the empty cavity, over the widest part with room above the outline
+function placeVlab() {
+  var su = H.su, g = G_HERO, best = null, i, j, c;
+  for (i = 0; i < su.w; i++) for (j = i; j < su.w; j++) {
+    var room = Infinity, top = -1;
+    for (c = i; c <= j; c++) { room = Math.min(room, D - su.fl[c] - su.k); top = Math.max(top, su.fl[c] + su.k - 1); }
+    if (room >= 2 && (!best || j - i > best.j - best.i)) best = { i: i, j: j, top: top };
+  }
+  if (!best) best = { i: 0, j: su.w - 1, top: D - 2 };
+  var x = (hero.padL + colX(g, best.i) + (best.j - best.i + 1) * g.b / 2) * CELL, y = (hero.padT + rowY(g, best.top) / 2) * CELL;
+  vlab.style.left = x + 'px'; vlab.style.top = y + 'px';
+  vlab.classList.remove('one');                       // too narrow for both lines: keep the first
+  if (vlab.offsetWidth > (best.j - best.i + 1) * g.b * CELL - CELL) vlab.classList.add('one');
+}
+function flushQueue() { if (H.queued) { var id = H.queued; H.queued = null; choose(id, false); } }
+function reformTo(su) {
+  H.hold = null; H.locked = true; H.gradPending = false; H.su = su; H.s = su.pool.fresh(); H.burn = 0; H.full = false; H.justGrad = false;
+  hero.reform(su, function () { H.locked = false; placeVlab(); render(); flushQueue(); });
+  render(); wake();
+}
+function choose(id, scroll) {
+  var su = findSetup(id); if (!su) return;
+  markSetup(id);
+  if (scroll) { try { window.scrollTo({ top: 0, behavior: reduce ? 'auto' : 'smooth' }); } catch (e) { window.scrollTo(0, 0); } }
+  if (H.locked) { H.queued = id; return; }
+  reformTo(su);
+}
+
+// input: only the block itself takes the press (touch-action: none on it alone), so the page still scrolls around it
+function bindHold(el, kind) {
+  el.addEventListener('pointerdown', function (e) { if (e.button) return; e.preventDefault(); try { el.setPointerCapture(e.pointerId); } catch (x) {} startHold(kind); });
+  ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(function (ev) { el.addEventListener(ev, stopHold); });
+  el.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+  el.addEventListener('keydown', function (e) { if ((e.key === ' ' || e.key === 'Enter') && !e.repeat) { e.preventDefault(); startHold(kind); } });
+  el.addEventListener('keyup', function (e) { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); stopHold(); } });
+  el.addEventListener('blur', stopHold);
+}
+bindHold(hit, 'buy'); bindHold(sellBtn, 'sell');
+$('#reset').addEventListener('click', function () { if (H.locked) return; reformTo(H.su); });
+track(hero);
+
+/* ================= set-ups ================= */
+var setupsEl = $('#setups');
+SETUPS.forEach(function (su) {
+  var bt = document.createElement('button');
+  bt.type = 'button'; bt.className = 'setup'; bt.setAttribute('data-id', su.id);
+  bt.setAttribute('aria-label', 'Try the ' + su.name + ' set-up in the block above');
+  bt.innerHTML = '<canvas aria-hidden="true"></canvas><span class="nm"><i class="slot"></i>' + su.name + '</span>' +
+    '<span class="pr"><span>' + su.V + ' virtual SOL</span><span>graduates at a ' + fNum(su.M) + ' SOL market cap (' + (su.M / su.V) + '×)</span><span>' + (su.fee / 100) + '% fee' + (su.id === 'house' ? ', split in half' : '') + '</span>' +
+    (su.id === 'house' ? '<span class="mute">today\'s house settings</span>' : '') + '</span>';
+  bt.addEventListener('click', function () { choose(su.id, true); });
+  setupsEl.appendChild(bt);
+  su.cv = bt.querySelector('canvas');
+});
+function markSetup(id) { Array.prototype.forEach.call(setupsEl.children, function (el) { var on = el.getAttribute('data-id') === id; el.classList.toggle('on', on); el.setAttribute('aria-pressed', on ? 'true' : 'false'); }); }
+markSetup(H.su.id);
+
+/* ================= one pool for life (plays when it comes into view) ================= */
+var poolMold = new Mold($('#poolCv'), { g: G_POOL, padL: 1, padR: 2, padT: 7, padB: 2, shape: SETUPS[0], bgHex: BG_PAPER, body: GR });
+var poolPlayed = false;
+function playPool() {
+  var m = poolMold, su = SETUPS[0];
+  m.reset(su); poolPlayed = true;
+  if (reduce) { m.setPost(); m.fill(su.real + 4); m.paint(); return; }
+  var t = 500;
+  for (var i = 1; i <= su.real; i++) (function (n) { m.at(t, function () { m.setCount(n); }); })(i), t += 72;
+  m.at(t + 520, function () {
+    m.graduate(function () {
+      var n = su.real;
+      [1, 1, -1, 1, 1, -1, -1, 1, 1, -1, 1].forEach(function (d, j) { m.at(520 + j * 340, function () { n += d; m.setCount(n); }); });
+    });
+  });
+  m.paint(); wake();
+}
+poolMold.onShow = function () { if (!poolPlayed) playPool(); };
+poolMold.onHide = function () { if (!poolMold.busy()) poolPlayed = false; };   // plays again next time it is scrolled to
+$('#poolCv').addEventListener('click', function () { if (!poolMold.busy()) playPool(); });
+track(poolMold);
+
+/* ================= sizes: one cell size for the whole page ================= */
+var lastW = 0, lastH = 0;
+function viewH() { return Math.round((window.visualViewport && visualViewport.height) || innerHeight || document.documentElement.clientHeight); }
+function layout() {
+  dpr = Math.min(2, window.devicePixelRatio || 1);
+  var cw = document.documentElement.clientWidth, vh = viewH(), phone = cw < 760, gut = Math.max(16, Math.min(64, cw * 0.044));
+  lastW = cw; lastH = vh; PHONE = phone;
+  var availW = phone ? cw - 2 * gut : Math.min(1240, cw) - 2 * gut - 400;
+  var availH = Math.max(phone ? 300 : 260, vh - (phone ? 330 : 300));
+  CELL = Math.max(3, Math.min(8, Math.floor(availW / hero.cols), Math.floor(availH / hero.rows)));
+  document.documentElement.style.setProperty('--cell', CELL + 'px');
+  hero.size();
+  hit.style.left = (hero.padL * CELL) + 'px'; hit.style.top = (hero.padT * CELL) + 'px';
+  hit.style.width = (G_HERO.BW * CELL) + 'px'; hit.style.height = (G_HERO.BH * CELL) + 'px';
+  $('#stagegrid').style.setProperty('--padb', (hero.padB * CELL + 4) + 'px');
+  placeVlab();
+  // marks: graphite block on the warm-white header, one-colour warm white in the dark footer
+  paintStatic($('#sym'), bitmap(SYMBOL, GR, BLUE), null);
+  paintStatic($('#wm'), wordRaster(INK, BLUE), null);
+  paintStatic($('#sym1'), bitmap(SYMBOL, PAPER, PAPER), null);
+  paintStatic($('#wm1'), wordRaster(PAPER, PAPER), null);
+  SETUPS.forEach(function (su) { paintStatic(su.cv, pieceRaster(su), BG_DARK); });
+  poolMold.size();
+  paintStatic($('#hookCv'), hookRaster(), BG_DARK);
+  paintCoins();
+  render();
+}
+// re-lay out when the width changes (a phone's address bar showing or hiding only changes the height: ignored there)
+var rz = 0;
+function maybeLayout() {
+  clearTimeout(rz);
+  rz = setTimeout(function () { var cw = document.documentElement.clientWidth, vh = viewH(); if (cw !== lastW || (cw >= 760 && Math.abs(vh - lastH) > 40)) layout(); }, 140);
+}
+addEventListener('resize', maybeLayout);
+addEventListener('load', maybeLayout);
+if (window.visualViewport) visualViewport.addEventListener('resize', maybeLayout);
+
+/* ================= devnet coins, at one scale ================= */
+var coinEls = [];
+function coinName(p) { var n = String(p.name || '').trim(); if (/^DESKTOP-/i.test(n)) return 'Test coin'; return n || 'Unnamed coin'; }
+function showCoins(list) {
+  var grid = $('#coinGrid'); grid.innerHTML = ''; coinEls = [];
+  list.forEach(function (c) {
+    var el = document.createElement(c.href ? 'a' : 'div');
+    el.className = 'coin'; if (c.href) el.href = c.href;
+    el.innerHTML = '<canvas aria-hidden="true"></canvas><b></b><span class="sy"></span><span class="px"></span>';
+    el.querySelector('b').textContent = c.name;
+    el.querySelector('.sy').textContent = c.symbol + ' · ' + fSol(c.realSol) + ' SOL in' + (c.grad ? ', graduated' : '');
+    el.querySelector('.px').textContent = fPx(c.price) + ' SOL per 1M';
+    grid.appendChild(el); coinEls.push({ el: el, c: c });
+  });
+  paintCoins();
+}
+function paintCoins() { coinEls.forEach(function (x) { paintStatic(x.el.querySelector('canvas'), tileRaster(x.c), BG_DARK); }); }
+function examples() {
+  var P = SETUPS[0].pool;
+  return [12, 47, 95].map(function (sol, i) {
+    var s = P.fresh(); P.buy(s, sol / (1 - P.fee));
+    return { name: 'Example ' + (i + 1), symbol: 'not real', price: P.price(s), gradSol: P.G, realSol: s.R, grad: s.grad, href: null };
+  });
+}
+function withTimeout(p, ms) { return Promise.race([p, new Promise(function (_, no) { setTimeout(function () { no(new Error('timeout')); }, ms); })]); }
+(function loadCoins() {
+  var prog = window.NET && NET.program, link = $('#progLink');
+  if (prog && NET.explorer) link.href = NET.explorer('address', prog); else link.removeAttribute('href');
+  function fail(why) {
+    setText('#coinLead', why + ' These are examples, not real coins. Only the team launches for now; a launchpad for creators comes later.');
+    setText('#coinNote', '');
+    showCoins(examples());
+  }
+  if (Q.get('offline') === '1') { fail('Offline view.'); return; }
+  if (!window.Chain || !window.NET || !NET.ready) { fail('Devnet is not reachable from here.'); return; }
+  withTimeout(Promise.resolve().then(function () { return Chain.listPools(); }), 8000).then(function (pools) {
+    if (!pools || !pools.length) { fail('No coins on devnet yet.'); return; }
+    var list = pools.slice(0, 12).map(function (p) {
+      return {
+        name: coinName(p), symbol: String(p.symbol || '').trim() || '—', price: Number(p.price) || 0,
+        gradSol: Number(p.graduationSol) / 1e9, realSol: Number(p.realSol) / 1e9, grad: !!p.graduated,
+        href: '/coin?mint=' + encodeURIComponent(String(p.mint))
+      };
+    });
+    setText('#coinNote', list.length + ' coin' + (list.length === 1 ? '' : 's') + ', live');
+    showCoins(list);
+  }).catch(function (e) { fail(e && e.message === 'timeout' ? 'Devnet did not answer in 8 s.' : 'Devnet did not answer.'); });
+})();
+
+/* ================= go ================= */
+layout();
+try { document.fonts.ready.then(placeVlab); } catch (e) {}
+hero.paint();
+
+// handles for checks and screenshots
+window.__forma = {
+  H: H, hero: hero, pool: poolMold, setups: SETUPS,
+  buy: function (n) { for (var i = 0; i < (n || 1); i++) { if (H.locked || H.gradPending) break; if (buyOne()) hero.setCount(cells()); } render(); wake(); },
+  sell: function (n) { for (var i = 0; i < (n || 1); i++) { if (H.locked) break; if (sellOne()) hero.setCount(cells()); } render(); wake(); },
+  choose: function (id) { choose(id, false); },
+  hold: function (k) { startHold(k || 'buy'); }, release: function () { stopHold(); },
+  freeze: function () { window.__frozen = true; },
+  cells: cells, cell: function () { return CELL; },
+  state: function () { var s = H.s, P = H.su.pool; return { setup: H.su.id, R: s.R, grad: s.grad, price1M: P.price(s) * 1e6, cells: cells(), shown: hero.piece.length, lining: !!hero.lining, frames: window.__frames, cell: CELL }; }
+};
+});
+</script>
+</body>
+</html>

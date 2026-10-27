@@ -1,0 +1,1102 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>vinco</title>
+<meta name="description" content="A Solana DEX where every coin is one line: a curve that creases into a plain pool at the same address, for good.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Martian+Mono:wdth,wght@75..112.5,100..800&family=Schibsted+Grotesk:wght@400..700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ground:#0b0c0c; --ink:#eeefeb; --mute:#8e928e; --dim:#555a57; --rule:#1d2120;
+  --sig:#4be2ff; --sig-soft:rgba(75,226,255,.34);
+  --pad:16px; --cols:4;
+  --mono:"Martian Mono", ui-monospace, Menlo, Consolas, monospace;
+  --sans:"Schibsted Grotesk", system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+@media (min-width:900px){ :root{ --pad:32px; --cols:12; } }
+@media (min-width:1280px){ :root{ --pad:40px; } }
+*{ box-sizing:border-box; margin:0; padding:0; }
+html,body{ background:var(--ground); color:var(--ink); overflow-x:clip; }
+body{ font-family:var(--sans); font-size:17px; line-height:1.45; -webkit-font-smoothing:antialiased; }
+a{ color:inherit; }
+::selection{ background:var(--sig); color:var(--ground); }
+:focus-visible{ outline:2px solid var(--sig); outline-offset:3px; }
+.sr{ position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
+
+/* type */
+.lab{ font:500 11px/1.5 var(--mono); color:var(--mute); letter-spacing:.01em; }
+.lab b{ color:var(--ink); font-weight:600; }
+.lab a{ color:var(--ink); text-decoration:none; border-bottom:1px solid var(--dim); }
+.lab a:hover{ border-color:var(--sig); color:var(--sig); }
+.num{ font-family:var(--mono); font-variant-numeric:tabular-nums; white-space:nowrap; letter-spacing:-.03em; font-weight:500; }
+.num .z{ color:var(--dim); }
+.num .c{ display:inline-block; }
+.c.set{ animation:set .26s cubic-bezier(.2,.8,.2,1); }
+@keyframes set{ from{ transform:translateY(-.3em); opacity:.08; } }
+.unit{ font:500 11px/1.5 var(--mono); color:var(--mute); margin-top:4px; }
+.unit em{ font-style:normal; color:var(--sig); }
+.say{ font-size:clamp(18px,1.6vw,23px); line-height:1.35; color:var(--ink); max-width:34ch; }
+.say.m{ color:var(--mute); }
+h1,h2,h3{ font-family:var(--sans); font-weight:600; letter-spacing:-.025em; line-height:1.02; }
+h2{ font-size:clamp(30px,4vw,58px); }
+
+/* a struck word: the signal line runs through it */
+.strike{ position:relative; display:inline-block; transition:color .4s .25s; }
+.strike::after{ content:""; position:absolute; left:-.05em; right:-.05em; top:52%; height:max(2px,.075em); background:var(--sig);
+  transform:scaleX(0); transform-origin:left center; transition:transform .55s cubic-bezier(.6,0,.2,1); }
+.strike.on{ color:var(--dim); }
+.strike.on::after{ transform:scaleX(1); }
+
+/* word typesetting on reveal */
+.js [data-set] .w{ display:inline-block; opacity:0; transform:translateY(.35em); transition:opacity .45s, transform .55s cubic-bezier(.2,.8,.2,1); transition-delay:calc(var(--i) * 40ms); }
+.js [data-set].in .w{ opacity:1; transform:none; }
+
+/* grid */
+.grid{ display:grid; grid-template-columns:repeat(var(--cols),minmax(0,1fr)); padding:0 var(--pad); }
+.grid > *{ grid-column:1 / -1; min-width:0; }
+.ruler{ height:9px; margin:0 var(--pad); border-top:1px solid var(--dim); border-right:1px solid var(--dim);
+  background:repeating-linear-gradient(to right, var(--dim) 0 1px, transparent 1px calc(100% / var(--cols))); }
+
+/* ---------- hero ---------- */
+.hero{ position:relative; display:flex; flex-direction:column; min-height:100svh; }
+.top{ position:relative; z-index:3; display:flex; justify-content:space-between; align-items:center; gap:12px; padding:18px var(--pad) 0; order:0; }
+.mark{ display:inline-flex; align-items:center; gap:9px; text-decoration:none; font:700 20px/1 var(--mono); font-variation-settings:"wdth" 75; letter-spacing:-.04em; }
+.mark svg{ display:block; overflow:visible; }
+.status{ font:500 11px/1.4 var(--mono); color:var(--mute); text-align:right; }
+.status i{ display:inline-block; width:7px; height:7px; background:var(--dim); margin-right:7px; vertical-align:0; }
+.status.live i{ background:var(--sig); }
+.claim{ position:relative; z-index:2; order:1; padding:26px var(--pad) 0; pointer-events:none; }
+.claim h1{ font-size:clamp(36px,10vw,58px); }
+.claim p{ margin-top:12px; color:var(--mute); font-size:16px; max-width:32ch; }
+.readout{ position:relative; z-index:2; order:2; padding:26px var(--pad) 0; pointer-events:none; }
+.readout .big{ font-size:clamp(30px,10.6vw,104px); line-height:1; margin-top:10px; font-variation-settings:"wdth" 75; }
+.pair{ display:grid; grid-template-columns:auto 1fr; gap:0 28px; margin-top:16px; }
+.mid{ font-size:clamp(20px,5.8vw,44px); line-height:1.05; }
+.mid.new{ color:var(--ink); }
+.mid.new.off{ visibility:hidden; }
+.cap{ margin-top:16px; font-size:16px; line-height:1.35; color:var(--ink); max-width:36ch; min-height:2.7em; }
+.cap .w{ display:inline-block; animation:wset .42s cubic-bezier(.2,.8,.2,1) both; animation-delay:calc(var(--i) * 22ms); }
+@keyframes wset{ from{ opacity:0; transform:translateY(.45em); } }
+.plotwrap{ position:relative; order:3; height:330px; margin-top:6px; }
+.stage{ position:absolute; inset:0; touch-action:pan-y; cursor:crosshair; user-select:none; -webkit-user-select:none; }
+.stage:focus-visible{ outline:2px dashed var(--sig); outline-offset:-6px; }
+.stage svg{ position:absolute; inset:0; }
+.ticks{ position:absolute; left:0; right:0; top:0; height:0; z-index:4; }
+.tick{ position:absolute; transform:translateX(-50%); background:none; border:0; color:var(--mute); cursor:pointer; text-align:center;
+  font:500 10px/1.25 var(--mono); padding:13px 3px 6px; white-space:nowrap; }
+.tick b{ display:block; font-size:11px; font-weight:600; color:var(--ink); }
+.tick::before{ content:""; position:absolute; top:0; left:50%; width:1px; height:10px; background:var(--ink); transition:height .25s; }
+.tick.first{ transform:none; text-align:left; padding-left:0; }
+.tick.first::before{ left:0; }
+.tick.last{ transform:translateX(-100%); text-align:right; padding-right:0; }
+.tick.last::before{ left:auto; right:0; }
+.tick:hover, .tick:hover b, .tick[aria-current="true"], .tick[aria-current="true"] b{ color:var(--sig); }
+.tick[aria-current="true"]::before{ height:12px; width:2px; background:var(--sig); }
+.tick.gone b{ text-decoration:line-through; text-decoration-color:var(--sig); text-decoration-thickness:2px; }
+.axiscap{ position:absolute; left:var(--pad); bottom:6px; z-index:4; }
+.axiscap.r{ left:auto; right:var(--pad); }
+
+@media (min-width:900px){
+  .hero{ display:block; height:clamp(680px,100svh,1080px); min-height:0; }
+  .plotwrap{ position:absolute; inset:0; height:auto; margin:0; z-index:1; }
+  .readout{ position:absolute; top:76px; left:0; width:calc(var(--pad) + (100% - 2 * var(--pad)) * .5); padding-top:0; }
+  .readout .big{ font-size:min(6.4vw, 10.4vh, 104px); }
+  .mid{ font-size:min(3.1vw, 5.2vh, 46px); }
+  .cap{ font-size:clamp(17px,1.35vw,21px); }
+  .claim{ position:absolute; right:var(--pad); bottom:104px; width:calc((100% - 2 * var(--pad)) * 4 / 12); padding:0; }
+  .claim h1{ font-size:clamp(34px,3.3vw,54px); }
+  .claim p{ font-size:clamp(15px,1.15vw,17px); max-width:none; }
+}
+
+/* svg marks */
+svg text{ font-family:var(--mono); }
+.gridl{ stroke:var(--rule); stroke-width:1; }
+.axis{ stroke:var(--dim); stroke-width:1; }
+.tl{ fill:var(--mute); font-size:10px; font-weight:500; text-anchor:middle; }
+.tl.s{ fill:var(--sig); }
+.ghost{ stroke:var(--dim); stroke-width:1.25; stroke-dasharray:3 5; fill:none; transition:stroke .3s; }
+.virt{ stroke:var(--sig); stroke-width:2; stroke-dasharray:2 6; fill:none; transition:opacity .4s; }
+.live{ stroke:var(--sig); stroke-width:3; fill:none; transition:stroke-opacity .4s; }
+.span{ stroke:var(--ink); stroke-width:5; fill:none; stroke-linejoin:miter; }
+.lead{ stroke:var(--ink); stroke-opacity:.55; stroke-width:1; fill:none; }
+.dot{ fill:var(--ink); stroke:var(--ground); stroke-width:3; }
+.dot.hollow{ fill:var(--ground); stroke:var(--ink); stroke-width:2; }
+.dot.q{ fill:var(--sig); }
+.notch{ fill:var(--ground); stroke:var(--ink); stroke-width:1.5; }
+.ring{ fill:none; stroke:var(--sig); stroke-width:2; opacity:0; transform-box:fill-box; transform-origin:center; }
+.ring.go{ animation:ring .9s cubic-bezier(.2,.7,.2,1); }
+@keyframes ring{ from{ opacity:1; transform:scale(1); } to{ opacity:0; transform:scale(7); } }
+.trade{ fill:var(--ink); }
+.trade.sell{ fill:var(--ground); stroke:var(--ink); stroke-width:1.5; }
+.grad .g2{ stroke:var(--sig); stroke-width:1.5; stroke-dasharray:3 5; }
+.back .s1{ stroke-opacity:.3; }
+.back .g2{ stroke-width:3; stroke-dasharray:none; }
+.grad .virt{ opacity:.18; }
+.intro .live{ stroke-dasharray:1; stroke-dashoffset:1; }
+.intro .virt{ opacity:0; }
+.drawn .live{ stroke-dashoffset:0; transition:stroke-dashoffset 1.05s cubic-bezier(.55,0,.25,1); }
+.drawn .s2{ transition-delay:1.05s; }
+.drawn .virt{ opacity:1; transition:opacity .5s; }
+.flash{ animation:flash .8s 3; }
+@keyframes flash{ 50%{ opacity:.15; } }
+
+/* ---------- sections ---------- */
+.sec{ padding-top:clamp(84px,11vw,150px); }
+.head{ margin-top:22px; row-gap:18px; align-items:end; }
+.secnum{ font-size:clamp(56px,15vw,140px); line-height:.9; font-variation-settings:"wdth" 75; color:var(--ink); }
+.secnum .z{ color:var(--dim); }
+.head .say{ margin-top:14px; }
+@media (min-width:900px){
+  .head .secnum{ grid-column:1 / span 5; }
+  .head .txt{ grid-column:6 / span 6; padding-bottom:10px; }
+  .head .wideh{ grid-column:1 / span 7; }
+  .head .widep{ grid-column:8 / span 4; padding-bottom:6px; }
+}
+
+/* one buy */
+.fig{ position:relative; height:250px; margin-top:44px; touch-action:pan-y; user-select:none; -webkit-user-select:none; cursor:ew-resize; }
+@media (min-width:900px){ .fig{ height:300px; } }
+.fig svg{ position:absolute; inset:0; }
+.hand{ position:absolute; top:0; z-index:3; background:none; border:0; color:var(--ink); cursor:ew-resize; font:500 11px/1.25 var(--mono);
+  padding:14px 0 8px; white-space:nowrap; touch-action:pan-y; }
+.hand::before{ content:""; position:absolute; top:0; width:2px; height:11px; background:var(--ink); }
+.hand b{ display:block; font-weight:600; font-size:12px; }
+.hand span{ color:var(--mute); }
+.hand.now{ transform:translateX(-100%); text-align:right; padding-right:8px; }
+.hand.now::before{ right:-1px; }
+.hand.after{ padding-left:8px; color:var(--sig); }
+.hand.after b{ color:var(--sig); }
+.hand.after::before{ left:-1px; background:var(--sig); }
+.tell{ margin-top:30px; font-size:clamp(21px,2.5vw,36px); line-height:1.32; letter-spacing:-.015em; max-width:30em; }
+.tell .num{ font-size:.86em; letter-spacing:-.04em; color:var(--ink); }
+.tell .num.s{ color:var(--sig); }
+.tell .soft{ color:var(--mute); }
+.tell [hidden]{ display:none; }
+
+/* rules */
+.rule{ margin-top:clamp(56px,7vw,96px); row-gap:14px; align-items:end; }
+.huge{ font-size:clamp(84px,24vw,230px); line-height:.82; font-variation-settings:"wdth" 75; letter-spacing:-.06em; }
+.wide{ font-size:clamp(30px,9.4vw,96px); line-height:.9; font-variation-settings:"wdth" 75; letter-spacing:-.05em; }
+.words{ font-family:var(--sans); font-weight:600; font-size:clamp(34px,6vw,84px); line-height:1.04; letter-spacing:-.03em; }
+.words .strike{ display:table; }
+.live-line{ margin-top:14px; }
+@media (min-width:900px){
+  .rule > .l{ grid-column:1 / span 7; }
+  .rule > .r{ grid-column:8 / span 5; padding-bottom:8px; }
+}
+
+/* app proof */
+.board{ margin-top:16px; }
+.row{ display:grid; grid-template-columns:repeat(var(--cols),minmax(0,1fr)); align-items:end; gap:10px 0; padding:18px var(--pad); }
+.row > *{ grid-column:1 / -1; min-width:0; }
+.row .nm{ font-weight:600; font-size:19px; letter-spacing:-.01em; }
+.row .mini{ height:64px; position:relative; }
+.row .mini svg{ position:absolute; inset:0; }
+.row .pr{ font-size:clamp(20px,5.6vw,30px); }
+.row .si{ font-size:clamp(16px,4.2vw,22px); }
+.row.empty .nm{ color:var(--mute); font-weight:500; }
+.row:hover .nm{ color:var(--sig); }
+@media (max-width:899px){
+  .row .pr{ grid-column:1 / span 2; }
+  .row .si{ grid-column:3 / span 2; text-align:right; }
+}
+@media (min-width:900px){
+  .row .who{ grid-column:1 / span 3; }
+  .row .mini{ grid-column:4 / span 4; margin-right:28px; }
+  .row .pr{ grid-column:8 / span 3; }
+  .row .si{ grid-column:11 / span 2; text-align:right; }
+}
+.coin{ margin-top:18px; row-gap:26px; align-items:start; }
+.coin h3{ font-size:clamp(34px,4.4vw,60px); }
+.coin .bigp{ font-size:clamp(34px,10vw,88px); line-height:1; margin-top:22px; font-variation-settings:"wdth" 75; }
+.facts{ margin-top:18px; display:grid; grid-template-columns:auto 1fr; gap:6px 18px; }
+.facts .num{ font-size:15px; }
+.cplot{ position:relative; height:280px; touch-action:pan-y; cursor:crosshair; user-select:none; -webkit-user-select:none; }
+.cplot svg{ position:absolute; inset:0; }
+.quote{ margin-top:10px; font-size:clamp(19px,1.8vw,26px); line-height:1.35; }
+.quote .num{ font-size:.86em; }
+.trades{ margin-top:18px; list-style:none; }
+.trades li{ font:500 12px/1.9 var(--mono); color:var(--mute); }
+.trades a{ color:var(--ink); text-decoration:none; }
+.trades a:hover{ color:var(--sig); }
+@media (min-width:900px){
+  .coin .side{ grid-column:1 / span 5; padding-right:28px; }
+  .coin .main{ grid-column:6 / span 7; }
+}
+
+/* foot */
+.foot{ padding-top:clamp(90px,12vw,170px); padding-bottom:48px; row-gap:16px; align-items:end; }
+.foot .mark{ font-size:clamp(64px,18vw,220px); line-height:.8; }
+.foot p{ color:var(--mute); max-width:40ch; }
+@media (min-width:900px){
+  .foot .mark{ grid-column:1 / span 7; }
+  .foot .txt{ grid-column:8 / span 5; }
+}
+
+/* the rail: a vertical axis of ticks you press */
+.rail{ position:fixed; z-index:20; right:2px; top:50%; transform:translateY(-50%); display:flex; flex-direction:column; padding:6px 0; border-right:1px solid var(--dim); }
+.rail a, .rail .soon{ position:relative; display:block; width:14px; height:28px; text-decoration:none; }
+.rail a::after, .rail .soon::after{ content:""; position:absolute; right:0; top:50%; width:8px; height:1px; background:var(--mute); transition:width .3s, background .3s; }
+.rail .soon::after{ background:var(--dim); }
+.rail a[aria-current="true"]::after{ width:14px; height:2px; background:var(--sig); }
+.rail span{ position:absolute; right:22px; top:50%; transform:translateY(-50%); white-space:nowrap; font:500 11px/1 var(--mono); color:var(--ink);
+  background:var(--ground); padding:5px 7px; opacity:0; pointer-events:none; transition:opacity .2s; }
+.rail .soon span{ color:var(--mute); }
+.rail:hover span, .rail a:focus-visible span{ opacity:1; }
+@media (min-width:900px){ .rail{ right:calc(var(--pad) / 2 - 10px); } .rail a, .rail .soon{ width:22px; } .rail a[aria-current="true"]::after{ width:20px; } }
+
+@media (prefers-reduced-motion: reduce){
+  *, *::before, *::after{ animation:none !important; transition:none !important; }
+  .js [data-set] .w{ opacity:1; transform:none; }
+}
+</style>
+</head>
+<body>
+<script>document.documentElement.classList.add("js");</script>
+
+<nav class="rail" aria-label="Sections">
+  <a href="#line" data-k="line"><span>the line</span></a>
+  <a href="#buy" data-k="buy"><span>82.25 · one buy</span></a>
+  <a href="#rules" data-k="rules"><span>1% · the rules</span></a>
+  <a href="#app" data-k="app"><span>a coin in the app</span></a>
+  <span class="soon" aria-disabled="true" title="Launchpad: coming"><span>launchpad · coming</span></span>
+</nav>
+
+<header class="hero" id="line">
+  <div class="top">
+    <a class="mark" href="#line" aria-label="vinco">
+      <svg width="30" height="20" viewBox="0 0 30 20" aria-hidden="true"><path d="M1 19 L15 12.5 L29 1" fill="none" stroke="#4be2ff" stroke-width="2.6"/><rect x="12.6" y="10.1" width="4.8" height="4.8" fill="#0b0c0c" stroke="#eeefeb" stroke-width="1.4"/></svg>
+      vinco
+    </a>
+    <p class="status" id="status"><i></i><span id="statusText">devnet · reading</span></p>
+  </div>
+
+  <div class="claim">
+    <h1>Creased, not&nbsp;moved.</h1>
+    <p>Every coin starts on a curve. At 420&nbsp;SOL market cap it creases into a plain pool: same address, for good.</p>
+  </div>
+
+  <div class="readout" id="readout" aria-live="off">
+    <p class="lab">drag the line · a simulation on the exact curve</p>
+    <p class="big num" id="rPrice"></p>
+    <p class="unit">SOL per token</p>
+    <div class="pair">
+      <div>
+        <p class="mid num" id="rSol"></p>
+        <p class="unit" id="rSolU">SOL in</p>
+      </div>
+      <div>
+        <p class="mid num"><span class="strike" id="rSupOld">1,000,000,000</span></p>
+        <p class="unit" id="rSupU">tokens exist · none burned</p>
+        <p class="mid num new off" id="rSupNew">928,571,429</p>
+      </div>
+    </div>
+    <p class="cap" id="rCap"></p>
+  </div>
+
+  <div class="plotwrap" id="plotwrap">
+    <div class="stage intro" id="stage" tabindex="0" role="slider" aria-label="Position on the line, in SOL paid in" aria-valuemin="0" aria-valuemax="150" aria-valuenow="0">
+      <svg id="heroSvg" aria-hidden="true"></svg>
+    </div>
+    <div class="ticks" id="heroTicks"></div>
+    <p class="lab axiscap" id="axisCap">→ SOL in · ↑ price, square-root scale</p>
+  </div>
+</header>
+
+<main>
+  <section class="sec" id="buy">
+    <div class="ruler"></div>
+    <div class="grid head">
+      <p class="secnum num">82.25</p>
+      <div class="txt">
+        <h2 data-set>The crease happens inside the buy that reaches it.</h2>
+        <p class="say m">Drag either mark. One transaction: part on the curve, the burn, the rest in the pool.</p>
+      </div>
+    </div>
+    <div class="fig" id="buyFig">
+      <svg id="buySvg" aria-hidden="true"></svg>
+      <button class="hand now" id="hNow" role="slider" aria-label="SOL already in the pool" aria-valuemin="0" aria-valuemax="140"><b id="hNowB">70.00</b><span>in the pool now</span></button>
+      <button class="hand after" id="hAfter" role="slider" aria-label="SOL you send" aria-valuemin="0.01" aria-valuemax="150"><b id="hAfterB">+25.00</b><span>your buy</span></button>
+    </div>
+    <div class="grid">
+      <p class="lab" style="margin-top:22px">simulation · the program's own integer math, 1% fee</p>
+      <p class="tell" id="tell">
+        <span>You send <span class="num" id="tSend"></span> SOL; <span class="num" id="tFee"></span> is the 1% fee, half to the creator, half to the treasury.</span>
+        <span id="tCurve"> <span class="num" id="tCs"></span> SOL buys <span class="num" id="tCt"></span> tokens on the curve.</span>
+        <span id="tCrease"> Then the crease: <span class="num s"><span class="strike on" id="tBurn"></span></span> tokens burn and the 30 virtual SOL drop out.</span>
+        <span id="tShort" class="soft"> The crease is <span class="num" id="tTogo"></span> SOL further on.</span>
+        <span id="tPool"> <span class="num" id="tPs"></span> SOL buys <span class="num" id="tPt"></span> tokens in the pool.</span>
+        <span> You get <span class="num s" id="tTot"></span> tokens.</span>
+      </p>
+    </div>
+  </section>
+
+  <section class="sec" id="rules">
+    <div class="ruler"></div>
+    <div class="grid rule">
+      <p class="l huge num">1%</p>
+      <div class="r">
+        <p class="say" data-set>of every trade, paid in SOL. Half to the coin's creator, half to the treasury.</p>
+        <p class="lab live-line" id="feeLive">devnet · reading</p>
+      </div>
+    </div>
+    <div class="grid rule" id="noexit">
+      <p class="l words"><span class="strike">LP token</span><span class="strike">remove liquidity</span><span class="strike">migration</span></p>
+      <p class="r say" data-set>None of these exist. No instruction lets anyone, the team included, take a pool's SOL or tokens.</p>
+    </div>
+    <div class="grid rule">
+      <p class="l wide num">1,000,000,000</p>
+      <p class="r say" data-set>tokens per coin, all of them minted at launch. No mint authority, no freeze authority, fixed metadata.</p>
+    </div>
+  </section>
+
+  <section class="sec" id="app">
+    <div class="ruler"></div>
+    <div class="grid head">
+      <h2 class="wideh" data-set>Same line on the board and on every coin page.</h2>
+      <p class="say m widep">One coin, set in the app. Numbers are read from devnet when it answers.</p>
+    </div>
+
+    <div class="grid" style="margin-top:56px"><p class="lab">coin board · <span id="boardSrc">reading devnet</span></p></div>
+    <div class="board" id="board"></div>
+
+    <div class="grid" style="margin-top:64px"><p class="lab">coin page · top · <span id="coinSrc">reading devnet</span></p></div>
+    <div class="grid coin" id="coin">
+      <div class="side">
+        <h3 id="cName">devnet coin</h3>
+        <p class="lab" id="cMint" style="margin-top:8px">&nbsp;</p>
+        <p class="bigp num" id="cPrice"></p>
+        <p class="unit">SOL per token</p>
+        <div class="facts">
+          <p class="num" id="cSol"></p><p class="unit" id="cSolU">SOL in · crease at 82.25</p>
+          <p class="num" id="cCap"></p><p class="unit">SOL market cap</p>
+          <p class="num" id="cVol"></p><p class="unit">SOL traded</p>
+          <p class="num">1%</p><p class="unit">fee · ½ creator · ½ treasury</p>
+        </div>
+      </div>
+      <div class="main">
+        <div class="cplot" id="cplot" tabindex="0" role="slider" aria-label="Drag to price a trade" aria-valuemin="0" aria-valuemax="150">
+          <svg id="cSvg" aria-hidden="true"></svg>
+        </div>
+        <p class="lab" id="qSrc" style="margin-top:10px">drag along the line to price a trade</p>
+        <p class="quote" id="quote">&nbsp;</p>
+        <ul class="trades" id="trades"></ul>
+        <p class="lab" style="margin-top:14px">wallet trading opens with the app · coming</p>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="grid foot">
+  <p class="mark" aria-hidden="true">vinco</p>
+  <div class="txt">
+    <p>A working name. Runs on Solana devnet today. Launches are team-only for now; a launchpad for everyone comes later.</p>
+    <p class="lab" style="margin-top:14px" id="progLine">program on devnet</p>
+  </div>
+</footer>
+
+<script src="/net.js"></script>
+<script src="/vendor/chain.js"></script>
+<script>
+(function () {
+  "use strict";
+  var $ = function (s) { return document.querySelector(s); };
+  var RM = !!(window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches);
+  var NS = "http://www.w3.org/2000/svg";
+  function svgEl(tag, attrs, parent) {
+    var e = document.createElementNS(NS, tag);
+    if (attrs) for (var k in attrs) e.setAttribute(k, attrs[k]);
+    if (parent) parent.appendChild(e);
+    return e;
+  }
+  function h(tag, cls, text, parent) {
+    var e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text != null) e.textContent = text;
+    if (parent) parent.appendChild(e);
+    return e;
+  }
+  function clamp(v, a, b) { return Math.min(b, Math.max(a, v)); }
+  function padPx() { return parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--pad")) || 16; }
+  function desk() { return window.innerWidth >= 900; }
+
+  /* ---------- the curve, as floats for drawing ---------- */
+  var V = 30, S = 1e9;
+  var RG = Math.sqrt(420 * V) - V;            // 82.2497 SOL real in at the crease
+  var XG = V + RG, TG = V * S / XG;           // tokens left in the pool at the crease
+  var BURN = TG * V / XG;                     // 71,428,571 tokens
+  var TPG = TG - BURN, K = RG * TPG;          // the pool's x·y=k after the crease
+  var SQ1 = Math.sqrt(V * S), SQ2 = Math.sqrt(K);
+  var RMIN = -30, RMAX = 150;
+  // square root of the price: two straight lines, rooted at -30 (curve) and at 0 (pool)
+  function sp(R, g) { return g ? Math.max(R, 0) / SQ2 : (V + R) / SQ1; }
+  var STOP = sp(RMAX, true);
+  function reading(R, g) {
+    if (!g) { var x = V + R, T = V * S / x; return { price: x / T, supply: S }; }
+    var T2 = K / R; return { price: R / T2, supply: S - BURN };
+  }
+
+  /* ---------- the same math in integers, as the program does it ---------- */
+  var LAMP = 1000000000n, UNIT = 1000000n;
+  var VS = 30n * LAMP, SUPU = 1000000000n * UNIT, GSOL = 82249721604n;
+  function ceilDiv(a, b) { return (a + b - 1n) / b; }
+  function feeOf(a, bps) { return ceilDiv(a * BigInt(bps), 10000n); }
+  function leg(sol, tokens, solIn) { var left = ceilDiv(sol * tokens, sol + solIn); return [tokens - left, left]; }
+  function buyNet(r, rest) {
+    var a = { virtualSol: r.virtualSol, realSol: r.realSol, tokens: r.tokens, graduationSol: r.graduationSol, graduated: r.graduated };
+    var out = { curveSol: 0n, curveTok: 0n, poolSol: 0n, poolTok: 0n, burned: 0n };
+    if (!a.graduated) {
+      var room = a.graduationSol - a.realSol;
+      var on = rest < room ? rest : room;
+      if (on > 0n) { var l = leg(a.virtualSol + a.realSol, a.tokens, on); out.curveTok = l[0]; out.curveSol = on; a.tokens = l[1]; a.realSol += on; rest -= on; }
+      if (a.realSol === a.graduationSol) { out.burned = a.tokens * a.virtualSol / (a.virtualSol + a.realSol); a.tokens -= out.burned; a.graduated = true; }
+    }
+    if (a.graduated && rest > 0n) { var l2 = leg(a.realSol, a.tokens, rest); out.poolTok = l2[0]; out.poolSol = rest; a.tokens = l2[1]; a.realSol += rest; }
+    out.after = a; out.tokensOut = out.curveTok + out.poolTok;
+    return out;
+  }
+  function quoteBuy(r, solIn) {
+    var fee = feeOf(solIn, 100);
+    var q = buyNet(r, solIn - fee);
+    q.fee = fee;
+    if (window.Chain && typeof Chain.quoteBuy === "function") {
+      try { var c = Chain.quoteBuy(r, solIn, 100); if (c && typeof c.tokensOut === "bigint") q.tokensOut = c.tokensOut; } catch (e) {}
+    }
+    return q;
+  }
+  function quoteSell(r, tokensIn) {
+    if (window.Chain && typeof Chain.quoteSell === "function") {
+      try { var c = Chain.quoteSell(r, tokensIn, 100); if (c && typeof c.solOut === "bigint") return c; } catch (e) {}
+    }
+    var offset = r.graduated ? 0n : r.virtualSol, x = offset + r.realSol;
+    var newX = ceilDiv(x * r.tokens, r.tokens + tokensIn), gross = x - newX, fee = feeOf(gross, 100);
+    return { fee: fee, solOut: gross - fee };
+  }
+  var START = { virtualSol: VS, realSol: 0n, tokens: SUPU, graduationSol: GSOL, graduated: false };
+  function stateAt(lam) { return buyNet(START, lam).after; }
+  function lam(sol) { return BigInt(Math.max(0, Math.round(sol * 1e9))); }
+  function sol(l) { return Number(l) / 1e9; }
+  function tok(u) { return Number(u) / 1e6; }
+  function priceOfRes(r) { var s = r.graduated ? r.realSol : r.virtualSol + r.realSol; return sol(s) / tok(r.tokens); }
+
+  /* ---------- formatting ---------- */
+  function fmtInt(n) { return Math.round(n).toLocaleString("en-US"); }
+  function fmtN(n, d) { return Number(n).toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d }); }
+  function fmtS(n) { return Number(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: n < 1 ? 4 : 2 }); }
+  function priceParts(p) {
+    if (!(p > 0)) return [["0.0000000000", "z"]];
+    if (p >= 1) return [[p.toFixed(4), "b"]];
+    var s = p.toFixed(10), i = 2;
+    while (i < s.length - 1 && s[i] === "0") i++;
+    return [[s.slice(0, i), "z"], [s.slice(i), "b"]];
+  }
+  function ago(t) {
+    var s = Math.max(0, Date.now() / 1000 - t);
+    if (s < 90) return "just now";
+    if (s < 5400) return Math.round(s / 60) + " min ago";
+    if (s < 129600) return Math.round(s / 3600) + " h ago";
+    return Math.round(s / 86400) + " days ago";
+  }
+  function shortKey(k) { var s = String(k); return s.slice(0, 4) + "…" + s.slice(-4); }
+  function explorer(what, id) { try { if (window.NET && NET.explorer) return NET.explorer(what, String(id)); } catch (e) {} return null; }
+
+  /* kinetic numerals: each changed character is set again, dropping into place */
+  function setType(node, parts) {
+    var flat = parts.map(function (p) { return p[0]; }).join("");
+    var sig = parts.map(function (p) { return (p[1] || "") + p[0].length; }).join(",");
+    if (node._flat === flat && node._sig === sig) return;
+    var prev = node._flat, animate = !RM && prev !== undefined;
+    var frag = document.createDocumentFragment();
+    h("span", "sr", flat, frag);
+    var vis = h("span", "", null, frag);
+    vis.setAttribute("aria-hidden", "true");
+    var i = 0;
+    parts.forEach(function (p) {
+      var g = h("span", p[1] || "", null, vis);
+      for (var j = 0; j < p[0].length; j++) {
+        var ch = p[0][j];
+        var c = h("span", "c", ch, g);
+        if (animate && prev[i] !== ch) c.className = "c set";
+        i++;
+      }
+    });
+    node.textContent = "";
+    node.appendChild(frag);
+    node._flat = flat; node._sig = sig;
+  }
+  function setCaption(node, text) {
+    if (node._text === text) return;
+    node._text = text;
+    node.textContent = "";
+    text.split(" ").forEach(function (w, i, all) {
+      var s = h("span", RM ? "" : "w", w, node);
+      s.style.setProperty("--i", i);
+      if (i < all.length - 1) node.appendChild(document.createTextNode(" "));
+    });
+  }
+
+  /* ---------- a plot: SOL in across, square-root price up ---------- */
+  function Plot(svg) { this.svg = svg; this.w = 0; this.h = 0; this.l = 0; this.r = 0; this.t = 0; this.b = 0; this.lo = RMIN; this.hi = RMAX; }
+  Plot.prototype.size = function (w, hh, l, r, t, b) {
+    this.w = w; this.h = hh; this.l = l; this.r = r; this.t = t; this.b = b;
+    this.svg.setAttribute("viewBox", "0 0 " + w + " " + hh);
+    this.svg.setAttribute("width", w); this.svg.setAttribute("height", hh);
+  };
+  Plot.prototype.X = function (R) { return this.l + (R - this.lo) / (this.hi - this.lo) * (this.w - this.l - this.r); };
+  Plot.prototype.R = function (x) { return this.lo + (x - this.l) / (this.w - this.l - this.r) * (this.hi - this.lo); };
+  Plot.prototype.base = function () { return this.h - this.b; };
+  Plot.prototype.Y = function (s) { return this.base() - s / STOP * (this.h - this.t - this.b); };
+  Plot.prototype.pt = function (R, g) { return [this.X(R), this.Y(sp(R, g))]; };
+
+  function d2(a, b) { return "M" + a[0].toFixed(1) + "," + a[1].toFixed(1) + "L" + b[0].toFixed(1) + "," + b[1].toFixed(1); }
+  function seg(g, a, b, cls, drawable) {
+    var e = svgEl("path", { d: d2(a, b), "class": cls }, g);
+    if (drawable) e.setAttribute("pathLength", "1");
+    return e;
+  }
+  function drawFrame(p, g, o) {
+    g.textContent = "";
+    var base = p.base(), cols = o.cols || 12, step = (RMAX - RMIN) / cols, i, R, x;
+    if (o.grid) for (i = 0; i <= cols; i++) { x = p.X(RMIN + i * step); svgEl("line", { x1: x, y1: o.gridTop || 0, x2: x, y2: base, "class": "gridl" }, g); }
+    svgEl("line", { x1: 0, y1: base, x2: p.w, y2: base, "class": "axis" }, g);
+    for (R = RMIN; R <= RMAX + 0.01; R += 15) {
+      x = p.X(R);
+      svgEl("line", { x1: x, y1: base, x2: x, y2: base + 5, "class": "axis" }, g);
+      if (o.labels && o.labels(R)) { var t = svgEl("text", { x: x, y: base + 19, "class": "tl" }, g); t.textContent = R; }
+    }
+  }
+  function drawLines(p, g, far) {
+    g.textContent = "";
+    var cr = p.pt(RG, false), end = far || RMAX;
+    return {
+      g1: seg(g, cr, p.pt(end, false), "ghost g1"),
+      g2: seg(g, p.pt(0, true), cr, "ghost g2"),
+      virt: seg(g, p.pt(RMIN, false), p.pt(0, false), "virt"),
+      s1: seg(g, p.pt(0, false), cr, "live s1", true),
+      s2: seg(g, cr, p.pt(end, true), "live s2", true),
+      cr: cr
+    };
+  }
+  function square(g, x, y, s, cls) { return svgEl("rect", { x: (x - s / 2).toFixed(1), y: (y - s / 2).toFixed(1), width: s, height: s, "class": cls }, g); }
+  function moveSquare(e, x, y) { var s = +e.getAttribute("width"); e.setAttribute("x", (x - s / 2).toFixed(1)); e.setAttribute("y", (y - s / 2).toFixed(1)); }
+  // the path a coin travels between two readings
+  function spanD(p, R0, g0, R1) {
+    var pts = [];
+    if (g0) pts = [p.pt(R0, true), p.pt(R1, true)];
+    else if (R1 <= RG) pts = [p.pt(R0, false), p.pt(R1, false)];
+    else pts = [p.pt(R0, false), p.pt(RG, false), p.pt(R1, true)];
+    return "M" + pts.map(function (q) { return q[0].toFixed(1) + "," + q[1].toFixed(1); }).join("L");
+  }
+
+  /* ================= hero ================= */
+  var stage = $("#stage"), heroSvg = $("#heroSvg"), plotwrap = $("#plotwrap"), readout = $("#readout");
+  var rPrice = $("#rPrice"), rSol = $("#rSol"), rSolU = $("#rSolU"), rSupOld = $("#rSupOld"), rSupNew = $("#rSupNew"), rSupU = $("#rSupU"), rCap = $("#rCap");
+  var hp = new Plot(heroSvg);
+  var hFrame = svgEl("g", null, heroSvg), hLines = svgEl("g", null, heroSvg), hMarks = svgEl("g", null, heroSvg);
+  var hLead, hDot, hRing, hNotch, hParts;
+  var hero = { R: 0, grad: false, over: null, tween: 0, raf: 0 };
+  var CAPS = {
+    virtual: "The first 30 SOL are virtual. They set the opening price, 30 SOL market cap. Nobody paid them.",
+    launch: "A new coin: a billion tokens, 30 SOL market cap, nothing paid in yet.",
+    curve: "On the curve. Each buy adds real SOL and lifts the price.",
+    crease: "The crease. The 30 virtual SOL drop out, 71,428,571 tokens burn, the price holds.",
+    pool: "Now a plain x·y=k pool. Same address. Its liquidity never leaves.",
+    after: "Still the pool. The virtual floor never comes back. Press 0 for a new coin."
+  };
+  var TICKS = [
+    { R: -30, n: "−30", w: "virtual", k: "virtual", cls: "first" },
+    { R: 0, n: "0", w: "launch", k: "launch" },
+    { R: RG, n: "82.25", w: "crease", k: "crease" },
+    { R: 150, n: "150", w: "pool", k: "pool", cls: "last" }
+  ];
+  var tickEls = {};
+  TICKS.forEach(function (t) {
+    var b = h("button", "tick" + (t.cls ? " " + t.cls : ""), null, $("#heroTicks"));
+    b.type = "button";
+    h("b", "", t.n, b); b.appendChild(document.createTextNode(t.w));
+    b.setAttribute("aria-label", t.w + " at " + t.n + " SOL");
+    b.addEventListener("click", function () { pressTick(t.k); });
+    tickEls[t.k] = b;
+  });
+
+  function chapter() {
+    if (hero.over) return hero.over;
+    var R = hero.R;
+    if (!hero.grad) return R < 0.5 ? "launch" : "curve";
+    if (Math.abs(R - RG) < 4) return "crease";
+    return R > RG ? "pool" : "after";
+  }
+  function layoutHero() {
+    var w = plotwrap.clientWidth, hh = plotwrap.clientHeight, pad = padPx(), dk = desk();
+    hp.size(w, hh, pad, pad, dk ? 104 : 14, dk ? 82 : 62);
+    var cols = dk ? 12 : 4;
+    drawFrame(hp, hFrame, {
+      cols: cols, grid: true,
+      labels: function (R) { if (!dk || R === -30 || R === 0 || R === 150) return false; if (w < 1200 && Math.abs(R - RG) < 9) return false; return true; }
+    });
+    hParts = drawLines(hp, hLines, RMAX + 60);
+    hMarks.textContent = "";
+    hNotch = square(hMarks, hParts.cr[0], hParts.cr[1], 9, "notch");
+    var lab = svgEl("text", { x: hParts.cr[0] + 12, y: hParts.cr[1] + 22, "class": "tl s", "text-anchor": "start" }, hMarks);
+    lab.textContent = dk ? "crease · mcap 420 SOL" : "crease";
+    lab.style.textAnchor = "start";
+    hLead = svgEl("path", { "class": "lead" }, hMarks);
+    hRing = square(hMarks, 0, 0, 12, "ring");
+    hDot = square(hMarks, 0, 0, 13, "dot");
+    var base = hp.base();
+    TICKS.forEach(function (t) { var b = tickEls[t.k]; b.style.left = hp.X(t.R) + "px"; b.style.top = base + "px"; });
+    renderHero();
+  }
+  function renderHero() {
+    hero.raf = 0;
+    var R = hero.R, g = hero.grad, rd = reading(R, g);
+    setType(rPrice, priceParts(rd.price));
+    rPrice.style.fontVariationSettings = '"wdth" ' + (g ? 100 : 75 + 25 * Math.min(1, R / RG)).toFixed(1);
+    setType(rSol, [[fmtN(R, 2), ""]]);
+    rSolU.textContent = g ? "SOL in the pool" : "SOL in · crease at 82.25";
+    rSupOld.classList.toggle("on", g);
+    rSupNew.classList.toggle("off", !g);
+    rSupU.innerHTML = g ? "<em>" + fmtInt(BURN) + " burned</em> · tokens left:" : "tokens exist · none burned";
+    stage.classList.toggle("grad", g);
+    stage.classList.toggle("back", g && R < RG - 0.01);
+    tickEls.virtual.classList.toggle("gone", g);
+    var ch = chapter();
+    setCaption(rCap, CAPS[ch]);
+    for (var k in tickEls) tickEls[k].setAttribute("aria-current", String(k === ch || (k === "pool" && ch === "after")));
+    if (!hDot) return;
+    var p = hp.pt(R, g), x = p[0], y = p[1];
+    moveSquare(hDot, x, y);
+    moveSquare(hRing, hParts.cr[0], hParts.cr[1]);
+    // the leader ties the reading to its numerals
+    var d;
+    if (desk()) {
+      var rr = readout.getBoundingClientRect(), sr = stage.getBoundingClientRect();
+      var ry = rr.bottom - sr.top + 14, rx = rr.right - sr.left - 18;
+      if (x <= rx) d = "M" + x + "," + y + "V" + ry;
+      else if (y > ry) d = "M" + x + "," + y + "V" + ry + "H" + rx;
+      else d = "M" + x + "," + y + "H" + rx;
+    } else d = "M" + x + "," + y + "V0";
+    hLead.setAttribute("d", d);
+    stage.setAttribute("aria-valuenow", R.toFixed(2));
+    stage.setAttribute("aria-valuetext", fmtN(R, 2) + " SOL in, price " + rd.price.toPrecision(3) + " SOL per token" + (g ? ", graduated into the pool" : ", on the curve"));
+  }
+  function schedule() { if (!hero.raf) hero.raf = requestAnimationFrame(renderHero); }
+  function onCrease() {
+    if (!hRing || RM) return;
+    hRing.classList.remove("go"); void hRing.getBoundingClientRect(); hRing.classList.add("go");
+  }
+  function setR(R) {
+    R = clamp(R, hero.grad ? 1 : 0, RMAX);
+    if (!hero.grad && R >= RG - 1e-9) { hero.grad = true; onCrease(); }
+    hero.R = R;
+    schedule();
+  }
+  function stopTween() { if (hero.tween) cancelAnimationFrame(hero.tween); hero.tween = 0; }
+  function tweenTo(target, ms) {
+    stopTween();
+    if (RM || !ms) { setR(target); return; }
+    var from = hero.R, t0 = performance.now();
+    (function step(now) {
+      var k = clamp((now - t0) / ms, 0, 1), e = k < .5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2;
+      setR(from + (target - from) * e);
+      hero.tween = k < 1 ? requestAnimationFrame(step) : 0;
+    })(t0);
+  }
+  function pressTick(k) {
+    stopTween();
+    hero.over = null;
+    if (k === "virtual" || k === "launch") {
+      hero.grad = false; hero.R = 0;
+      if (k === "virtual") {
+        hero.over = "virtual";
+        if (!RM && hParts) { hParts.virt.classList.remove("flash"); void hParts.virt.getBoundingClientRect(); hParts.virt.classList.add("flash"); }
+      }
+      schedule();
+    } else if (k === "crease") tweenTo(RG, 900);
+    else tweenTo(RMAX, 900);
+  }
+  function fromPointer(e) { var r = stage.getBoundingClientRect(); return hp.R(e.clientX - r.left); }
+  var dragging = false;
+  stage.addEventListener("pointerdown", function (e) { dragging = true; stopTween(); hero.over = null; try { stage.setPointerCapture(e.pointerId); } catch (x) {} setR(fromPointer(e)); });
+  stage.addEventListener("pointermove", function (e) {
+    if (dragging || e.pointerType === "mouse") { if (e.pointerType === "mouse" && !dragging && hero.tween && introRunning) return; stopTween(); hero.over = null; setR(fromPointer(e)); }
+  });
+  ["pointerup", "pointercancel"].forEach(function (n) { stage.addEventListener(n, function () { dragging = false; }); });
+  stage.addEventListener("keydown", function (e) {
+    var step = e.shiftKey ? 10 : 1, R = hero.R;
+    if (e.key === "ArrowRight" || e.key === "ArrowUp") R += step;
+    else if (e.key === "ArrowLeft" || e.key === "ArrowDown") R -= step;
+    else if (e.key === "PageUp") R += 10;
+    else if (e.key === "PageDown") R -= 10;
+    else if (e.key === "End") R = RMAX;
+    else if (e.key === "Home") { pressTick("launch"); e.preventDefault(); return; }
+    else return;
+    e.preventDefault(); stopTween(); hero.over = null; setR(R);
+  });
+
+  var introRunning = false;
+  function intro() {
+    if (RM) { stage.classList.remove("intro"); hero.R = 30; schedule(); return; }
+    requestAnimationFrame(function () { requestAnimationFrame(function () { stage.classList.add("drawn"); }); });
+    introRunning = true;
+    setTimeout(function () {
+      stage.classList.remove("intro", "drawn");
+      if (!introRunning) return;
+      tweenTo(112, 2600);
+      setTimeout(function () { introRunning = false; }, 2700);
+    }, 2150);
+    stage.addEventListener("pointerdown", function () { introRunning = false; }, { once: true });
+  }
+
+  /* ================= one buy ================= */
+  var buyFig = $("#buyFig"), buySvg = $("#buySvg"), hNow = $("#hNow"), hAfter = $("#hAfter");
+  var bp = new Plot(buySvg);
+  var bFrame = svgEl("g", null, buySvg), bLines = svgEl("g", null, buySvg), bMarks = svgEl("g", null, buySvg);
+  var bSpan, bDot0, bDot1, bRing, bParts;
+  var buy = { R0: 70, d: 25, drag: null, wasGrad: false };
+  function layoutBuy() {
+    var w = buyFig.clientWidth, hh = buyFig.clientHeight, pad = padPx(), dk = desk();
+    bp.size(w, hh, pad, pad, 10, 52);
+    drawFrame(bp, bFrame, { cols: dk ? 12 : 4, grid: true, labels: function (R) { return dk && (R === 0 || R === 150); } });
+    bParts = drawLines(bp, bLines, RMAX + 40);
+    bParts.virt.style.opacity = ".5";
+    bMarks.textContent = "";
+    square(bMarks, bParts.cr[0], bParts.cr[1], 9, "notch");
+    bSpan = svgEl("path", { "class": "span" }, bMarks);
+    bRing = square(bMarks, bParts.cr[0], bParts.cr[1], 12, "ring");
+    bDot0 = square(bMarks, 0, 0, 11, "dot hollow");
+    bDot1 = square(bMarks, 0, 0, 13, "dot q");
+    renderBuy();
+  }
+  function renderBuy() {
+    var r0 = stateAt(lam(buy.R0)), dl = lam(buy.d), q = quoteBuy(r0, dl);
+    var R1 = sol(q.after.realSol), g0 = r0.graduated;
+    bSpan.setAttribute("d", spanD(bp, buy.R0, g0, R1));
+    var a = bp.pt(buy.R0, g0), b = bp.pt(R1, q.after.graduated);
+    moveSquare(bDot0, a[0], a[1]); moveSquare(bDot1, b[0], b[1]);
+    var base = bp.base();
+    hNow.style.left = a[0] + "px"; hNow.style.top = base + "px";
+    hAfter.style.left = b[0] + "px"; hAfter.style.top = base + "px";
+    setType($("#hNowB"), [[fmtN(buy.R0, 2), ""]]);
+    setType($("#hAfterB"), [["+" + fmtN(buy.d, 2), ""]]);
+    hNow.setAttribute("aria-valuenow", buy.R0.toFixed(2));
+    hAfter.setAttribute("aria-valuenow", buy.d.toFixed(2));
+    hAfter.setAttribute("aria-valuetext", "send " + fmtN(buy.d, 2) + " SOL");
+    var crossed = q.burned > 0n;
+    if (crossed && !buy.wasGrad && !RM) { bRing.classList.remove("go"); void bRing.getBoundingClientRect(); bRing.classList.add("go"); }
+    buy.wasGrad = crossed;
+    setType($("#tSend"), [[fmtN(buy.d, 2), ""]]);
+    setType($("#tFee"), [[fmtS(sol(q.fee)), ""]]);
+    $("#tCurve").hidden = g0;
+    setType($("#tCs"), [[fmtS(sol(q.curveSol)), ""]]);
+    setType($("#tCt"), [[fmtInt(tok(q.curveTok)), ""]]);
+    $("#tCrease").hidden = !crossed;
+    setType($("#tBurn"), [[fmtInt(tok(q.burned)), ""]]);
+    $("#tShort").hidden = g0 || crossed;
+    setType($("#tTogo"), [[fmtS(Math.max(0, RG - R1)), ""]]);
+    $("#tPool").hidden = q.poolSol === 0n;
+    setType($("#tPs"), [[fmtS(sol(q.poolSol)), ""]]);
+    setType($("#tPt"), [[fmtInt(tok(q.poolTok)), ""]]);
+    setType($("#tTot"), [[fmtInt(tok(q.tokensOut)), ""]]);
+  }
+  function maxD() { return Math.max(0.01, (RMAX - buy.R0) / 0.99); }
+  function moveBuy(R, which) {
+    if (which === "now") { buy.R0 = Math.round(clamp(R, 0, 140) * 100) / 100; buy.d = Math.min(buy.d, maxD()); }
+    else buy.d = Math.round(clamp((R - buy.R0) / 0.99, 0.01, maxD()) * 100) / 100;
+    renderBuy();
+  }
+  buyFig.addEventListener("pointerdown", function (e) {
+    var r = buyFig.getBoundingClientRect(), R = bp.R(e.clientX - r.left), R1 = buy.R0 + buy.d * 0.99;
+    buy.drag = Math.abs(R - buy.R0) < Math.abs(R - R1) && R < R1 ? "now" : "after";
+    try { buyFig.setPointerCapture(e.pointerId); } catch (x) {}
+    moveBuy(R, buy.drag);
+  });
+  buyFig.addEventListener("pointermove", function (e) { if (!buy.drag) return; var r = buyFig.getBoundingClientRect(); moveBuy(bp.R(e.clientX - r.left), buy.drag); });
+  ["pointerup", "pointercancel"].forEach(function (n) { buyFig.addEventListener(n, function () { buy.drag = null; }); });
+  function handKeys(which) {
+    return function (e) {
+      var st = e.shiftKey ? 5 : 0.5, dir = 0;
+      if (e.key === "ArrowRight" || e.key === "ArrowUp") dir = 1;
+      else if (e.key === "ArrowLeft" || e.key === "ArrowDown") dir = -1;
+      else return;
+      e.preventDefault();
+      if (which === "now") moveBuy(buy.R0 + dir * st, "now");
+      else moveBuy(buy.R0 + (buy.d + dir * st) * 0.99, "after");
+    };
+  }
+  hNow.addEventListener("keydown", handKeys("now"));
+  hAfter.addEventListener("keydown", handKeys("after"));
+
+  /* ================= the app proof: board row and coin page ================= */
+  var coin = { res: null, R: 0, g: false, Rq: null, live: false, events: [], drag: false };
+  var cp = new Plot($("#cSvg"));
+  var cFrame = svgEl("g", null, $("#cSvg")), cLines = svgEl("g", null, $("#cSvg")), cMarks = svgEl("g", null, $("#cSvg"));
+  var cSpan, cDot, cQ, cParts, cplot = $("#cplot");
+  function sampleRes() { return stateAt(lam(12)); }
+  function layoutCoin() {
+    var w = cplot.clientWidth, hh = cplot.clientHeight;
+    cp.size(w, hh, 2, 2, 12, 40);
+    drawFrame(cp, cFrame, { cols: 12, grid: false, labels: function (R) { return R % 30 === 0 && R > -30 && R < 150; } });
+    cParts = drawLines(cp, cLines, RMAX + 30);
+    if (coin.g) cLines.setAttribute("class", "grad"); else cLines.removeAttribute("class");
+    cMarks.textContent = "";
+    square(cMarks, cParts.cr[0], cParts.cr[1], 8, "notch");
+    cSpan = svgEl("path", { "class": "span" }, cMarks);
+    coin.events.filter(function (e) { return e.kind === "trade"; }).forEach(function (e) {
+      var p = cp.pt(sol(e.realSol), !!e.graduated);
+      var sq = square(cMarks, p[0], p[1] + (e.buy ? -9 : 9), 5, "trade" + (e.buy ? "" : " sell"));
+      var t = svgEl("title", null, sq); t.textContent = (e.buy ? "buy " : "sell ") + fmtS(sol(e.sol)) + " SOL";
+    });
+    cDot = square(cMarks, 0, 0, 13, "dot");
+    cQ = square(cMarks, 0, 0, 11, "dot q");
+    renderCoin();
+  }
+  function renderCoin() {
+    if (!coin.res) return;
+    var r = coin.res, R = coin.R;
+    var p = cp.pt(R, coin.g); moveSquare(cDot, p[0], p[1]);
+    var Rq = coin.Rq, q = $("#quote");
+    if (Rq == null || Math.abs(Rq - R) < 0.005) {
+      cQ.style.display = "none"; cSpan.setAttribute("d", "");
+      q.textContent = "Drag right to buy, left to sell.";
+      return;
+    }
+    cQ.style.display = "";
+    var gq = coin.g || Rq >= RG;
+    var pq = cp.pt(Rq, gq); moveSquare(cQ, pq[0], pq[1]);
+    cSpan.setAttribute("d", Rq > R ? spanD(cp, R, coin.g, Rq) : spanD(cp, Rq, coin.g, R));
+    q.textContent = "";
+    if (Rq > R) {
+      var d = (Rq - R) / 0.99, qb = quoteBuy(r, lam(d));
+      q.append("Buy with ");
+      setType(h("span", "num", null, q), [[fmtS(d), ""]]);
+      q.append(" SOL, get ");
+      setType(h("span", "num", null, q), [[fmtInt(tok(qb.tokensOut)), ""]]);
+      q.append(" tokens" + (qb.burned > 0n ? ", and the coin creases on the way." : "."));
+    } else {
+      var off = r.graduated ? 0n : r.virtualSol, x = off + r.realSol, nx = off + lam(Math.max(Rq, coin.g ? 0.01 : 0));
+      var tin = ceilDiv(x * r.tokens, nx) - r.tokens, qs = quoteSell(r, tin);
+      q.append("Sell ");
+      setType(h("span", "num", null, q), [[fmtInt(tok(tin)), ""]]);
+      q.append(" tokens, get ");
+      setType(h("span", "num", null, q), [[fmtS(sol(qs.solOut)), ""]]);
+      q.append(" SOL after the fee.");
+    }
+  }
+  function coinFrom(e) { var r = cplot.getBoundingClientRect(); return clamp(cp.R(e.clientX - r.left), coin.g ? 0.01 : 0, RMAX); }
+  cplot.addEventListener("pointerdown", function (e) { coin.drag = true; try { cplot.setPointerCapture(e.pointerId); } catch (x) {} coin.Rq = coinFrom(e); renderCoin(); });
+  cplot.addEventListener("pointermove", function (e) { if (coin.drag || e.pointerType === "mouse") { coin.Rq = coinFrom(e); renderCoin(); } });
+  ["pointerup", "pointercancel"].forEach(function (n) { cplot.addEventListener(n, function () { coin.drag = false; }); });
+  cplot.addEventListener("keydown", function (e) {
+    var st = e.shiftKey ? 5 : 0.5, base = coin.Rq == null ? coin.R : coin.Rq;
+    if (e.key === "ArrowRight") coin.Rq = Math.min(RMAX, base + st);
+    else if (e.key === "ArrowLeft") coin.Rq = Math.max(coin.g ? 0.01 : 0, base - st);
+    else return;
+    e.preventDefault(); renderCoin();
+  });
+
+  function miniLine(host, R, g, empty) {
+    host.textContent = "";
+    var svg = svgEl("svg", { "aria-hidden": "true" }, host), p = new Plot(svg);
+    p.size(host.clientWidth || 300, host.clientHeight || 64, 1, 1, 4, 6);
+    var gl = svgEl("g", g ? { "class": "grad" } : null, svg);
+    svgEl("line", { x1: 0, y1: p.base(), x2: p.w, y2: p.base(), "class": "axis" }, svg);
+    var parts = drawLines(p, gl, RMAX);
+    if (empty) { [parts.s1, parts.s2, parts.virt].forEach(function (e) { e.setAttribute("class", "ghost"); }); return; }
+    square(svg, parts.cr[0], parts.cr[1], 6, "notch");
+    var q = p.pt(R, g); square(svg, q[0], q[1], 9, "dot");
+  }
+  var boardRows = [];
+  function renderBoard(pools, live) {
+    var board = $("#board");
+    board.textContent = "";
+    boardRows = [];
+    pools.forEach(function (pl) {
+      var row = h("div", "row", null, board);
+      var who = h("div", "who", null, row);
+      h("p", "nm", live ? "devnet coin" : "sample coin", who);
+      var meta = h("p", "lab", null, who);
+      if (live) {
+        var link = explorer("address", pl.mint);
+        if (link) { var a = h("a", "", shortKey(pl.mint) + " ↗", meta); a.href = link; a.target = "_blank"; a.rel = "noopener"; }
+        else meta.append(shortKey(pl.mint));
+        meta.append(" · opened " + ago(pl.openedAt));
+      } else meta.textContent = "offline sample · 12 SOL in";
+      var mini = h("div", "mini", null, row);
+      var R = sol(pl.realSol);
+      boardRows.push({ el: mini, R: R, g: pl.graduated });
+      var pr = h("div", "pr num", null, row);
+      var pn = h("span", "", null, pr); setType(pn, priceParts(pl.price));
+      h("p", "unit", "SOL per token", pr);
+      var si = h("div", "si num", null, row);
+      h("span", "", pl.graduated ? fmtS(R) : fmtS(R) + " / 82.25", si);
+      h("p", "unit", pl.graduated ? "SOL in the pool" : "SOL in, to the crease", si);
+    });
+    var er = h("div", "row empty", null, board);
+    var w2 = h("div", "who", null, er);
+    h("p", "nm", "next coin", w2);
+    h("p", "lab", "launches are team-only for now · launchpad coming", w2);
+    var m2 = h("div", "mini", null, er);
+    boardRows.push({ el: m2, empty: true });
+    drawBoardLines();
+  }
+  function drawBoardLines() { boardRows.forEach(function (b) { miniLine(b.el, b.R || 0, !!b.g, b.empty); }); }
+
+  function renderCoinPage(pl, events, live) {
+    coin.res = { virtualSol: pl.virtualSol, realSol: pl.realSol, tokens: pl.tokens, graduationSol: pl.graduationSol, graduated: pl.graduated };
+    coin.R = sol(pl.realSol); coin.g = pl.graduated; coin.events = events || []; coin.live = live; coin.Rq = null;
+    $("#cName").textContent = live ? "devnet coin" : "sample coin";
+    var cm = $("#cMint");
+    cm.textContent = "";
+    if (live) {
+      var link = explorer("address", pl.mint);
+      if (link) { var a = h("a", "", "mint " + shortKey(pl.mint) + " ↗", cm); a.href = link; a.target = "_blank"; a.rel = "noopener"; } else cm.append("mint " + shortKey(pl.mint));
+      cm.append(" · opened " + ago(pl.openedAt) + " · no mint or freeze authority");
+    } else cm.textContent = "offline sample · no mint or freeze authority";
+    setType($("#cPrice"), priceParts(pl.price));
+    setType($("#cSol"), [[fmtS(coin.R), ""]]);
+    $("#cSolU").textContent = coin.g ? "SOL in the pool" : "SOL in · crease at 82.25";
+    setType($("#cCap"), [[fmtN(pl.marketCap, 2), ""]]);
+    setType($("#cVol"), [[fmtS(sol(pl.volume || 0n)), ""]]);
+    $("#qSrc").textContent = live ? "drag along the line to price a trade · simulated on live devnet reserves" : "drag along the line to price a trade · sample reserves, devnet unreachable";
+    var ul = $("#trades"); ul.textContent = "";
+    var list = (events || []).filter(function (e) { return e.kind === "trade" || e.kind === "launch" || e.kind === "graduation"; }).slice(-4).reverse();
+    list.forEach(function (e) {
+      var li = h("li", "", null, ul), txt;
+      if (e.kind === "trade") txt = (e.buy ? "buy  " : "sell ") + fmtS(sol(e.sol)) + " SOL · " + fmtInt(tok(e.tokens)) + " tokens";
+      else if (e.kind === "launch") txt = "launched";
+      else txt = "creased · " + fmtInt(tok(e.burned)) + " burned";
+      var link = explorer("tx", e.signature);
+      if (link) { var a = h("a", "", txt + " ↗", li); a.href = link; a.target = "_blank"; a.rel = "noopener"; } else li.append(txt);
+      li.append(" · " + (e.time ? ago(e.time) : ""));
+    });
+    if (live && list.length) { var tag = h("li", "", "live · devnet trades, newest first", ul); ul.insertBefore(tag, ul.firstChild); }
+    layoutCoin();
+  }
+  function offlineSample() {
+    var r = sampleRes();
+    return { mint: "", realSol: r.realSol, tokens: r.tokens, virtualSol: r.virtualSol, graduationSol: r.graduationSol, graduated: false,
+      price: priceOfRes(r), marketCap: priceOfRes(r) * 1e9, volume: lam(12 / 0.99), openedAt: 0 };
+  }
+
+  function timeout(ms) { return new Promise(function (_, rej) { setTimeout(function () { rej(new Error("timeout")); }, ms); }); }
+  async function loadChain() {
+    var st = $("#status"), stt = $("#statusText");
+    var prog = $("#progLine");
+    try {
+      if (window.NET && NET.program) {
+        var pl = explorer("address", NET.program);
+        prog.textContent = "program on devnet · ";
+        var a = h("a", "", shortKey(NET.program) + " ↗", prog); if (pl) { a.href = pl; a.target = "_blank"; a.rel = "noopener"; }
+      }
+    } catch (e) {}
+    try {
+      if (!window.Chain || !window.NET || !NET.ready) throw new Error("no chain");
+      var pools = await Promise.race([Chain.listPools(), timeout(15000)]);
+      if (!pools || !pools.length) throw new Error("empty");
+      var shown = pools.slice(0, 5), trades = 0, events = [], read = 0;
+      for (var i = 0; i < Math.min(shown.length, 3); i++) {
+        for (var attempt = 0; attempt < 2; attempt++) {
+          try {
+            var ev = await Promise.race([Chain.history(shown[i].mint), timeout(15000)]);
+            trades += ev.filter(function (e) { return e.kind === "trade"; }).length;
+            if (i === 0) events = ev;
+            read++;
+            break;
+          } catch (e) { await new Promise(function (r) { setTimeout(r, 1500); }); }
+        }
+      }
+      var vol = 0n, fees = 0n;
+      pools.forEach(function (p) {
+        vol += BigInt(p.volume || 0n);
+        if (typeof p.creatorFees === "bigint" && typeof p.treasuryFees === "bigint") fees += p.creatorFees + p.treasuryFees;
+        else fees += BigInt(p.volume || 0n) * BigInt(p.feeBps || 100) / 10000n;
+      });
+      st.classList.add("live");
+      stt.textContent = "devnet · live · " + pools.length + (pools.length === 1 ? " coin" : " coins") +
+        (read ? " · " + trades + (trades === 1 ? " trade" : " trades") : "");
+      $("#feeLive").innerHTML = "";
+      var fl = $("#feeLive");
+      fl.append("live · devnet so far: ");
+      h("b", "", fmtS(sol(vol)), fl); fl.append(" SOL traded, ");
+      h("b", "", fmtS(sol(fees)), fl); fl.append(" SOL in fees");
+      $("#boardSrc").textContent = "live from devnet · names hidden on test coins";
+      $("#coinSrc").textContent = "live from devnet";
+      renderBoard(shown, true);
+      renderCoinPage(shown[0], events, true);
+    } catch (e) {
+      stt.textContent = "devnet unreachable · simulation only";
+      $("#feeLive").textContent = "devnet unreachable · no live figures";
+      $("#boardSrc").textContent = "devnet unreachable · offline sample";
+      $("#coinSrc").textContent = "devnet unreachable · offline sample";
+      var s = offlineSample();
+      renderBoard([s], false);
+      renderCoinPage(s, [], false);
+    }
+  }
+
+  /* ================= reveals and the rail ================= */
+  document.querySelectorAll("[data-set]").forEach(function (el) {
+    var words = el.textContent.trim().split(/\s+/);
+    el.textContent = "";
+    words.forEach(function (w, i) { var s = h("span", "w", w, el); s.style.setProperty("--i", i); if (i < words.length - 1) el.appendChild(document.createTextNode(" ")); });
+  });
+  var strikeHosts = [$("#noexit")];
+  if ("IntersectionObserver" in window) {
+    var io = new IntersectionObserver(function (list) {
+      list.forEach(function (en) {
+        if (!en.isIntersecting) return;
+        var t = en.target;
+        if (t.hasAttribute("data-set")) t.classList.add("in");
+        else t.querySelectorAll(".strike").forEach(function (s, i) { setTimeout(function () { s.classList.add("on"); }, RM ? 0 : 250 + i * 260); });
+        io.unobserve(t);
+      });
+    }, { threshold: 0.35 });
+    document.querySelectorAll("[data-set]").forEach(function (el) { io.observe(el); });
+    strikeHosts.forEach(function (el) { if (el) io.observe(el); });
+  } else {
+    document.querySelectorAll("[data-set]").forEach(function (el) { el.classList.add("in"); });
+    document.querySelectorAll("#rules .strike").forEach(function (s) { s.classList.add("on"); });
+  }
+  var railLinks = Array.prototype.slice.call(document.querySelectorAll(".rail a"));
+  var secs = railLinks.map(function (a) { return document.getElementById(a.getAttribute("data-k")); });
+  var railRaf = 0;
+  function railUpdate() {
+    railRaf = 0;
+    var cur = 0, mid = window.innerHeight * 0.45;
+    secs.forEach(function (s, i) { if (s && s.getBoundingClientRect().top < mid) cur = i; });
+    railLinks.forEach(function (a, i) { a.setAttribute("aria-current", String(i === cur)); });
+  }
+  window.addEventListener("scroll", function () { if (!railRaf) railRaf = requestAnimationFrame(railUpdate); }, { passive: true });
+
+  /* ================= start ================= */
+  var lastW = 0;
+  function layoutAll() {
+    layoutHero(); layoutBuy(); layoutCoin(); drawBoardLines();
+    lastW = window.innerWidth;
+  }
+  var rt = 0;
+  window.addEventListener("resize", function () { clearTimeout(rt); rt = setTimeout(layoutAll, 120); });
+  if ("ResizeObserver" in window) {
+    new ResizeObserver(function () {
+      if (plotwrap.clientWidth !== hp.w || plotwrap.clientHeight !== hp.h) { clearTimeout(rt); rt = setTimeout(layoutAll, 60); }
+    }).observe(plotwrap);
+  }
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(function () { renderHero(); });
+  var s0 = offlineSample();
+  coin.res = null;
+  renderBoard([s0], false);
+  renderCoinPage(s0, [], false);
+  $("#boardSrc").textContent = "reading devnet";
+  $("#coinSrc").textContent = "reading devnet";
+  layoutAll();
+  railUpdate();
+  intro();
+  loadChain();
+})();
+</script>
+</body>
+</html>

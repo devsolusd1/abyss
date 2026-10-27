@@ -1,0 +1,837 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>coin · forma</title>
+<meta name="description" content="One coin on forma (working name): its pool as a black hole, its numbers, its trades, and a way to buy or sell it on devnet.">
+<script>window.__errors = []; addEventListener('error', function (e) { __errors.push(String(e.message || e)); }); addEventListener('unhandledrejection', function (e) { __errors.push('promise: ' + String(e.reason && e.reason.message || e.reason)); });</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anybody:wdth,wght@50..150,100..900&family=Martian+Mono:wdth,wght@75..112.5,100..800&display=swap">
+<link rel="stylesheet" href="/assets/forma.css">
+<style>
+/* ===== one coin: its pool as its own black hole (assets/bh.js), the trade panel beside it; the shared look is assets/forma.css ===== */
+
+/* ---------- the strip: this coin's latest trades on devnet, each a link to its transaction; nothing while there are none ---------- */
+.tick.none { visibility: hidden; }
+.tape a:hover { color: var(--f-cream); }
+.still .tick .tag i, .still .tape .new { animation: none; }   /* ?motion=reduce, as forma.css does for the system setting */
+
+/* ---------- hero: the name, the hole, its two numbers under it, the trade panel beside it ---------- */
+.hero { position: relative; background-repeat: repeat; image-rendering: pixelated; }
+.hero::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 120px; background: linear-gradient(transparent, var(--f-bg)); pointer-events: none; }
+.c-grid { position: relative; z-index: 1; display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 40px clamp(32px, 4vw, 64px); align-items: center; padding-top: 10px; padding-bottom: clamp(64px, 10vh, 112px); }
+.c-main { min-width: 0; text-align: center; }
+.c-main .kick { margin-bottom: 14px; }
+.kick a { text-underline-offset: 4px; }
+.hero h1 { font-size: clamp(34px, 4.2vw, 60px); overflow-wrap: anywhere; text-wrap: balance; }
+.hero h1.wait { font-size: clamp(18px, 2vw, 26px); line-height: 1.3; color: var(--f-mute); }
+.sym { margin-left: .6em; font: 400 12px/1 var(--f-mono); font-stretch: 87.5%; letter-spacing: 0; text-transform: none; color: var(--f-mute); vertical-align: .55em; white-space: nowrap; }
+.c-msg { margin-top: 16px; font-size: 12px; color: var(--f-mute); }
+.c-msg a, .c-msg code { color: var(--f-cream); overflow-wrap: anywhere; }
+.c-msg .q { margin-top: 14px; }
+.stage { display: flex; justify-content: center; margin: clamp(12px, 2.4vh, 28px) auto 0; }
+/* the two number blocks under the hole's two edges, then one line: what the picture is, and the last read */
+.nums { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; margin: 12px auto 0; text-align: left; }
+.nums .r { text-align: right; }
+.ctl { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 4px 20px; margin: 14px auto 0; padding-top: 11px; border-top: 1px dashed var(--f-line); font-size: 11px; color: var(--f-mute); text-align: left; }
+.ctl .hint { text-wrap: balance; }
+.ctl .btns { display: flex; gap: 14px; white-space: nowrap; }
+.reading .nums, .reading .ctl { visibility: hidden; }
+
+/* ---------- the trade panel: an outlined card; the button fills with yellow in steps while held ---------- */
+.c-trade { padding: 20px 22px; }
+.c-row { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; }
+.c-wal { font-size: 11px; }
+.c-wal:not(.on) { visibility: hidden; }             /* shown once a wallet is in: its short key, a press disconnects */
+.c-wnote { font-size: 11px; color: var(--f-mute); min-height: 1.65em; text-align: right; }
+.c-seg { display: flex; gap: 28px; margin-top: 6px; }
+.c-seg button { display: flex; align-items: center; gap: 11px; font: 850 24px/1 var(--f-head); font-stretch: 125%; text-transform: uppercase; color: var(--f-mute); }
+.c-seg button:hover, .c-seg button[aria-pressed="true"] { color: var(--f-cream); }
+.slot { flex: none; width: 10px; height: 10px; box-shadow: inset 0 0 0 2px var(--f-mute); }
+.c-seg button[aria-pressed="true"] .slot { box-shadow: none; background: var(--f-yellow); }
+.c-amt { display: flex; align-items: baseline; gap: 14px; margin-top: 22px; padding-bottom: 8px; border-bottom: 2px solid var(--f-line2); }
+.c-amt:focus-within { border-bottom-color: var(--f-yellow); }
+.c-amt input { flex: 1; min-width: 0; font: 500 28px/1.15 var(--f-mono); font-stretch: 87.5%; letter-spacing: -.02em; font-variant-numeric: tabular-nums; color: var(--f-cream); caret-color: var(--f-yellow); background: none; border: 0; border-radius: 0; padding: 0; outline: none; }
+.c-amt #unit { font-size: 12px; color: var(--f-mute); }
+.c-amt .q:disabled { text-decoration: none; cursor: default; }   /* no wallet yet: plain words, not a button */
+.c-hold { font-size: 11px; color: var(--f-mute); margin-top: 10px; min-height: 1.65em; }
+.c-hold b, .c-quote b { color: var(--f-cream); font-weight: 600; }
+.c-quote { font-size: 12px; line-height: 1.65; color: var(--f-mute); margin-top: 14px; min-height: 6.6em; }
+.c-quote.bad, .c-note.bad { color: var(--f-yellow); }
+.c-btn { --s: 3px; --edge: var(--f-line2); position: relative; isolation: isolate; display: flex; align-items: center; justify-content: center; width: 100%; height: 54px; margin-top: 16px; background: var(--edge); clip-path: var(--step); color: var(--f-cream); font: 850 13px/1 var(--f-head); font-stretch: 125%; text-transform: uppercase; letter-spacing: .06em; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; touch-action: manipulation; }
+.c-btn::before { content: ''; position: absolute; inset: 2px; background: var(--f-bg); clip-path: var(--step); z-index: -1; }
+.c-btn.ready, .c-btn.connect:not(:disabled):hover { --edge: var(--f-yellow); }
+.c-btn i { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: var(--f-yellow); color: var(--f-bg); font-style: normal; clip-path: inset(0 100% 0 0); }
+.c-btn.holding i { clip-path: inset(0 0 0 0); transition: clip-path .9s steps(12, end); }
+.c-btn.busy::before { background: var(--f-deep); }
+.c-btn:disabled { cursor: default; }
+.c-btn:disabled:not(.busy) { --edge: var(--f-line); color: var(--f-mute); }
+/* keyboard focus, inside the pixel corners (they clip an outline): a yellow edge, a dark line, a yellow line */
+.c-btn:focus-visible { --edge: var(--f-yellow); }
+.c-btn:focus-visible::before { box-shadow: inset 0 0 0 2px var(--f-bg), inset 0 0 0 4px var(--f-yellow); }
+.c-note { font-size: 11px; line-height: 1.6; color: var(--f-mute); margin-top: 12px; min-height: 1.6em; overflow-wrap: anywhere; }
+.c-note a { color: var(--f-cream); }
+
+/* ---------- in numbers: a flat list on the dark ground, two columns ---------- */
+#numbers { padding-top: clamp(32px, 5vw, 64px); padding-bottom: 0; }
+.facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: repeat(5, auto); grid-auto-flow: column; column-gap: clamp(32px, 6vw, 96px); margin: clamp(36px, 5vw, 56px) 0 0; }
+.f { display: grid; grid-template-columns: 10em minmax(0, 1fr); gap: 16px; padding: 14px 0 15px; border-top: 1px solid var(--f-line); }
+.f:nth-child(5), .f:last-child { border-bottom: 1px solid var(--f-line); }
+.f dt { color: var(--f-mute); font-size: 11px; line-height: 1.95; }
+.f dd { margin: 0; font-size: 13px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.f dd .mute { display: block; font-size: 11px; }
+.f a { text-underline-offset: 4px; }
+
+/* ---------- every trade: the list, and the price path in an outlined card ---------- */
+#trades { padding-bottom: 0; }
+.c-low { display: grid; grid-template-columns: minmax(0, 6fr) minmax(0, 5fr); gap: 40px clamp(40px, 6vw, 96px); align-items: start; margin-top: clamp(36px, 5vw, 56px); }
+.trades { width: 100%; border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
+.trades th, .trades td { padding: 7px 0 7px 14px; text-align: right; white-space: nowrap; font-weight: 400; }
+.trades th:first-child, .trades td:first-child { padding-left: 8px; text-align: left; }
+.trades th:last-child, .trades td:last-child { padding-right: 8px; }
+.trades th:nth-child(2), .trades td:nth-child(2) { text-align: left; }
+.trades th { padding-top: 0; padding-bottom: 11px; font-size: 11px; color: var(--f-mute); border-bottom: 1px solid var(--f-line); }
+.trades tbody tr:first-child td { padding-top: 11px; }
+.trades td a { text-decoration: none; }
+.trades td a:hover, .trades td a:focus-visible { text-decoration: underline; text-underline-offset: 4px; }
+.trades .k { display: inline-block; width: 8px; height: 8px; margin-right: 10px; }
+.trades tr.buy td { color: var(--f-cream); }
+.trades tr.buy .k { background: var(--f-yellow); }
+.trades tr.sell td, .trades tr.ev td { color: var(--f-mute); }
+.trades tr.sell .k { box-shadow: inset 0 0 0 2px var(--f-lilac); }
+.trades tr.ev .k { box-shadow: inset 0 0 0 2px var(--f-violet); }
+.trades tr.grad td { color: var(--f-yellow); }
+.trades tr.grad .k { box-shadow: none; background: var(--f-cream); }
+.trades tr.on td { color: var(--f-cream); background: var(--f-deep); }   /* its step in the price path turns cream */
+.c-empty { margin-top: 18px; font-size: 11px; color: var(--f-mute); }
+.c-path { margin: 0; padding: 18px 18px 16px; }
+.c-path figcaption { margin-top: 14px; font-size: 11px; color: var(--f-mute); }
+.foot { margin-top: clamp(72px, 12vw, 140px); }
+
+/* ---------- no coin to show: the words and an empty hole, still ---------- */
+.nocoin .nums, .nocoin .ctl, .nocoin .c-trade, .nocoin #numbers, .nocoin #trades { display: none; }
+.nocoin .c-grid { grid-template-columns: minmax(0, 1fr); }
+.nocoin .tick { visibility: hidden; }
+
+/* the panel goes under the hole on a tablet held upright or narrower; a small laptop keeps it beside */
+@media (max-width: 900px) {
+  .c-grid { grid-template-columns: minmax(0, 1fr); }
+  .c-trade { width: 100%; max-width: 480px; justify-self: center; }
+}
+@media (max-width: 760px) {
+  .c-grid { padding-top: 4px; gap: 32px; }
+  .c-main .kick { margin-bottom: 10px; }
+  .hero h1 { font-size: clamp(30px, 9.4vw, 44px); line-height: 1.02; }
+  .c-trade { max-width: none; padding: 18px 16px 16px; }
+  .c-seg button { font-size: 22px; }
+  .facts { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; grid-auto-flow: row; }
+  .f:nth-child(5):not(:last-child) { border-bottom: 0; }
+  .f { grid-template-columns: 8.6em minmax(0, 1fr); gap: 12px; }
+  .f dd { font-size: 12px; }
+  .c-low { grid-template-columns: minmax(0, 1fr); }
+  .trades { font-size: 11px; }
+  .trades th, .trades td { padding-left: 10px; }
+  .c-path { padding: 14px 14px 12px; }
+}
+@media (max-width: 560px) { .tick .tag { padding-left: 16px; } }
+</style>
+<script defer src="/assets/bh.js"></script>
+<script defer src="/net.js"></script>
+<script defer src="/vendor/chain.js"></script>
+<script defer src="/assets/wallet.js"></script>
+</head>
+<body class="reading">
+
+<!-- the strip: this coin's latest trades, read with its history; the table below has the same with its links in reach of a keyboard -->
+<div class="tick none" id="tick" aria-hidden="true">
+  <span class="tag"><i></i>devnet</span>
+  <div class="tape" id="tape"></div>
+</div>
+
+<header class="top">
+  <a class="brand" href="/" aria-label="forma, home"><canvas id="sym" aria-hidden="true"></canvas><b>forma</b></a>
+  <nav class="nav" aria-label="Site">
+    <a href="/#how"><span class="long">how it works</span><span class="short">how</span></a>
+    <a href="/coins" aria-current="true">coins</a>
+    <a class="btn sm" href="/launch">launch</a>
+  </nav>
+</header>
+
+<main>
+<!-- ===== the coin's pool as its black hole: the disk is the real SOL in the pool, full size at graduation; the jets are graduation ===== -->
+<section class="hero" id="top">
+  <div class="wrap c-grid">
+    <div class="c-main" id="main">
+      <p class="kick" id="kicker">a coin on devnet</p>
+      <h1 class="wait" id="name">Reading the coin from devnet…</h1>
+      <p class="c-msg" id="msg" hidden></p>
+      <div class="stage" id="stage"><canvas id="heroCv" aria-hidden="true"></canvas></div>
+      <div class="nums" id="nums">
+        <div class="n"><b id="nPx">0.0300</b><span class="l1">SOL per 1M tokens</span><span class="mute" id="nCap">market cap</span></div>
+        <div class="n r"><b id="nSol">0.00</b><span class="l1">real SOL in</span><span class="mute" id="nSolL">of 82.25 to graduate</span></div>
+      </div>
+      <div class="ctl" id="ctl">
+        <span class="hint" id="legend">disk: real SOL in the pool, full at graduation</span>
+        <span class="btns"><button class="q" type="button" id="again">refresh</button><span id="status"></span></span>
+      </div>
+    </div>
+
+    <aside class="c-trade card" id="trade" aria-labelledby="tradeH">
+      <div class="c-row">
+        <p class="kick" id="tradeH">trade on devnet</p>
+        <button class="q c-wal" type="button" data-wallet>Connect wallet</button>
+      </div>
+      <p class="c-wnote" data-wallet-note aria-live="polite"></p>
+      <div class="c-seg" role="group" aria-label="Buy or sell">
+        <button type="button" data-side="buy" aria-pressed="true"><i class="slot"></i>buy</button><button type="button" data-side="sell" aria-pressed="false"><i class="slot"></i>sell</button>
+      </div>
+      <div class="c-amt">
+        <label class="vh" for="amt" id="amtLabel">Amount of SOL to spend</label>
+        <input id="amt" inputmode="decimal" autocomplete="off" spellcheck="false" value="0.1" aria-describedby="quote">
+        <span id="unit">SOL</span>
+        <button type="button" class="q" id="maxBtn" disabled>max</button>
+      </div>
+      <p class="c-hold" id="holdings">Connect a wallet to see what you hold.</p>
+      <p class="c-quote" id="quote" aria-live="polite">Reading the pool…</p>
+      <button type="button" class="c-btn" id="hold"><span id="holdTxt">Connect a wallet to buy</span><i id="holdFill" aria-hidden="true"></i></button>
+      <p class="c-note" id="note" aria-live="polite"></p>
+    </aside>
+  </div>
+</section>
+
+<!-- ===== the pool account, as a short list ===== -->
+<section class="sec" id="numbers" aria-labelledby="numH">
+  <div class="wrap">
+    <h2 id="numH">In numbers.</h2>
+    <p class="lead">Read from the pool account on devnet.</p>
+    <dl class="facts" id="facts"></dl>
+  </div>
+</section>
+
+<!-- ===== trades, newest first, and the price after each ===== -->
+<section class="sec" id="trades" aria-labelledby="tradesH">
+  <div class="wrap">
+    <h2 id="tradesH">Every trade.</h2>
+    <p class="lead">Newest first, read from devnet. Buys in yellow, sells in lilac.</p>
+    <div class="c-low">
+      <div>
+        <table class="trades">
+          <thead><tr><th scope="col">when</th><th scope="col">side</th><th scope="col">SOL</th><th scope="col">tokens</th><th scope="col">per 1M</th></tr></thead>
+          <tbody id="rows"></tbody>
+        </table>
+        <p class="c-empty" id="histNote">Reading the trades…</p>
+      </div>
+      <figure class="c-path card">
+        <div id="pathBox"><canvas id="pathCv" role="img" aria-label="The price after each trade, one step per trade"></canvas></div>
+        <figcaption id="pathNote"></figcaption>
+      </figure>
+    </div>
+  </div>
+</section>
+</main>
+
+<footer class="wrap foot">
+  <a class="brand" href="#top" aria-label="forma, top of the page"><canvas id="sym1" aria-hidden="true"></canvas><b>forma</b></a>
+  <p>forma is a working name · devnet only · devnet SOL has no value · <a id="progLink" href="#" target="_blank" rel="noopener">program</a></p>
+</footer>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+'use strict';
+var $ = function (s) { return document.querySelector(s); };
+function report(e) { try { window.__errors.push(String(e && e.stack || e)); } catch (_) {} }
+function esc(s) { return String(s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+var hush = null;                                       // once the hole is up: an empty hole, held still
+function fail(title, html) {
+  if (hush) hush();
+  document.body.classList.remove('reading');
+  document.body.classList.add('nocoin');
+  document.title = 'coin · forma';
+  $('#kicker').textContent = 'devnet';
+  var h = $('#name'); h.className = 'wait'; h.textContent = title;
+  var m = $('#msg'); m.innerHTML = html || ''; m.hidden = !html;
+  var qe = $('#quote'); qe.textContent = 'Trading needs the pool, and it could not be read.'; qe._html = null;
+}
+if (!window.BH) { fail('The page did not load all its parts.', '<a href="' + esc(location.pathname + location.search) + '">Reload</a>'); return; }
+try { main(); } catch (e) { report(e); fail('Something broke while drawing this coin.', '<a href="/coins">See all coins</a>'); }
+
+function main() {
+var HEX = BH.HEX;                                      // 0 the shadow, 1 the sky, 2..7 deep, purple, violet, lilac, yellow, cream
+var HOLD_MS = 900, SLIP = 100n, REFRESH_MS = 20000;
+var QS; try { QS = new URLSearchParams(location.search); } catch (e) { QS = { get: function () { return null; } }; }
+var HW = 168, HH = 100, PX = 4, PHONE = false;        // the hole's canvas, in its own pixels; PX: css px per pixel, for the hole and the price path
+
+/* number formats (as on the other pages) */
+function fSol(v) { return v >= 100 ? v.toFixed(1) : v >= 1 ? v.toFixed(2) : v >= 0.01 || v <= 0 ? v.toFixed(3) : v.toPrecision(2); }
+function fTok(v) { if (v >= 999.95e6) return (v / 1e9).toFixed(v >= 1e9 + 5e6 ? 2 : 0) + 'B'; if (v < 1e4) return '0'; return (v / 1e6).toFixed(v >= 1e8 ? 1 : 2) + 'M'; }
+function fPx(p) { var m = p * 1e6; return m.toFixed(m >= 1 ? 3 : 4); }
+function ago(sec) {
+  if (!sec) return 'unknown';
+  var d = Date.now() / 1000 - sec;
+  if (d < 90) return 'just now';
+  if (d < 5400) return Math.round(d / 60) + ' min ago';
+  if (d < 129600) return Math.round(d / 3600) + ' h ago';
+  return Math.round(d / 86400) + ' days ago';
+}
+function shortKey(k) { var s = String(k); return s.slice(0, 4) + '…' + s.slice(-4); }
+function explorer(what, id) { try { if (window.NET && NET.explorer) return NET.explorer(what, String(id)); } catch (e) {} return null; }
+
+function isTest(p) { return /^DESKTOP-/i.test(String(p && p.name || '').trim()); }
+function nameOf(p) { var n = String(p && p.name || '').trim(); return isTest(p) ? 'Test coin' : (n || 'Unnamed coin'); }
+function link(what, id, text) { var u = explorer(what, id); return u ? '<a href="' + esc(u) + '" target="_blank" rel="noopener">' + text + ' ↗</a>' : text; }
+function txLink(sig, text) { var u = explorer('tx', sig); return u ? '<a href="' + esc(u) + '" target="_blank" rel="noopener" title="the transaction on the explorer">' + text + '</a>' : text; }
+function withTimeout(p, ms) { var t; return Promise.race([p, new Promise(function (_, no) { t = setTimeout(function () { no(new Error('timeout')); }, ms); })]).finally(function () { clearTimeout(t); }); }
+function tok(v) { if (v >= 1e4) return fTok(v); if (v <= 0) return '0'; return v.toLocaleString('en-US', { maximumFractionDigits: v < 10 ? 6 : 2 }); }
+function pct(v) { v = Math.abs(v) * 100; return v === 0 ? '0%' : v < 0.01 ? 'under 0.01%' : String(+v.toFixed(2)) + '%'; }
+function fAmt(v) { return String(+v.toFixed(2)); }   // a setting: 30, 82.25, 420
+function lam(n) { return Number(n) / 1e9; }
+function units(n) { return Number(n) / 1e6; }
+function when(sec) { try { return new Date(sec * 1000).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }); } catch (e) { return ''; } }
+function chainOk() { return !!(window.Chain && window.NET && NET.ready); }
+function setText(sel, v) { var el = $(sel); if (el && el.textContent !== v) el.textContent = v; }
+function mute(html) { return '<span class="mute">' + html + '</span>'; }
+
+/* ================= state ================= */
+var POOL = null, LOOK = null, ST = null, EVENTS = null, WAL = null, side = 'buy', busy = false, hi = -1;
+var lastRead = 0, readFail = 0, maxText = null, maxUnits = null, Q = null;
+var PINNED = false;                                    // a pool shown through __coin.show, not read: the 20 s reads leave it on screen
+var mintParam = null;
+try { mintParam = (QS.get('mint') || '').trim() || null; } catch (e) {}
+var amt = $('#amt'), quoteEl = $('#quote'), holdBtn = $('#hold'), holdTxt = $('#holdTxt'), holdFill = $('#holdFill'), noteEl = $('#note'), maxBtn = $('#maxBtn');
+
+/* marks */
+BH.mark($('#sym'), 2); BH.mark($('#sym1'), 2); BH.favicon();
+if (BH.reduced) document.documentElement.classList.add('still');
+
+/* ================= the hero: the coin's own black hole, on its real pool ================= */
+// before the pool is read it is an empty hole; then the coin's SOL comes in as clumps. Every later read and every
+// confirmed trade goes in through .show (or .follow), so new SOL spirals in and a graduation plays by itself
+var heroCv = $('#heroCv'), stage = $('#stage'), hole = null, holeStill = false;
+function makeHole() {
+  if (hole) hole.stop();
+  hole = BH.live(heroCv, { look: BH.look(), state: BH.stateOf({}), w: HW, h: HH, onGraduate: renderHero });   // the words wait for the picture's graduation
+  hole.size(PX);
+  holeStill = false;
+}
+makeHole();
+hush = function () { hole.put(BH.look(), BH.stateOf({})); hole.stop(); holeStill = true; };
+function showState(first) {
+  var f = BH.fromPool(POOL);                           // lamports to SOL, and the look of the coin's launch settings
+  if (first) {
+    // a coin met graduated is drawn graduated at once, jets lit; otherwise its SOL comes in from empty
+    if (f.state.graduated) hole.put(f.look, f.state);
+    else { hole.put(f.look, Object.assign({}, f.state, { realSol: 0 })); hole.show(f.state); }
+  } else hole.follow(f.look, f.state);
+  LOOK = f.look; ST = f.state;
+}
+// a mouse over the hole leans it a little; a tap does nothing here (trading is in the panel)
+stage.addEventListener('pointermove', function (e) {
+  if (e.pointerType !== 'mouse' || !POOL) return;
+  var r = heroCv.getBoundingClientRect(); hole.lean(((e.clientY - r.top) / r.height - .5) * 2);
+});
+stage.addEventListener('pointerleave', function () { hole.lean(0); });
+
+var KEY = 'disk: real SOL in the pool, full at graduation', KEY_GRAD = 'disk: real SOL in the pool · jets: graduated';   // one line on a phone
+function renderHero() {
+  if (!POOL || !ST) return;
+  var grad = ST.graduated && hole.graduated;           // the words switch when the picture graduates
+  setText('#nPx', fPx(POOL.price));
+  setText('#nCap', fSol(POOL.marketCap) + ' SOL market cap');
+  setText('#nSol', fSol(ST.realSol));
+  setText('#nSolL', grad ? 'graduated, same pool' : 'of ' + fSol(ST.graduationSol) + ' to graduate');
+  setText('#legend', grad ? KEY_GRAD : KEY);
+  paintStatus();
+}
+function paintStatus() {
+  if (!POOL) return;
+  var s = lastRead ? Math.round((Date.now() - lastRead) / 1000) : 0;
+  var age = s < 5 ? 'just now' : s < 90 ? s + ' s ago' : Math.round(s / 60) + ' min ago';
+  setText('#status', PINNED ? 'not read: a copy' : (PHONE ? '' : 'read ') + age + (readFail ? ', ' + (readFail > 1 ? readFail + ' reads' : 'last read') + ' timed out' : ''));
+}
+setInterval(paintStatus, 5000);
+
+function renderHead(busiest) {
+  var p = POOL, nm = nameOf(p), sym = String(p.symbol || '').trim();
+  document.title = nm + ' · forma';
+  var h = $('#name'); h.className = '';
+  h.innerHTML = esc(nm) + (sym ? '<span class="sym">$' + esc(sym) + '</span>' : '');
+  $('#kicker').innerHTML = busiest ? 'the busiest coin on devnet · <a href="/coins">all coins</a>' : isTest(p) ? 'a test coin on devnet' : 'a coin on devnet';
+  $('#msg').hidden = true;
+}
+
+/* ================= the strip: this coin's latest trades, newest first, each a link to its transaction ================= */
+var tick = $('#tick'), tape = $('#tape'), onTape = null;
+function renderTape() {
+  if (!POOL || !EVENTS) return;
+  var sym = String(POOL.symbol || '').trim() || nameOf(POOL), items = [], seen = {};
+  for (var i = EVENTS.length - 1; i >= 0 && items.length < 12; i--) {
+    var e = EVENTS[i], html = null, cls = '';
+    if (e.kind === 'trade') { cls = e.buy ? 'buy' : 'sell'; html = '◎' + esc(fSol(lam(e.sol))) + ' ' + (e.buy ? '<b>bought</b> ' : 'sold ') + esc(sym) + ' · ' + esc(ago(e.time)); }
+    else if (e.kind === 'graduation') { cls = 'grad'; html = '<b>' + esc(sym) + '</b> graduated · ' + esc(fTok(units(e.burned))) + ' tokens burned'; }
+    if (!html) continue;
+    var key = e.signature + ':' + e.kind; seen[key] = true;
+    if (onTape && !onTape[key] && !BH.reduced) cls += ' new';   // the first read comes in still; later trades slide in
+    var u = explorer('tx', e.signature);
+    items.push(u ? '<a class="' + cls + '" href="' + esc(u) + '" target="_blank" rel="noopener" tabindex="-1"><i></i>' + html + '</a>' : '<span class="' + cls + '"><i></i>' + html + '</span>');
+  }
+  onTape = seen;
+  tape.innerHTML = items.join('');
+  tick.classList.toggle('none', !items.length);
+}
+
+/* ================= in numbers: the pool account as a short list ================= */
+function split(bps) {
+  if (bps === 5000) return 'half to the creator, half to the platform';
+  return pct((1e4 - bps) / 1e4) + ' to the creator, ' + pct(bps / 1e4) + ' to the platform';
+}
+function row(k, v) { return '<div class="f"><dt>' + k + '</dt><dd>' + v + '</dd></div>'; }
+function renderFacts() {
+  var p = POOL, st = ST, V = lam(p.virtualSol), G = lam(p.graduationSol), M = lam(p.graduationMcap), out = '';
+  var trades = EVENTS ? EVENTS.filter(function (e) { return e.kind === 'trade'; }).length : null;
+  var cO = lam(p.creatorFees), cP = lam(p.creatorFeesPaid), tO = lam(p.treasuryFees), tP = lam(p.treasuryFeesPaid);
+  // the first column is the pool, the second its money and keys
+  out += row('virtual SOL', fAmt(V) + ' SOL' + mute(st.graduated ? 'dropped at graduation' : 'sets where the price starts; never in the vault'));
+  out += row('graduation', st.graduated
+    ? esc(when(p.graduatedAt)) + mute(fTok(units(p.burned)) + ' tokens burned, same price, same pool')
+    : 'at a ' + fAmt(M) + ' SOL market cap' + mute(fSol(st.realSol) + ' of ' + fSol(G) + ' real SOL in, ' + fSol(Math.max(0, G - st.realSol)) + ' to go'));
+  out += row('market cap', fSol(p.marketCap) + ' SOL' + mute('on ' + fTok(units(Chain.SUPPLY - p.burned)) + ' tokens'));
+  out += row('in the pool', fTok(units(p.tokens)) + ' tokens' + mute('of the 1B made'));
+  out += row('volume', fSol(lam(p.volume)) + ' SOL' + mute(trades == null ? 'traded so far' : 'in ' + trades + ' trade' + (trades === 1 ? '' : 's')));
+  out += row('fee', (p.feeBps / 100) + '% of every trade' + mute(split(p.treasuryShareBps)));
+  out += row('fees owed', fSol(cO) + ' creator · ' + fSol(tO) + ' platform' + mute('SOL, waiting in the pool' + (cP + tP > 0 ? '; ' + fSol(cP) + ' and ' + fSol(tP) + ' paid out' : '; none claimed yet')));
+  out += row('opened', esc(when(p.openedAt)) + mute(esc(ago(p.openedAt)) + ' by ' + link('address', p.creator, esc(shortKey(p.creator)))));
+  out += row('mint', link('address', p.mint, esc(shortKey(p.mint))));
+  out += row('pool', link('address', p.address, esc(shortKey(p.address))));
+  $('#facts').innerHTML = out;
+}
+
+/* ================= every trade: newest first ================= */
+function ordered(events) {
+  // Transactions in one slot come back from the RPC in no set order, so the trades are chained
+  // instead: each one starts from the token reserve the one before it left.
+  var launch = events.filter(function (e) { return e.kind === 'launch'; });
+  var grads = events.filter(function (e) { return e.kind === 'graduation'; });
+  var rest = events.filter(function (e) { return e.kind !== 'trade' && e.kind !== 'launch' && e.kind !== 'graduation'; });
+  var left = events.filter(function (e) { return e.kind === 'trade'; }), chain = [], cur = Chain.SUPPLY;
+  function before(e) {
+    var pre = e.buy ? e.tokenReserve + e.tokens : e.tokenReserve - e.tokens;
+    if (e.graduated && e.buy) grads.forEach(function (g) { if (g.signature === e.signature) pre += g.burned; });
+    return pre;
+  }
+  while (left.length) {
+    var at = -1, best = null;
+    for (var i = 0; i < left.length; i++) {
+      var d = before(left[i]) - cur; if (d < 0n) d = -d;
+      if (best === null || d < best) { best = d; at = i; }
+      if (d === 0n) break;
+    }
+    var e = left.splice(at, 1)[0];
+    chain.push(e); cur = e.tokenReserve;
+    grads.forEach(function (g) { if (g.signature === e.signature) chain.push(g); });
+  }
+  grads.forEach(function (g) { if (chain.indexOf(g) < 0) chain.push(g); });
+  // claims and creator changes go after the last trade at or before their time
+  rest.forEach(function (r) {
+    var at = chain.length;
+    while (at > 0 && (chain[at - 1].time || 0) > (r.time || 0)) at--;
+    chain.splice(at, 0, r);
+  });
+  return launch.concat(chain);
+}
+// SOL per whole token: after a trade (from its reserves), at launch, after graduation
+function priceAt(e) { var x = (e.graduated ? 0 : lam(POOL.virtualSol)) + lam(e.realSol), t = units(e.tokenReserve); return t > 0 ? x / t : 0; }
+function launchPrice() { return lam(POOL.virtualSol) / units(Chain.SUPPLY); }
+function tr(cls, i, cells) { return '<tr class="' + cls + '" data-i="' + i + '">' + cells.map(function (c, j) { return '<td>' + (j === 1 ? '<i class="k"></i>' : '') + c + '</td>'; }).join('') + '</tr>'; }
+function renderHistory() {
+  var body = $('#rows'), note = $('#histNote');
+  if (!EVENTS) { body.innerHTML = ''; return; }
+  var rows = [], trades = 0;
+  EVENTS.forEach(function (e, i) {
+    var t = e.time ? txLink(e.signature, esc(ago(e.time))) : '';
+    if (e.kind === 'trade') { trades++; rows.push(tr(e.buy ? 'buy' : 'sell', i, [t, e.buy ? 'buy' : 'sell', fSol(lam(e.sol)), tok(units(e.tokens)), fPx(priceAt(e))])); }
+    else if (e.kind === 'launch') rows.push(tr('ev', i, [t, 'launch', '', '1B', fPx(launchPrice())]));
+    else if (e.kind === 'graduation') rows.push(tr('ev grad', i, [t, 'graduated', '−' + fAmt(lam(POOL.virtualSol)), '−' + fTok(units(e.burned)), fPx(lam(e.realSol) / units(e.tokenReserve))]));
+    else if (e.kind === 'claim') rows.push(tr('ev', i, [t, (e.creator ? 'creator' : 'platform') + ' claim', fSol(lam(e.amount)), '', '']));
+  });
+  body.innerHTML = rows.reverse().join('');
+  note.textContent = trades ? (EVENTS.length >= 100 ? 'The most recent 100 events.' : '') : 'No trades yet.';
+  note.hidden = !note.textContent;
+}
+function hover(i) { if (hi === i) return; hi = i; Array.prototype.forEach.call(document.querySelectorAll('#rows tr'), function (r) { r.classList.toggle('on', +r.getAttribute('data-i') === i); }); drawPath(); }
+$('#rows').addEventListener('mouseover', function (e) { var r = e.target.closest('tr'); if (r) hover(+r.getAttribute('data-i')); });
+$('#rows').addEventListener('mouseleave', function () { hover(-1); });
+$('#rows').addEventListener('focusin', function (e) { var r = e.target.closest('tr'); if (r) hover(+r.getAttribute('data-i')); });
+$('#rows').addEventListener('focusout', function () { hover(-1); });
+
+/* ================= the price path: flat pixel steps, one per trade, on the hole's pixel ================= */
+// a level per trade at the price it left: yellow after a buy, lilac after a sell, violet at launch and for a newer
+// read; the trade being quoted dotted at the end. The row under the pointer turns its step cream and the rest
+// darker. The scale is the prices', not from zero, so small steps show
+var pathCv = $('#pathCv'), pathBox = $('#pathBox');
+function pathPoints() {
+  var pts = [];
+  EVENTS.forEach(function (e, i) {
+    if (e.kind === 'launch') pts.push({ p: launchPrice(), kind: 'launch', i: i });
+    else if (e.kind === 'trade') pts.push({ p: priceAt(e), kind: e.buy ? 'buy' : 'sell', i: i });
+  });
+  // a pool read newer than its history: the price now goes on the end
+  if (!pts.length || Math.abs(pts[pts.length - 1].p / POOL.price - 1) > 1e-6) pts.push({ p: POOL.price, kind: 'now', i: -2 });
+  return pts;
+}
+function drawPath() {
+  var note = $('#pathNote');
+  if (!POOL || !EVENTS) { pathCv.style.width = pathCv.style.height = '0'; note.textContent = ''; return; }
+  var cw = pathBox.clientWidth, d = BH.devPx(PX);
+  if (!(cw > 0)) return;
+  var W = Math.max(24, Math.floor(cw / d)), H = Math.max(24, Math.min(60, Math.round(W * 0.48)));
+  var pts = pathPoints(), first = pts[0], q = Q && Q.q ? { p: Q.after.price, kind: 'quote', i: -3 } : null;
+  if (q) pts.push(q);
+  if (pts.length > W) pts = pts.slice(pts.length - W);
+  var lo = Infinity, top = -Infinity;
+  pts.forEach(function (p) { lo = Math.min(lo, p.p); top = Math.max(top, p.p); });
+  if (!(top - lo > lo * 1e-6)) { top *= 1.01; lo *= 0.99; }
+  var n = pts.length, sw = Math.max(1, Math.floor(W / n));
+  function Y(p) { return (H - 1) - Math.round((p - lo) / (top - lo) * (H - 1)); }
+  if (pathCv.width !== W || pathCv.height !== H) { pathCv.width = W; pathCv.height = H; }
+  pathCv.style.width = (W * d) + 'px'; pathCv.style.height = (H * d) + 'px';
+  var ctx = pathCv.getContext('2d'); if (!ctx) return;
+  ctx.clearRect(0, 0, W, H);
+  var qBuy = side === 'buy', picked = hi >= 0 && pts.some(function (p) { return p.i === hi; });
+  pts.forEach(function (p, k) {
+    var x = k * sw, y = Y(p.p), w = k === n - 1 ? W - x : sw, dotted = p.kind === 'quote', on = picked && p.i === hi;
+    var up = p.kind === 'buy' || (dotted && qBuy), down = !up && (p.kind === 'sell' || dotted);
+    ctx.fillStyle = on ? HEX[7] : picked ? (up ? HEX[4] : HEX[3]) : up ? HEX[6] : down ? HEX[5] : HEX[4];
+    function dot(xx, yy) { if (!dotted || (xx + yy) % 2 === 0) ctx.fillRect(xx, yy, 1, 1); }
+    if (k) { var yp = Y(pts[k - 1].p); for (var yy = Math.min(yp, y); yy <= Math.max(yp, y); yy++) dot(x, yy); }   // the step up or down
+    for (var xx = x; xx < x + w; xx++) dot(xx, y);                                                                // the level it left
+  });
+  var now = POOL.price;
+  note.textContent = 'SOL per 1M tokens, one step per trade: ' + fPx(first.p) + (first.kind === 'launch' ? ' at launch, ' : ' then, ') + fPx(now) + ' now' +
+    (q ? '; dotted, after this ' + side + ': ' + fPx(q.p) : '');
+}
+
+/* ================= trading ================= */
+function reservesOf(p) { return { virtualSol: p.virtualSol, realSol: p.realSol, tokens: p.tokens, graduationSol: p.graduationSol, graduated: p.graduated }; }
+function afterOf(a, burned) { var pr = Chain.priceOf(a, burned); return { realSol: lam(a.realSol), graduated: !!a.graduated, price: pr.price, mcap: pr.marketCap }; }
+function parseAmt(s) {
+  s = String(s || '').trim().toLowerCase().replace(/[\s_]/g, '');
+  s = /^\d{1,3}(,\d{3})+(\.\d*)?[kmb]?$/.test(s) ? s.replace(/,/g, '') : s.replace(',', '.');
+  var m = s.match(/^(\d*\.?\d*)([kmb]?)$/);
+  if (!m || m[1] === '' || m[1] === '.') return NaN;
+  return parseFloat(m[1]) * { '': 1, k: 1e3, m: 1e6, b: 1e9 }[m[2]];
+}
+function makeQuote() {
+  if (!POOL || !window.Chain) return { msg: POOL ? 'The trading code did not load.' : 'Reading the pool…' };
+  var v = parseAmt(amt.value);
+  if (!(v > 0)) return { msg: side === 'buy' ? 'Type how much SOL to spend.' : 'Type how many tokens to sell. 5m means five million.' };
+  var fee = POOL.feeBps, r = reservesOf(POOL);
+  if (side === 'buy') {
+    var lamports = BigInt(Math.round(v * 1e9));
+    if (lamports < 10000n) return { msg: 'Too small to trade.', bad: true };
+    if (WAL && lamports > WAL.sol) return { msg: 'Your wallet has ' + fSol(lam(WAL.sol)) + ' SOL.', bad: true };
+    var q = Chain.quoteBuy(r, lamports, fee);
+    if (q.tokensOut <= 0n) return { msg: 'Too small to trade.', bad: true };
+    return { side: 'buy', sol: v, q: q, minOut: q.tokensOut * (10000n - SLIP) / 10000n, after: afterOf(q.after, POOL.burned + q.burned) };
+  }
+  var u = (maxUnits != null && amt.value === maxText) ? maxUnits : BigInt(Math.round(v * 1e6));
+  var outside = Chain.SUPPLY - POOL.burned - POOL.tokens;
+  if (u <= 0n) return { msg: 'Too small to trade.', bad: true };
+  if (WAL && u > WAL.tokens) return { msg: WAL.tokens > 0n ? 'You hold ' + tok(units(WAL.tokens)) + ' of these tokens.' : 'This wallet holds none of these tokens.', bad: true };
+  if (u > outside) return { msg: 'Only ' + tok(units(outside)) + ' tokens are outside the pool.', bad: true };
+  var q2 = Chain.quoteSell(r, u, fee);
+  if (q2.solOut <= 0n) return { msg: 'Too small to trade.', bad: true };
+  return { side: 'sell', units: u, q: q2, minOut: q2.solOut * (10000n - SLIP) / 10000n, after: afterOf(q2.after, POOL.burned) };
+}
+function renderQuote() {
+  try { Q = makeQuote(); } catch (e) { report(e); Q = { msg: 'Could not quote that amount.', bad: true }; }
+  var t;
+  if (!Q.q) t = esc(Q.msg);
+  else if (Q.side === 'buy') {
+    t = 'You get <b>' + tok(units(Q.q.tokensOut)) + '</b> tokens, at least <b>' + tok(units(Q.minOut)) + '</b> or it stops (1% slippage). Fee <b>' + fSol(lam(Q.q.fee)) + '</b> SOL. ';
+    if (Q.q.graduates) t += 'This buy <b>graduates the coin</b>: the ' + fAmt(lam(POOL.virtualSol)) + ' virtual SOL drops out and ' + fTok(units(Q.q.burned)) + ' tokens burn, so the price does not jump. Same pool after.';
+    else t += 'Price after it: <b>' + fPx(Q.after.price) + '</b> per 1M.';
+  } else {
+    t = 'You get <b>' + fSol(lam(Q.q.solOut)) + '</b> SOL, at least <b>' + fSol(lam(Q.minOut)) + '</b> or it stops (1% slippage). Fee <b>' + fSol(lam(Q.q.fee)) + '</b> SOL. Price after it: <b>' + fPx(Q.after.price) + '</b> per 1M.';
+  }
+  // the quote is a live region: written only when its words change, so a read that changes nothing says nothing
+  var key = (Q.bad ? '!' : '') + t;
+  if (quoteEl._html !== key) { quoteEl._html = key; quoteEl.classList.toggle('bad', !!Q.bad); quoteEl.innerHTML = t; }
+  drawPath();
+  paintHold();
+}
+function holdLabel(t) { holdTxt.textContent = t; holdFill.textContent = t; }   // the yellow fill carries the same words, dark
+function paintHold() {
+  var w = window.Wallet && Wallet.current;
+  holdBtn.classList.toggle('connect', !w);
+  holdBtn.classList.toggle('busy', busy);
+  if (busy) { holdLabel('Working…'); holdBtn.disabled = true; holdBtn.classList.remove('ready'); return; }
+  if (!w) { holdLabel('Connect a wallet to ' + side); holdBtn.disabled = !POOL; holdBtn.classList.remove('ready'); return; }
+  holdBtn.disabled = !(Q && Q.q);
+  holdBtn.classList.toggle('ready', !holdBtn.disabled);
+  holdLabel(holdBtn.classList.contains('holding') ? 'Keep holding…' : 'Hold to ' + side);
+}
+function paintHoldings() {
+  var w = window.Wallet && Wallet.current, el = $('#holdings');
+  maxBtn.disabled = !(w && WAL);
+  if (!w) { el.textContent = 'Connect a wallet to see what you hold.'; return; }
+  if (!WAL) { el.textContent = 'Reading your wallet…'; return; }
+  el.innerHTML = 'You hold <b>' + fSol(lam(WAL.sol)) + '</b> SOL and <b>' + tok(units(WAL.tokens)) + '</b> of this coin.';
+}
+function setSide(s) {
+  if (busy || s === side) return;
+  side = s;
+  Array.prototype.forEach.call(document.querySelectorAll('[data-side]'), function (b) { b.setAttribute('aria-pressed', String(b.getAttribute('data-side') === side)); });
+  $('#unit').textContent = side === 'buy' ? 'SOL' : 'tokens';
+  $('#amtLabel').textContent = side === 'buy' ? 'Amount of SOL to spend' : 'Number of tokens to sell';
+  maxText = maxUnits = null;
+  amt.value = side === 'buy' ? '0.1' : (WAL && WAL.tokens > 0n ? String(Math.floor(units(WAL.tokens) / 2)) : '1000000');
+  noteEl.textContent = '';
+  renderQuote();
+}
+Array.prototype.forEach.call(document.querySelectorAll('[data-side]'), function (b) { b.addEventListener('click', function () { setSide(b.getAttribute('data-side')); }); });
+amt.addEventListener('input', function () { if (amt.value !== maxText) maxText = maxUnits = null; renderQuote(); });
+maxBtn.addEventListener('click', function () {
+  if (!WAL) return;
+  if (side === 'buy') {
+    var keep = 10000000n, spend = WAL.sol > keep ? WAL.sol - keep : 0n; // keeps 0.01 SOL for the network fee and the token account
+    maxText = String(Number(spend) / 1e9); maxUnits = null;
+    noteEl.textContent = 'Max keeps 0.01 SOL back for the network fee and your token account.';
+  } else { maxUnits = WAL.tokens; maxText = String(Number(WAL.tokens) / 1e6); noteEl.textContent = ''; }
+  amt.value = maxText; renderQuote(); amt.focus();
+});
+
+/* hold to confirm */
+var holdT = 0;
+function holdStart(e) {
+  if (e.type === 'keydown') { if (e.key !== ' ' && e.key !== 'Enter') return; if (e.repeat) { e.preventDefault(); return; } }
+  if (e.type === 'pointerdown' && e.pointerType === 'mouse' && e.button !== 0) return;
+  if (holdBtn.disabled || busy) return;
+  e.preventDefault();
+  if (!(window.Wallet && Wallet.current)) { connectWallet(); return; }
+  if (holdBtn.classList.contains('holding')) return;
+  holdBtn.classList.add('holding'); paintHold();
+  holdT = setTimeout(function () { holdBtn.classList.remove('holding'); execute(); }, HOLD_MS);
+}
+function holdStop() { if (!holdBtn.classList.contains('holding')) return; clearTimeout(holdT); holdBtn.classList.remove('holding'); paintHold(); }
+holdBtn.addEventListener('pointerdown', holdStart);
+holdBtn.addEventListener('keydown', holdStart);
+['pointerup', 'pointerleave', 'pointercancel', 'keyup', 'blur'].forEach(function (n) { holdBtn.addEventListener(n, holdStop); });
+holdBtn.addEventListener('click', function (e) { e.preventDefault(); });
+holdBtn.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+
+function note(text, bad) { noteEl.classList.toggle('bad', !!bad); noteEl.textContent = text; }
+function noteHTML(html, bad) { noteEl.classList.toggle('bad', !!bad); noteEl.innerHTML = html; }
+function connectWallet() {
+  if (!window.Wallet) { note('The wallet code did not load.', true); return; }
+  if (!window.Chain || !Chain.wallets().length) { note('No Solana wallet in this browser. Phantom, Solflare or Backpack work.', true); return; }
+  Wallet.connect().catch(function (err) { note(err && err.message ? err.message : 'The wallet did not connect.', true); });
+}
+function sendError(e) {
+  var m = String(e && e.message || e || '');
+  if ((e && e.code === 4001) || /reject|denied|declin|cancel/i.test(m)) return 'You did not sign. Nothing was sent.';
+  if (m === 'timeout') return 'Devnet did not answer in time. Check your wallet\'s activity before trying again.';
+  var hex = m.match(/custom program error: 0x([0-9a-f]+)/i);
+  if (hex) return 'It did not go through: ' + Chain.explain({ err: { InstructionError: [0, { Custom: parseInt(hex[1], 16) }] } }) + '.';
+  if (/insufficient/i.test(m)) return 'Not enough SOL for this trade and its fees.';
+  if (/blockhash|expired/i.test(m)) return 'It took too long to sign and expired. Nothing was sent; try again.';
+  return 'It did not go through: ' + (m || 'unknown error') + '.';
+}
+async function execute() {
+  var w = window.Wallet && Wallet.current;
+  if (busy || !w || !POOL) return;
+  busy = true; paintHold();
+  var sig = null;
+  try {
+    note('Reading the pool again for an exact quote…');
+    try { var fresh = await withTimeout(Chain.readPool(POOL.mint), 12000); if (fresh) { PINNED = false; applyPool(fresh); } } catch (e) { /* quote on what we have */ }
+    var q = makeQuote();
+    if (!q.q) { note(q.msg, true); return; }
+    var built = side === 'buy'
+      ? await Chain.buildBuy({ pool: POOL, owner: w.publicKey, sol: q.sol, slippageBps: Number(SLIP) })
+      : await Chain.buildSell({ pool: POOL, owner: w.publicKey, tokens: q.units, slippageBps: Number(SLIP) });
+    note('Asking devnet whether it would go through…');
+    var sim = await withTimeout(Chain.simulate(built, w.publicKey), 15000);
+    if (!sim.ok) { note('Devnet says it would fail: ' + sim.error + '. Nothing was sent.', true); return; }
+    note('Devnet says it goes through. Confirm in ' + (w.name || 'your wallet') + '.');
+    sig = await Chain.send(built, w);
+    noteHTML('Done: ' + link('tx', sig, 'the signature ' + esc(shortKey(sig))) + '. Reading the new pool…');
+    await refresh(true);
+    noteHTML('Done: ' + link('tx', sig, 'the signature ' + esc(shortKey(sig))) + '. The hole is the pool after it.');
+  } catch (e) {
+    if (e && e.signature) noteHTML(esc(sendError(e)) + ' ' + link('tx', e.signature, 'See it on the explorer'), true);
+    else note(sendError(e), true);
+  } finally { busy = false; paintHold(); }
+}
+
+/* ================= reading devnet ================= */
+function changed(a, b) { return !b || a.realSol !== b.realSol || a.tokens !== b.tokens || a.graduated !== b.graduated || a.volume !== b.volume || a.creatorFees !== b.creatorFees || a.treasuryFees !== b.treasuryFees || a.creatorFeesPaid !== b.creatorFeesPaid || a.treasuryFeesPaid !== b.treasuryFeesPaid; }
+function applyPool(p) {
+  var first = !POOL || String(POOL.mint) !== String(p.mint), diff = first || changed(p, POOL);
+  POOL = p; lastRead = Date.now(); readFail = 0;
+  if (!diff) { paintStatus(); return false; }
+  showState(first);
+  renderHero(); renderFacts(); renderQuote();
+  return true;
+}
+async function loadHistory() {
+  var ev = null, mint = POOL && String(POOL.mint);
+  for (var attempt = 0; attempt < 3 && !ev && mint; attempt++) {
+    if (attempt) await new Promise(function (ok) { setTimeout(ok, 1500 * attempt); });
+    try { ev = await withTimeout(Chain.history(mint), 20000); } catch (e) { ev = null; }
+  }
+  if (!POOL || String(POOL.mint) !== mint) return false;   // another coin came in meanwhile (a retry)
+  if (!ev) { if (!EVENTS) $('#histNote').textContent = 'Devnet did not send the trades. They will be read again in 20 s.'; return false; }
+  EVENTS = ordered(ev);
+  renderHistory(); renderFacts(); drawPath(); renderTape();
+  return true;
+}
+async function readWal() {
+  var w = window.Wallet && Wallet.current;
+  if (!w || !POOL) { WAL = null; paintHoldings(); return; }
+  var was = WAL;
+  try { var r = await withTimeout(Chain.readWallet(w.publicKey, POOL.mint), 12000); if (Wallet.current === w) WAL = r; }
+  catch (e) { if (!WAL) $('#holdings').textContent = 'Could not read your wallet from devnet. Trying again in 20 s.'; return; }
+  paintHoldings();
+  // the quote depends on the wallet only through its SOL and its tokens
+  if (!was || !WAL || was.sol !== WAL.sol || was.tokens !== WAL.tokens) renderQuote();
+}
+// one read at a time. A forced read asked for during another one (after a trade, while the history is still being
+// retried) waits for it and then reads again, so what it shows is the pool after the trade
+var inflight = null;
+function refresh(force) {
+  if (!POOL) return Promise.resolve();
+  if (inflight) return force ? inflight.then(function () { return refresh(true); }) : inflight;
+  inflight = readAll(force).finally(function () { inflight = null; });
+  return inflight;
+}
+async function readAll(force) {
+  var moved = false;
+  try { var p = await withTimeout(Chain.readPool(POOL.mint), 12000); if (p) { PINNED = false; moved = applyPool(p); } }
+  catch (e) { readFail++; paintStatus(); }
+  if (moved || force || !EVENTS) await loadHistory();
+  if (window.Wallet && Wallet.current) await readWal();
+}
+setInterval(function () { if (!document.hidden && !busy && POOL && !PINNED) refresh(false).catch(report); }, REFRESH_MS);
+function onWallet() { WAL = null; paintHoldings(); renderQuote(); readWal(); }
+if (window.Wallet) Wallet.on(onWallet);
+var again = $('#again');
+again.addEventListener('click', function () {
+  if (!POOL || busy || inflight) return;
+  again.disabled = true; setText('#status', 'reading…');
+  refresh(true).catch(report).finally(function () { again.disabled = false; paintStatus(); });
+});
+
+async function boot() {
+  var prog = window.NET && NET.program, pl = $('#progLink');
+  if (prog && window.NET && NET.explorer) pl.href = NET.explorer('address', prog); else pl.removeAttribute('href');
+  if (!chainOk()) { fail('The chain code did not load.', '<a href="/coins">See all coins</a>'); return; }
+  var p = null, busiest = false;
+  POOL = null; EVENTS = null; onTape = null; PINNED = false;   // nothing is read on a pool until this one is in
+  document.body.classList.remove('nocoin'); document.body.classList.add('reading');
+  if (holeStill) makeHole();                           // moving again after a failed read and "try again"
+  $('#name').className = 'wait'; $('#name').textContent = 'Reading the coin from devnet…'; $('#msg').hidden = true;
+  try {
+    if (mintParam) {
+      try { new Chain.PublicKey(mintParam); } catch (e) { fail('That is not a coin address.', 'The link has <code>' + esc(mintParam.slice(0, 60)) + '</code>. <a href="/coins">See all coins</a>'); return; }
+      p = await withTimeout(Chain.readPool(mintParam), 15000);
+      if (!p) { fail('No coin at this address on devnet.', '<a href="/coins">See all coins</a> · <a href="/coin">the busiest one</a>'); return; }
+    } else {
+      var pools = await withTimeout(Chain.listPools(), 15000);
+      if (!pools.length) { fail('No coins on devnet yet.', 'Only the team launches for now. <a href="/coins">The coin board</a>'); return; }
+      pools.sort(function (a, b) { return Number(b.volume) - Number(a.volume); });
+      p = pools[0]; busiest = true;
+    }
+  } catch (e) {
+    report(e);
+    fail('Devnet did not answer.', 'It can be slow.<br><button type="button" class="q" id="retry">try again</button>');
+    var rb = $('#retry'); if (rb) rb.addEventListener('click', boot);
+    return;
+  }
+  document.body.classList.remove('reading');
+  applyPool(p); renderHead(busiest); layout();          // the name's height moves the hole down
+  paintHoldings(); readWal();
+  loadHistory();
+}
+
+/* ================= sizes: one pixel for the hole and the price path, in whole device pixels ================= */
+var tileUrl = BH.starTile(128), heroEl = $('.hero');
+var lastW = 0, lastH = 0;
+function viewH() { return Math.round((window.visualViewport && visualViewport.height) || innerHeight || document.documentElement.clientHeight); }
+function layout() {
+  var cw = document.documentElement.clientWidth, vh = viewH(), phone = cw < 760;
+  lastW = cw; lastH = vh; PHONE = phone;
+  // 4 css px a pixel at most, so the hole is one size from a laptop up; it shrinks to the column's width, and to the
+  // first screen's height down to 3 (the numbers and the line under it need about 120 px)
+  var availW = $('#main').clientWidth;
+  var top = heroCv.getBoundingClientRect().top + (window.scrollY || 0), availH = vh - top - 120;
+  PX = Math.max(2, Math.min(4, Math.floor(availW / HW), Math.max(3, Math.floor(availH / HH))));
+  var d = hole.size(PX), wide = phone ? '' : (HW * d) + 'px';
+  $('#nums').style.maxWidth = $('#ctl').style.maxWidth = wide;    // under the hole's two edges; a phone gives them the column
+  // the sky behind: the hole's own stars, tiled at its pixel, so the canvas has no edge
+  heroEl.style.backgroundImage = 'url(' + tileUrl + ')'; heroEl.style.backgroundSize = 128 * BH.devPx(PX) + 'px';
+  renderHero(); drawPath();
+}
+// re-lay out when the width changes (a phone's address bar showing or hiding only changes the height: ignored there)
+var rz = 0;
+function maybeLayout() {
+  clearTimeout(rz);
+  rz = setTimeout(function () { var cw = document.documentElement.clientWidth, vh = viewH(); if (cw !== lastW || (cw >= 760 && Math.abs(vh - lastH) > 40)) layout(); }, 140);
+}
+addEventListener('resize', maybeLayout);
+addEventListener('load', maybeLayout);
+if (window.visualViewport) visualViewport.addEventListener('resize', maybeLayout);
+// the name's height (and so where the hole starts) is known once the fonts are in
+try { if (document.fonts && document.fonts.ready) document.fonts.ready.then(function () { layout(); }); } catch (e) {}
+// a window moved to a screen with another pixel ratio: whole device pixels again
+(function watchRatio() {
+  try { matchMedia('(resolution: ' + (window.devicePixelRatio || 1) + 'dppx)').addEventListener('change', function () { layout(); watchRatio(); }, { once: true }); } catch (e) {}
+})();
+
+// for checking the page by hand from the console. Nothing here sends anything: show(p) shows a pool the page did not
+// read, simBuy(sol) shows a copy of this pool after a buy (Chain.quoteBuy), wallet(w) puts in a wallet object as if it
+// had connected (for checks, one whose signTransaction refuses)
+window.__coin = {
+  pool: function () { return POOL; },
+  events: function () { return EVENTS; },
+  show: function (p) { PINNED = true; applyPool(p); renderHead(false); paintStatus(); return p; },
+  simBuy: function (solIn) {
+    if (!POOL) return null;
+    var lamports = BigInt(Math.round(solIn * 1e9)), q = Chain.quoteBuy(reservesOf(POOL), lamports, POOL.feeBps), a = q.after;
+    var toT = q.fee * BigInt(POOL.treasuryShareBps) / 10000n;
+    var p = Object.assign({}, POOL, { realSol: a.realSol, tokens: a.tokens, graduated: a.graduated, burned: POOL.burned + q.burned, volume: POOL.volume + lamports,
+      treasuryFees: POOL.treasuryFees + toT, creatorFees: POOL.creatorFees + q.fee - toT });
+    if (a.graduated && !POOL.graduated) p.graduatedAt = Math.floor(Date.now() / 1000);
+    var pr = Chain.priceOf(a, p.burned); p.price = pr.price; p.marketCap = pr.marketCap;
+    p.progress = p.graduated ? 1 : Number(p.realSol) / Number(p.graduationSol);
+    return this.show(p);
+  },
+  quote: function (v) { amt.value = String(v); renderQuote(); return quoteEl.textContent; },
+  side: setSide,
+  wallet: function (w) {
+    if (!window.Wallet) return;
+    Wallet.current = w || null;
+    Array.prototype.forEach.call(document.querySelectorAll('[data-wallet]'), function (b) { b.textContent = w ? shortKey(w.publicKey) : 'Connect wallet'; b.classList.toggle('on', !!w); });
+    onWallet();
+  },
+  boot: boot,
+  get hole() { return hole; },
+  state: function () {
+    var h = hole.hole;
+    return { look: LOOK, state: ST, shown: hole.shown, busy: hole.busy, graduated: hole.graduated, jet: h.jet, rOut: h.rOut, theta: h.theta, blobs: h.blobs.length,
+      px: PX, canvas: [heroCv.width, heroCv.height, heroCv.style.width, heroCv.style.height], events: EVENTS ? EVENTS.length : null, lastRead: lastRead, pinned: PINNED,
+      busyTrade: busy, tape: tape.children.length, overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth };
+  },
+  perf: function () { return hole.perf(); },
+  layout: layout,
+  freeze: function (t, theta) { window.__frozen = true; hole.stop(); if (t != null) hole.hole.t = t; if (theta != null) hole.hole.theta = theta; hole.hole.paint(); }
+};
+layout();
+paintHold();
+boot();
+}
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,1099 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>forma launch</title>
+<meta name="description" content="Launch a coin on forma (working name): pick its settings, name it, one pool for life. Team-only for now, on Solana devnet.">
+<script>window.__errors = []; addEventListener('error', function (e) { __errors.push(String(e.message || e)); }); addEventListener('unhandledrejection', function (e) { __errors.push('promise: ' + String(e.reason && e.reason.message || e.reason)); });</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anybody:wdth,wght@50..150,100..900&family=Martian+Mono:wdth,wght@75..112.5,100..800&display=swap">
+<link rel="stylesheet" href="/assets/forma.css">
+<style>
+/* ===== launch: the new coin as its own black hole (assets/bh.js), beside the form that sets it up; the shared
+   look is assets/forma.css ===== */
+[hidden] { display: none !important; }
+.still .tick .tag i, .still .tape .new { animation: none; }   /* ?motion=reduce, as forma.css does for the system setting */
+
+/* ---------- the sky: the hole's own stars behind the preview only, so the canvas never shows an edge while the
+   preview stays in view, and the form's small text has none behind it. Wide, they fill the preview's column down
+   the whole form (layout() sets --sky-w to the middle of the gap); narrow, they fade out just under the preview
+   (layout() sets --sky-h) ---------- */
+.l-main > * { position: relative; z-index: 1; }
+.l-sky::before { content: ''; position: absolute; left: 0; top: 0; width: var(--sky-w, 100%); height: var(--sky-h, calc(100% + 128px)); background-image: var(--stars, none); background-size: var(--stars-size, 384px); background-repeat: repeat; image-rendering: pixelated; -webkit-mask-image: linear-gradient(#000 calc(100% - var(--sky-fade, 200px)), transparent); mask-image: linear-gradient(#000 calc(100% - var(--sky-fade, 200px)), transparent); pointer-events: none; z-index: -1; }
+.l-sky { isolation: isolate; }
+
+/* ---------- the preview: the name, the hole, the numbers its settings give; it stays in view while the form scrolls ---------- */
+.l-grid { display: grid; grid-template-columns: minmax(0, 1fr) 480px; gap: 48px clamp(40px, 5vw, 72px); align-items: start; padding-top: 10px; padding-bottom: 0; }
+.l-stage { position: sticky; top: 16px; text-align: center; min-width: 0; }
+.l-stage .kick { margin-bottom: 14px; }
+.kick.live::before { content: ''; display: inline-block; width: 8px; height: 8px; margin-right: 10px; background: var(--f-yellow); vertical-align: .05em; }
+/* one line, whatever the name: the hole under it never moves while it is typed */
+.l-stage h1 { font-size: clamp(30px, 3.6vw, 52px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 4px .06em; }
+.l-stage h1.long { font-size: clamp(24px, 2.6vw, 38px); }
+.l-stage h1.longer { font-size: clamp(19px, 1.9vw, 28px); }
+.l-stage .ph { color: var(--f-mute); }
+.pv-sym { margin-top: 10px; font-size: 12px; letter-spacing: .08em; min-height: 1.65em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.stage { display: flex; justify-content: center; margin-top: clamp(4px, 1.4vh, 16px); }
+/* four number blocks under the hole's two edges, then one line: what the picture shows */
+.nums { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin: 12px auto 0; text-align: left; }
+.nums .n b { font-size: clamp(20px, 1.9vw, 28px); }
+.nums .n span { white-space: normal; }
+.nums.off b { color: var(--f-mute); }
+.ctl { margin: 14px auto 0; padding-top: 11px; border-top: 1px dashed var(--f-line); font-size: 11px; color: var(--f-mute); text-align: left; min-height: calc(1.65em + 12px); }
+.ctl.bad { color: var(--f-yellow); }
+
+/* ---------- the form: steps on the dark ground, a dashed line between them ---------- */
+.l-form { min-width: 0; padding-top: 4px; }
+.blk { margin-top: 44px; padding-top: 22px; border-top: 1px dashed var(--f-line2); }
+form > .blk:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
+.lede { margin-top: 8px; font: 850 22px/1.1 var(--f-head); font-stretch: 118%; text-transform: uppercase; }
+
+/* the four ready-made settings: outlined cards, as on the landing */
+.presets { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 22px; }
+.preset { display: block; width: 100%; min-width: 0; text-align: left; }
+.preset .card { padding: 14px 14px 16px; }
+.preset canvas { margin: 0 auto 12px; }
+.preset dl { display: grid; gap: 3px; margin: 0; font-size: 11px; }
+.preset dl div { display: flex; justify-content: space-between; gap: 8px; }   /* each row its own two ends, so a narrow card still fits the longest pair */
+.preset dt { color: var(--f-mute); }
+.preset dt { white-space: nowrap; }
+.preset dd { margin: 0; text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.preset:hover:not(:disabled) .card { background: var(--f-line2); }
+.preset[aria-pressed="true"] .card, .preset[aria-pressed="true"]:hover .card { background: var(--f-yellow); }
+.preset:disabled { cursor: default; }
+
+.fld { margin-top: 24px; }
+.fld-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; font-size: 11px; color: var(--f-mute); }
+.fld-head label { color: var(--f-cream); }
+.fld-head span { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.ct.over { color: var(--f-yellow); }
+.inp { display: flex; align-items: center; gap: 12px; margin-top: 6px; padding-bottom: 6px; border-bottom: 2px solid var(--f-line2); }
+.inp:focus-within { border-bottom-color: var(--f-yellow); }
+.inp.bad { border-bottom-color: var(--f-yellow); border-bottom-style: dashed; }   /* a field that does not pass */
+.inp input { flex: 1; min-width: 0; width: 100%; font: 500 24px/1.25 var(--f-mono); font-stretch: 87.5%; letter-spacing: -.02em; font-variant-numeric: tabular-nums; color: var(--f-cream); caret-color: var(--f-yellow); background: none; border: 0; border-radius: 0; padding: 0; outline: none; }
+.inp.title input { font-family: var(--f-head); font-weight: 800; font-stretch: 118%; font-size: 28px; letter-spacing: 0; }
+.inp.small input { font-size: 13px; font-weight: 400; letter-spacing: 0; padding: 7px 0 4px; }
+.inp input::placeholder { color: var(--f-mute); opacity: .55; }
+.inp input:read-only { color: var(--f-mute); }
+.inp .unit { font-size: 12px; color: var(--f-mute); }
+/* − and +: two small outlined squares with pixel corners */
+.st { --s: 2px; position: relative; isolation: isolate; flex: none; width: 30px; height: 30px; background: var(--f-line2); clip-path: var(--step); font-size: 15px; line-height: 30px; text-align: center; -webkit-user-select: none; user-select: none; touch-action: manipulation; }
+.st::before { content: ''; position: absolute; inset: 2px; background: var(--f-bg); clip-path: var(--step); z-index: -1; }
+.st:hover:not(:disabled), .st:focus-visible { background: var(--f-yellow); }
+.st:disabled { background: var(--f-line); color: var(--f-mute); cursor: default; }
+.msg { font-size: 11px; line-height: 1.6; color: var(--f-mute); margin-top: 8px; min-height: 1.6em; overflow-wrap: anywhere; }
+.msg b { color: var(--f-cream); font-weight: 600; }
+.msg.bad { color: var(--f-yellow); }
+.msg.bad::before { content: ''; display: inline-block; width: 8px; height: 8px; margin-right: 9px; background: var(--f-yellow); vertical-align: .02em; }
+.msg small { display: block; font-size: 10.5px; margin-top: 3px; color: var(--f-mute); }
+.msg img { width: 28px; height: 28px; object-fit: cover; vertical-align: middle; margin-right: 10px; image-rendering: auto; }
+.fixed { margin-top: 24px; font-size: 11px; color: var(--f-mute); max-width: 46ch; }
+.fixed b { color: var(--f-cream); font-weight: 600; }
+
+/* ---------- what it takes, and the launch ---------- */
+.need-n { margin-top: 10px; font-size: 32px; font-weight: 500; letter-spacing: -.02em; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.need-n small { font-size: 11px; letter-spacing: 0; font-weight: 400; color: var(--f-mute); margin-left: 10px; }
+.parts { margin-top: 8px; font-size: 11px; color: var(--f-mute); }
+.parts b, .wal b, .gate b, .status b { color: var(--f-cream); font-weight: 600; }
+.wal { margin-top: 12px; font-size: 12px; }
+.wal .sh { color: var(--f-yellow); text-decoration: underline; text-underline-offset: 4px; }
+.row { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; }
+.wnote { font-size: 11px; color: var(--f-mute); min-height: 1.65em; text-align: right; }
+.gate { margin-top: 6px; font-size: 12px; color: var(--f-mute); max-width: 48ch; }
+/* hold to confirm: an outlined pixel button that fills with yellow in steps while held (as on the coin page) */
+.hold { --s: 3px; --edge: var(--f-line2); position: relative; isolation: isolate; display: flex; align-items: center; justify-content: center; width: 100%; height: 54px; margin-top: 18px; background: var(--edge); clip-path: var(--step); color: var(--f-cream); font: 850 13px/1 var(--f-head); font-stretch: 125%; text-transform: uppercase; letter-spacing: .06em; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; touch-action: manipulation; }
+.hold::before { content: ''; position: absolute; inset: 2px; background: var(--f-bg); clip-path: var(--step); z-index: -1; }
+.hold.ready { --edge: var(--f-yellow); }
+.hold i { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: var(--f-yellow); color: var(--f-bg); font-style: normal; clip-path: inset(0 100% 0 0); }
+.hold.holding i { clip-path: inset(0 0 0 0); transition: clip-path .9s steps(12, end); }
+.hold.busy::before { background: var(--f-deep); }
+.hold:disabled { cursor: default; }
+.hold:disabled:not(.busy) { --edge: var(--f-line); color: var(--f-mute); }
+.hold.team:disabled { --edge: var(--f-line2); color: var(--f-cream); }
+/* keyboard focus, inside the pixel corners (they clip an outline): a yellow edge, a dark line, a yellow line */
+.hold:focus-visible { --edge: var(--f-yellow); }
+.hold:focus-visible::before { box-shadow: inset 0 0 0 2px var(--f-bg), inset 0 0 0 4px var(--f-yellow); }
+#gateKey { margin-top: 14px; font-size: 12px; }
+.status { margin-top: 12px; font-size: 11px; line-height: 1.6; color: var(--f-mute); min-height: 1.6em; overflow-wrap: anywhere; }
+.status a { color: var(--f-cream); }
+
+.done h2 { font-size: clamp(30px, 3vw, 40px); }
+.done .say { margin-top: 12px; font-size: 12px; color: var(--f-mute); max-width: 46ch; }
+.done .say b { color: var(--f-cream); font-weight: 600; }
+.addr { display: grid; gap: 14px; margin-top: 22px; }
+.addr p { font-size: 11px; color: var(--f-mute); }
+.addr code { display: block; margin-top: 2px; font: inherit; font-size: 12px; word-break: break-all; }
+.addr a { font-size: 11px; color: var(--f-mute); text-underline-offset: 4px; }
+.keys { display: flex; flex-wrap: wrap; align-items: center; gap: 16px 28px; margin-top: 26px; font-size: 12px; }
+
+/* ---------- what every coin gets: a flat list, two columns ---------- */
+#gets { padding-bottom: 0; }
+.facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: repeat(4, auto); grid-auto-flow: column; column-gap: clamp(32px, 6vw, 96px); margin: clamp(36px, 5vw, 56px) 0 0; }
+.f { display: grid; grid-template-columns: 10em minmax(0, 1fr); gap: 16px; padding: 14px 0 15px; border-top: 1px solid var(--f-line); }
+.f:nth-child(4), .f:last-child { border-bottom: 1px solid var(--f-line); }
+.f dt { color: var(--f-mute); font-size: 11px; line-height: 1.95; }
+.f dd { margin: 0; font-size: 13px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.f dd .mute { display: block; font-size: 11px; }
+.f dd .y { display: block; font-size: 11px; margin-top: 2px; }
+.foot { margin-top: clamp(72px, 12vw, 140px); }
+
+/* a small laptop: the preview's column is narrow, so its four numbers go two by two */
+@media (min-width: 1001px) and (max-width: 1180px) {
+  .nums { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 16px; }
+}
+@media (max-width: 1000px) {
+  .l-grid { grid-template-columns: minmax(0, 1fr); }
+  .l-stage { position: static; }
+  .l-form { width: 100%; max-width: 560px; justify-self: center; }
+}
+@media (max-width: 760px) {
+  .l-grid { gap: 40px; padding-top: 4px; }
+  .l-stage .kick { margin-bottom: 10px; }
+  .l-stage h1 { font-size: clamp(28px, 8.6vw, 40px); }
+  .l-stage h1.long { font-size: clamp(22px, 6.4vw, 30px); }
+  .l-stage h1.longer { font-size: clamp(17px, 4.8vw, 22px); }
+  .nums { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 16px; }
+  .nums .n b { font-size: 22px; }
+  .nums .n span { font-size: 10.5px; }
+  .lede { font-size: 20px; }
+  .inp input { font-size: 22px; }
+  .inp.title input { font-size: 25px; }
+  .need-n { font-size: 28px; }
+  .facts { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; grid-auto-flow: row; }
+  .f:nth-child(4):not(:last-child) { border-bottom: 0; }
+  .f { grid-template-columns: 8.6em minmax(0, 1fr); gap: 12px; }
+  .f dd { font-size: 12px; }
+}
+@media (max-width: 560px) {
+  .tick .tag { padding-left: 16px; }
+  .presets { gap: 10px; }
+  .preset .card { padding: 12px 12px 14px; }
+  .preset dl { font-size: 10px; gap: 2px; }
+}
+@media (max-width: 359px) { .presets { grid-template-columns: minmax(0, 1fr); } }
+</style>
+<script defer src="/assets/bh.js"></script>
+<script defer src="/net.js"></script>
+<script defer src="/vendor/chain.js"></script>
+<script defer src="/assets/wallet.js"></script>
+</head>
+<body>
+
+<!-- the strip: the latest launches on devnet, newest first, with the settings each one picked -->
+<div class="tick" role="region" aria-label="The latest launches on devnet, newest first">
+  <span class="tag"><i></i>devnet</span>
+  <div class="tape" id="tape"><span>reading devnet…</span></div>
+</div>
+
+<header class="top">
+  <a class="brand" href="/" aria-label="forma, home"><canvas id="sym" aria-hidden="true"></canvas><b>forma</b></a>
+  <nav class="nav" aria-label="Site">
+    <a href="/#how"><span class="long">how it works</span><span class="short">how</span></a>
+    <a href="/coins">coins</a>
+    <a class="btn sm" href="/launch" aria-current="page">launch</a>
+  </nav>
+</header>
+
+<main class="l-main" id="top">
+  <div class="l-sky" id="sky">
+  <div class="wrap l-grid">
+    <!-- ===== the preview: the disk is the real SOL a first buy puts in, full size at graduation; the jets are graduation ===== -->
+    <section class="l-stage" id="stageCol" aria-label="Preview of the new coin">
+      <p class="kick" id="kick">new coin · preview</p>
+      <h1 class="ph" id="pvName">Your coin</h1>
+      <p class="pv-sym ph" id="pvSym">SYMBOL</p>
+      <div class="stage" id="stage" role="img" aria-label="The new coin as a black hole."><canvas id="cv" aria-hidden="true"></canvas></div>
+      <div class="nums" id="nums">
+        <div class="n"><b id="nPx">0.0300</b><span class="l1">SOL / 1M tokens</span><span class="mute">at open</span></div>
+        <div class="n"><b id="nG">82.25</b><span class="l1">SOL to graduate</span><span class="mute">real, from buys</span></div>
+        <div class="n"><b id="nM">420</b><span class="l1">SOL market cap</span><span class="mute" id="nMx">graduates, 14×</span></div>
+        <div class="n"><b id="nB">71.43M</b><span class="l1">tokens burn</span><span class="mute">at graduation</span></div>
+      </div>
+      <p class="ctl" id="legend" aria-hidden="true">disk: empty until the first buy, full at graduation</p>
+    </section>
+
+    <div class="l-form">
+      <form id="form" novalidate autocomplete="off">
+        <section class="blk" aria-labelledby="set-h">
+          <p class="kick" id="set-h">01 · settings</p>
+          <p class="lede">Set at launch, kept for life.</p>
+          <div class="presets" id="presets" role="group" aria-label="Ready-made settings"></div>
+
+          <div class="fld">
+            <div class="fld-head"><label for="fV">virtual SOL</label><span id="bV">1 to 1,000 SOL</span></div>
+            <div class="inp" id="iV"><input id="fV" name="virtual" inputmode="decimal" spellcheck="false" maxlength="24" aria-describedby="mV"><span class="unit">SOL</span><button type="button" class="st" data-f="v" data-d="-1" aria-label="Less virtual SOL">−</button><button type="button" class="st" data-f="v" data-d="1" aria-label="More virtual SOL">+</button></div>
+            <p class="msg" id="mV" aria-live="polite"></p>
+          </div>
+          <div class="fld">
+            <div class="fld-head"><label for="fM">graduation market cap</label><span id="bM">60 to 3,000 SOL</span></div>
+            <div class="inp" id="iM"><input id="fM" name="graduation" inputmode="decimal" spellcheck="false" maxlength="24" aria-describedby="mM"><span class="unit">SOL</span><button type="button" class="st" data-f="m" data-d="-1" aria-label="Lower graduation market cap">−</button><button type="button" class="st" data-f="m" data-d="1" aria-label="Higher graduation market cap">+</button></div>
+            <p class="msg" id="mM" aria-live="polite"></p>
+          </div>
+          <div class="fld">
+            <div class="fld-head"><label for="fFee">fee</label><span id="bFee">up to 3%</span></div>
+            <div class="inp" id="iFee"><input id="fFee" name="fee" inputmode="decimal" spellcheck="false" maxlength="8" aria-describedby="mFee"><span class="unit">%</span><button type="button" class="st" data-f="fee" data-d="-1" aria-label="Lower fee">−</button><button type="button" class="st" data-f="fee" data-d="1" aria-label="Higher fee">+</button></div>
+            <p class="msg" id="mFee" aria-live="polite"></p>
+          </div>
+        </section>
+
+        <section class="blk" aria-labelledby="coin-h">
+          <p class="kick" id="coin-h">02 · the coin</p>
+          <div class="fld">
+            <div class="fld-head"><label for="fName">name</label><span class="ct" id="ctName">0 / 32 bytes</span></div>
+            <div class="inp title" id="iName"><input id="fName" name="name" spellcheck="false" placeholder="Name" aria-describedby="mName"></div>
+            <p class="msg" id="mName" aria-live="polite"></p>
+          </div>
+          <div class="fld">
+            <div class="fld-head"><label for="fSym">symbol</label><span class="ct" id="ctSym">0 / 10 bytes</span></div>
+            <div class="inp" id="iSym"><input id="fSym" name="symbol" spellcheck="false" autocapitalize="characters" placeholder="SYMBOL" aria-describedby="mSym"></div>
+            <p class="msg" id="mSym" aria-live="polite"></p>
+          </div>
+          <div class="fld">
+            <div class="fld-head"><label for="fUri">metadata link · optional</label><span class="ct" id="ctUri">0 / 200 bytes</span></div>
+            <div class="inp small" id="iUri"><input id="fUri" name="uri" type="url" inputmode="url" spellcheck="false" placeholder="https://…/coin.json" aria-describedby="mUri"></div>
+            <p class="msg" id="mUri" aria-live="polite"></p>
+          </div>
+          <p class="fixed">Name, symbol and link are written into the coin. <b>They never change after launch</b>, for us either.</p>
+        </section>
+
+        <section class="blk" aria-labelledby="buy-h">
+          <div class="fld-head"><p class="kick" id="buy-h">03 · first buy · optional</p><span>in SOL, fee included</span></div>
+          <div class="inp" id="iBuy"><label class="vh" for="fBuy">First buy, in SOL</label><input id="fBuy" name="first" inputmode="decimal" spellcheck="false" placeholder="0" aria-describedby="mBuy"><span class="unit">SOL</span></div>
+          <p class="msg" id="mBuy" aria-live="polite"></p>
+        </section>
+      </form>
+
+      <section class="blk" aria-labelledby="need-h">
+        <p class="kick" id="need-h">04 · SOL this launch takes</p>
+        <p class="need-n"><span id="needN">0.007</span><small id="needSmall">SOL, about</small></p>
+        <p class="parts" id="needParts"></p>
+        <p class="wal" id="needWallet">Connect a wallet to see its balance.</p>
+      </section>
+
+      <section class="blk" id="act" aria-labelledby="act-h">
+        <div class="row"><p class="kick" id="act-h">05 · launch on devnet</p><button class="q" type="button" data-wallet>Connect wallet</button></div>
+        <p class="wnote" data-wallet-note aria-live="polite"></p>
+        <p class="gate" id="gate">Reading who may launch from devnet…</p>
+        <button type="button" class="hold" id="holdBtn" disabled><span id="holdLabel">Hold to launch</span><i id="holdFill" aria-hidden="true">Hold to launch</i></button>
+        <button type="button" class="q" id="gateKey" hidden></button>
+        <p class="status" id="status" aria-live="polite"></p>
+      </section>
+
+      <section class="blk done" id="done" hidden aria-labelledby="done-h">
+        <h2 id="done-h" tabindex="-1">Launched.</h2>
+        <p class="say" id="doneText">The coin and its pool are on devnet now, for good.</p>
+        <div class="addr" id="doneAddr"></div>
+        <div class="keys"><a class="btn" id="doneOpen" href="/coins">Open its page <span aria-hidden="true">→</span></a><button type="button" class="q" id="again">Launch another</button></div>
+      </section>
+    </div>
+  </div>
+  </div>
+
+  <!-- ===== what every coin gets, with the settings chosen above ===== -->
+  <section class="sec" id="gets">
+    <div class="wrap">
+      <h2>What every coin gets.</h2>
+      <p class="lead">With the settings chosen above.</p>
+      <dl class="facts" id="facts"></dl>
+    </div>
+  </section>
+</main>
+
+<footer class="wrap foot">
+  <a class="brand" href="#top" aria-label="forma, top of the page"><canvas id="sym1" aria-hidden="true"></canvas><b>forma</b></a>
+  <p>forma is a working name · devnet only · the team launches the coins for now · <a id="progLink" href="#" target="_blank" rel="noopener">program</a></p>
+</footer>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+'use strict';
+var $ = function (s) { return document.querySelector(s); };
+function fail(where, e) {
+  try { window.__errors.push(where + ': ' + (e && e.message || e)); } catch (_) {}
+  var st = $('#status'); if (st) st.textContent = 'Part of this page did not load (' + where + '). Reload to try again.';
+}
+if (!window.BH) { fail('the black hole', 'missing'); return; }
+
+var BH = window.BH, reduce = BH.reduced;             // reduced motion: the visitor's setting, or ?motion=reduce for a screenshot
+if (reduce) document.documentElement.classList.add('still');
+var params; try { params = new URLSearchParams(location.search); } catch (e) { params = { get: function () { return null; } }; }
+var HAVE_CHAIN = !!(window.Chain && window.NET && NET.ready);
+
+/* number formats, as on the other pages */
+function fSol(v) { return v >= 100 ? v.toFixed(1) : v >= 1 ? v.toFixed(2) : v >= 0.01 || v <= 0 ? v.toFixed(3) : v.toPrecision(2); }
+function fTok(v) { if (v >= 999.95e6) return (v / 1e9).toFixed(v >= 1e9 + 5e6 ? 2 : 0) + 'B'; if (v < 1e4) return '0'; return (v / 1e6).toFixed(v >= 1e8 ? 1 : 2) + 'M'; }
+function fPx(p) { var m = p * 1e6; return m.toFixed(m >= 1 ? 3 : 4); }
+function fBig(x) { return x >= 1000 ? Math.round(x).toLocaleString('en-US') : String(+x.toFixed(x >= 100 ? 1 : 2)); }   // a setting, short: 30, 82.25, 3,000
+function shortKey(k) { var s = String(k); return s.slice(0, 4) + '…' + s.slice(-4); }
+function explorer(what, id) { try { if (window.NET && NET.explorer) return NET.explorer(what, String(id)); } catch (e) {} return null; }
+function fNum(v) { return String(v).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }   // whole numbers only
+var enc = new TextEncoder();
+function bytes(s) { return enc.encode(s).length; }
+function esc(s) { return String(s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+function displayName(n) { return /^DESKTOP-/i.test(n) ? 'Test coin' : n; }   // as on the landing, the board and the coin page
+function withTimeout(p, ms) { return Promise.race([p, new Promise(function (_, no) { setTimeout(function () { no(new Error('timeout')); }, ms); })]); }
+function sleep(ms) { return new Promise(function (ok) { setTimeout(ok, ms); }); }
+function setText(sel, v) { var el = $(sel); if (el && el.textContent !== v) el.textContent = v; }
+function ago(sec) {
+  if (!sec) return 'unknown';
+  var d = Date.now() / 1000 - sec;
+  if (d < 90) return 'just now';
+  if (d < 5400) return Math.round(d / 60) + ' min ago';
+  if (d < 129600) return Math.round(d / 3600) + ' h ago';
+  return Math.round(d / 86400) + ' days ago';
+}
+var LAMP = 1e9, LN = 1000000000n, SUPPLY_TOK = 1e9;
+function solNum(l) { return Number(l) / LAMP; }
+// lamports as SOL in words, exactly: 420, 0.5, 1,000
+function lamText(l) {
+  var w = fNum((l / LN).toString()), f = (l % LN).toString().padStart(9, '0').replace(/0+$/, '');
+  return f ? w + '.' + f : w;
+}
+function numText(x) { return String(+Number(x).toFixed(9)); }   // a SOL amount for a field
+/* rent the launch leaves in the coin's accounts, measured on devnet 2026-10-22 by simulating
+   launches: mint, pool and vault with empty metadata, plus 6,960 lamports per metadata byte,
+   plus the creator's token account when there is a first buy. Network fee: 2 signatures */
+var RENT_BASE = 6065640, RENT_BYTE = 6960, RENT_ATA = 1513840, NET_FEE = 10000;
+
+/* ================= the form's state ================= */
+var F = { name: '', symbol: '', uri: '', firstRaw: '', first: 0, firstOk: true, quote: null };
+var CFG = { state: 'loading', cfg: null };      // loading | ok | error | none
+var WAL = { key: null, sol: null, check: false, reading: false };
+var busy = false, launched = null, pre = { seq: 0, text: '', ok: null };
+var pool = null;                                      // the launched coin's pool, once read back from devnet
+// the landing's four settings (?setup=1..4; the old triangle names still work)
+var PRESETS = [
+  { V: 30, M: 420, fee: 100, alias: 'house' }, { V: 20, M: 180, fee: 200, alias: 'curve' },
+  { V: 200, M: 800, fee: 150, alias: 'tray' }, { V: 60, M: 420, fee: 300, alias: 'ell' }
+];
+function presetOf(id) {
+  if (id == null) return null;
+  var i = parseInt(id, 10); if (i >= 1 && i <= PRESETS.length) return PRESETS[i - 1];
+  for (var k = 0; k < PRESETS.length; k++) if (PRESETS[k].alias === id) return PRESETS[k];
+  return null;
+}
+var DEF = window.Chain && Chain.LAUNCH ? { v: Chain.LAUNCH.virtualSol, m: Chain.LAUNCH.graduationMcap, fee: Chain.LAUNCH.feeBps } : { v: 30n * LN, m: 420n * LN, fee: 100 };
+// the settings: v and m in lamports, fee in basis points; good: the last ones within the bounds (what the preview shows)
+var SET = { v: DEF.v, m: DEF.m, fee: DEF.fee, ok: true, msgs: {}, raw: {}, good: { v: DEF.v, m: DEF.m, fee: DEF.fee } };
+
+/* check mode, for the team and for tests: ?check=<address> fills the gate and balance for that
+   address and the hold button only simulates. It never signs or sends anything. */
+var CHECK = null;
+try { if (params.get('check') && window.Chain) CHECK = new Chain.PublicKey(params.get('check')); } catch (e) { CHECK = null; }
+
+/* ================= settings: typed, checked against the program's bounds ================= */
+var iV = $('#fV'), iM = $('#fM'), iFee = $('#fFee');
+function parseSol(raw) {
+  var s = String(raw).trim().replace(',', '.');
+  if (s === '' || s === '.') return { err: 'Type an amount in SOL.' };
+  if (!/^\d*\.?\d*$/.test(s)) return { err: 'Type an amount in SOL, like 30.' };
+  var p = s.split('.'), frac = p[1] || '';
+  if (frac.length > 9) return { err: 'SOL has 9 decimals at most.' };
+  if (p[0].length > 15) return { err: 'That is more SOL than there is.' };
+  return { lam: BigInt(p[0] || '0') * LN + BigInt((frac + '000000000').slice(0, 9)) };
+}
+function parseFee(raw) {
+  var s = String(raw).trim().replace(',', '.').replace(/%$/, '').trim();
+  if (s === '' || s === '.') return { err: 'Type the fee in %, like 1.' };
+  if (!/^\d*\.?\d*$/.test(s)) return { err: 'Type the fee in %, like 1.5.' };
+  var p = s.split('.'), frac = p[1] || '';
+  if (frac.length > 2) return { err: 'The fee goes in steps of 0.01%.' };
+  if (p[0].length > 4) return { err: 'The fee can be at most 3%.' };
+  return { bps: Number(p[0] || '0') * 100 + Number((frac + '00').slice(0, 2)) };
+}
+function minFee() { return CFG.cfg ? CFG.cfg.minFeeBps : 0; }
+var MAXV = window.Chain && Chain.BOUNDS ? Chain.BOUNDS.maxVirtualSol : 1000n * LN, MINV = window.Chain && Chain.BOUNDS ? Chain.BOUNDS.minVirtualSol : LN;
+var MULT_LO = window.Chain && Chain.BOUNDS ? Chain.BOUNDS.minMultiple : 2n, MULT_HI = window.Chain && Chain.BOUNDS ? Chain.BOUNDS.maxMultiple : 100n;
+var MAXFEE = window.Chain && Chain.BOUNDS ? Chain.BOUNDS.maxFeeBps : 300;
+function problemsOf(s) {
+  // the chain layer's own check, the one buildLaunch makes, with the config's lowest fee once it is read
+  if (window.Chain && Chain.launchProblems) return Chain.launchProblems({ virtualSol: s.v, graduationMcap: s.m, feeBps: s.fee }, minFee());
+  // no chain layer (then nothing can launch): the same bounds, for the preview
+  var out = [], vOk = typeof s.v === 'bigint' && s.v >= MINV && s.v <= MAXV;
+  if (!vOk) out.push({ field: 'virtualSol', message: 'The virtual SOL must be from ' + lamText(MINV) + ' to ' + lamText(MAXV) + ' SOL' });
+  if (vOk && typeof s.m === 'bigint' && (s.m < s.v * MULT_LO || s.m > s.v * MULT_HI)) out.push({ field: 'graduationMcap', message: 'The graduation market cap must be from ' + MULT_LO + '× to ' + MULT_HI + '× the virtual SOL' });
+  if (!(s.fee >= minFee() && s.fee <= MAXFEE)) out.push({ field: 'feeBps', message: 'The fee must be from ' + minFee() / 100 + '% to ' + MAXFEE / 100 + '%' });
+  return out;
+}
+function readSettings() {
+  var a = parseSol(iV.value), b = parseSol(iM.value), c = parseFee(iFee.value);
+  var s = { v: a.err ? null : a.lam, m: b.err ? null : b.lam, fee: c.err ? NaN : c.bps };
+  var msgs = { virtualSol: a.err || '', graduationMcap: b.err || '', feeBps: c.err || '' };
+  problemsOf(s).forEach(function (p) { if (!msgs[p.field]) msgs[p.field] = p.message + '.'; });
+  SET.raw = s; SET.msgs = msgs;
+  SET.ok = !msgs.virtualSol && !msgs.graduationMcap && !msgs.feeBps;
+  if (SET.ok) { SET.v = s.v; SET.m = s.m; SET.fee = s.fee; SET.good = { v: s.v, m: s.m, fee: s.fee }; }
+}
+function split() {
+  // the fee's split, read from the config: the treasury's share, the creator gets the rest
+  if (!CFG.cfg) return null;
+  var t = CFG.cfg.treasuryShareBps;
+  return { creator: (10000 - t) / 100, treasury: t / 100 };
+}
+function gradSol(g) {
+  if (window.Chain && Chain.graduationSol) return Chain.graduationSol(g.v, g.m);
+  return BigInt(Math.round((Math.sqrt(solNum(g.m) * solNum(g.v)) - solNum(g.v)) * LAMP));
+}
+
+// − and +: round amounts of SOL between the bounds (both ends included), the fee in steps of 0.1%
+var NICE = [1, 1.2, 1.5, 2, 2.5, 3, 4, 5, 6, 8];
+function ladder(lo, hi) {
+  var out = [lo];
+  for (var d = 1; d <= hi; d *= 10) NICE.forEach(function (k) { var x = Math.round(k * d * 10) / 10; if (x > lo && x < hi) out.push(x); });
+  out.push(hi);
+  return out;
+}
+var LADDER_V = ladder(solNum(MINV), solNum(MAXV));
+function stepOf(f, dir) {
+  // the value a press gives, or null at the end of the bounds
+  if (f === 'fee') {
+    var c = parseFee(iFee.value), lo = minFee(), hi = MAXFEE;
+    if (c.err) return DEF.fee / 100;
+    // from outside the bounds a press goes to the nearer end
+    var n = dir > 0 ? (c.bps < lo ? lo : Math.floor(c.bps / 10) * 10 + 10) : (c.bps > hi ? hi : Math.ceil(c.bps / 10) * 10 - 10);
+    if (n > hi) n = c.bps < hi ? hi : null;
+    else if (n < lo) n = c.bps > lo ? lo : null;
+    return n == null ? null : n / 100;
+  }
+  var cur = parseSol((f === 'v' ? iV : iM).value), list = LADDER_V;
+  if (f === 'm') {
+    var vv = parseSol(iV.value);
+    if (vv.err || SET.msgs.virtualSol) return null;
+    var V = solNum(vv.lam); list = ladder(V * Number(MULT_LO), V * Number(MULT_HI));
+  }
+  if (cur.err) return f === 'v' ? solNum(DEF.v) : list[0];
+  var x = solNum(cur.lam), i;
+  if (dir > 0) { for (i = 0; i < list.length; i++) if (list[i] > x + 1e-9) return list[i]; }
+  else { for (i = list.length - 1; i >= 0; i--) if (list[i] < x - 1e-9) return list[i]; }
+  return null;
+}
+var steppers = [].slice.call(document.querySelectorAll('.st'));
+steppers.forEach(function (b) {
+  b.addEventListener('click', function () {
+    var f = b.getAttribute('data-f'), x = stepOf(f, +b.getAttribute('data-d'));
+    if (x == null || launched) return;
+    (f === 'v' ? iV : f === 'm' ? iM : iFee).value = numText(x);
+    onInput();
+  });
+});
+function renderSettings() {
+  var s = SET.raw, ms = SET.msgs, vOk = !ms.virtualSol, sp = split();
+  setText('#bV', lamText(MINV) + ' to ' + lamText(MAXV) + ' SOL');
+  setText('#bM', vOk && typeof s.v === 'bigint' ? lamText(s.v * MULT_LO) + ' to ' + lamText(s.v * MULT_HI) + ' SOL' : MULT_LO + '× to ' + MULT_HI + '× the virtual SOL');
+  setText('#bFee', CFG.cfg ? minFee() / 100 + '% to ' + MAXFEE / 100 + '%' : 'up to ' + MAXFEE / 100 + '%');
+  setMsg('#mV', ms.virtualSol || 'Sets the start: the price and market cap at open.', !!ms.virtualSol);
+  setMsg('#mM', ms.graduationMcap || (vOk ? MULT_LO + '× to ' + MULT_HI + '× the virtual SOL. The coin graduates there.' : 'Checked once the virtual SOL is within its bounds.'), !!ms.graduationMcap);
+  setMsg('#mFee', ms.feeBps || (sp ? 'Of each trade, in SOL: <b>' + sp.creator + '%</b> of it to the creator, ' + sp.treasury + '% to the platform.' : CFG.state === 'loading' ? 'Of each trade, in SOL. The lowest fee and the split are read from devnet…' : 'Of each trade, in SOL.'), !!ms.feeBps);
+  $('#iV').classList.toggle('bad', !!ms.virtualSol); $('#iM').classList.toggle('bad', !!ms.graduationMcap); $('#iFee').classList.toggle('bad', !!ms.feeBps);
+  steppers.forEach(function (b) { b.disabled = !!launched || stepOf(b.getAttribute('data-f'), +b.getAttribute('data-d')) == null; });
+}
+
+/* ================= presets: the landing's four settings, each a still hole at its full disk ================= */
+var tiles = [];
+PRESETS.forEach(function (su, i) {
+  var bt = document.createElement('button'), lk = BH.look(su);
+  bt.type = 'button'; bt.className = 'preset'; bt.setAttribute('aria-pressed', 'false');
+  bt.setAttribute('aria-label', 'Use ' + su.V + ' SOL virtual, graduating at a ' + fNum(su.M) + ' SOL market cap, ' + su.fee / 100 + '% fee');
+  bt.innerHTML = '<div class="card"><canvas aria-hidden="true"></canvas><dl><div><dt>start</dt><dd>' + su.V + ' SOL virtual</dd></div><div><dt>graduates</dt><dd>' + fNum(su.M) + ' SOL cap</dd></div><div><dt>fee</dt><dd>' + su.fee / 100 + '%</dd></div></dl></div>';
+  bt.addEventListener('click', function () { if (!launched) usePreset(su); });
+  $('#presets').appendChild(bt);
+  var x = { su: su, bt: bt, cv: bt.querySelector('canvas') };
+  BH.still(x.cv, { look: lk, progress: 1, zoom: 1.08, theta: 1.36 + i * .045, t: 3 + i * 2.5 });   // as the landing draws them
+  tiles.push(x);
+});
+function usePreset(su) { iV.value = su.V; iM.value = su.M; iFee.value = su.fee / 100; onInput(); }
+function markPresets() {
+  tiles.forEach(function (x) {
+    var su = x.su, on = SET.ok && SET.v === BigInt(su.V) * LN && SET.m === BigInt(su.M) * LN && SET.fee === su.fee;
+    x.bt.setAttribute('aria-pressed', on ? 'true' : 'false'); x.bt.disabled = !!launched;
+  });
+}
+
+/* ================= the preview: one moving hole that follows the settings ================= */
+var cv = $('#cv'), stageEl = $('#stage'), pvName = $('#pvName'), pvSym = $('#pvSym');
+var HW = 168, HH = 100, PX = 3, PHONE = false;      // the hole's canvas, in its own pixels; PX: css px per pixel
+var SHORT = false;                                   // the line under the numbers in its short words: a phone, or a 2 px hole
+// a draft can be passed in the address: ?name=&symbol=&uri=&first=, and settings: ?setup=1..4, or ?v=&m=&fee= (SOL, SOL, %)
+var su0 = presetOf(params.get('setup'));
+if (su0) { iV.value = su0.V; iM.value = su0.M; iFee.value = su0.fee / 100; }
+else { iV.value = lamText(DEF.v).replace(/,/g, ''); iM.value = lamText(DEF.m).replace(/,/g, ''); iFee.value = DEF.fee / 100; }
+[['v', iV], ['m', iM], ['fee', iFee]].forEach(function (p) { var x = params.get(p[0]); if (x != null) p[1].value = x.slice(0, 24); });
+readSettings();
+function lookOf(g) { return BH.look({ virtualSol: g.v, graduationMcap: g.m, feeBps: g.fee }); }   // lamports in, SOL out
+function openState(g) { return { virtualSol: solNum(g.v), realSol: 0, graduationSol: solNum(gradSol(g)), graduated: false }; }
+// what the hole shows, in SOL: the pool as devnet has it once launched, else the opening pool after the first buy
+function previewState() {
+  if (pool) return BH.fromPool(pool).state;
+  var g = SET.good, q = F.quote;
+  if (q && q.exact) { var a = q.after; return { virtualSol: solNum(g.v), realSol: solNum(a.realSol), graduationSol: solNum(a.graduationSol), graduated: !!a.graduated }; }
+  if (q) return q.state;
+  return openState(g);
+}
+function afterHole() { renderLegend(); describe(); }
+var hole = BH.live(cv, {
+  look: lookOf(SET.good), state: previewState(), w: HW, h: HH,
+  onLand: function () { setTimeout(afterHole, 0); },  // .busy is brought up to date just after onLand returns
+  onGraduate: afterHole                               // the jets light once the first buy has landed
+});
+// the hole follows the settings and the first buy; a call with nothing new is skipped, and typing is let settle for a
+// moment
+var holeKey = '', holeT = 0;
+function syncHole(now) {
+  if (!SET.ok && !launched && !pool) return;          // out of bounds: the picture keeps the last settings within them (a change still pending was within them)
+  clearTimeout(holeT);
+  var lk = pool ? BH.fromPool(pool).look : lookOf(SET.good), st = previewState();
+  var key = [lk.V, lk.M, lk.fee, st.realSol, st.graduated].join('|');
+  if (key === holeKey) return;
+  function apply() {
+    holeKey = key;
+    var cur = hole.look;
+    // .follow keeps its look while span, reach and heat match, even when G changes (60 / 840 after 30 / 420): put it then
+    if (lk.G !== cur.G && lk.span === cur.span && lk.reach === cur.reach && lk.heat === cur.heat) hole.put(lk, st);
+    else hole.follow(lk, st);
+    afterHole();
+  }
+  if (now) apply(); else holeT = setTimeout(apply, 220);
+}
+function renderPreview(now) {
+  var g = SET.good, lk = lookOf(g);
+  syncHole(now);
+  var nm = F.name.trim(), sy = F.symbol.trim(), n = nm.length;
+  pvName.textContent = nm || 'Your coin'; pvName.title = nm;
+  pvName.classList.toggle('ph', !nm); pvName.classList.toggle('long', n > 12 && n <= 20); pvName.classList.toggle('longer', n > 20);
+  pvSym.textContent = sy || 'SYMBOL'; pvSym.classList.toggle('ph', !sy);
+  // out of bounds: the numbers stay at the last settings within the bounds, dimmed, as the picture does
+  var off = !SET.ok && !launched;
+  $('#nums').classList.toggle('off', off);
+  setText('#nPx', fPx(solNum(g.v) / SUPPLY_TOK));
+  setText('#nG', fBig(solNum(gradSol(g))));
+  setText('#nM', fBig(solNum(g.m)));
+  setText('#nMx', 'graduates, ' + numText(Math.round(Number(g.m) / Number(g.v) * 10) / 10) + '×');
+  setText('#nB', fTok(lk.burn));
+  renderLegend();
+  describe();
+}
+// the line under the numbers says what the picture shows
+function renderLegend() {
+  var st = previewState(), el = $('#legend'), off = !SET.ok && !launched, t;
+  if (off) t = 'out of bounds: showing the last valid settings';
+  else if (pool) t = pool.graduated ? 'jets: graduated · disk: its real SOL on devnet' : 'disk: its real SOL, read back from devnet';
+  else if (hole.busy) t = 'the first buy is falling in…';
+  else if (hole.graduated) t = SHORT ? 'jets lit: the first buy graduates it' : 'jets lit: the first buy graduates it inside the launch';
+  else if (st.realSol > 0) t = 'disk: first buy, ' + fSol(st.realSol) + ' of ' + fBig(st.graduationSol) + ' SOL to graduate';
+  else t = SHORT ? 'disk: empty now, full at graduation' : 'disk: empty until the first buy, full at graduation';
+  setText('#legend', t); el.classList.toggle('bad', off);
+}
+function describe() {
+  // what the preview shows, in words: the canvas is hidden from screen readers
+  var g = SET.good, st = previewState(), nm = F.name.trim(), R = st.realSol;
+  var t = 'The new coin as a black hole' + (nm ? ', named ' + nm : '') + ': ';
+  if (st.graduated) t += (pool ? 'graduated' : 'the first buy graduates it') + ', so its jets are lit and the virtual SOL has dropped away; ' + fSol(R) + ' real SOL in it';
+  else if (R > 0) t += 'its disk is the ' + fSol(R) + ' real SOL ' + (pool ? 'in its pool' : 'of the first buy') + ', of ' + fBig(st.graduationSol) + ' to graduate';
+  else t += 'nothing in its pool yet, a thin ring; the disk grows with every buy, to full size at graduation';
+  t += '. It opens at ' + fPx(solNum(g.v) / SUPPLY_TOK) + ' SOL per million tokens and graduates at a ' + lamText(g.m) + ' SOL market cap.';
+  stageEl.setAttribute('aria-label', t);
+}
+
+/* ================= exact numbers from the opening reserves ================= */
+function quoteFirst(sol) {
+  // exact: the program's own integer math on the reserves these settings open with
+  var g = SET.good;
+  if (window.Chain && Chain.quoteBuy) {
+    try {
+      var lamports = BigInt(Math.round(sol * LAMP));
+      var q = Chain.quoteBuy({ virtualSol: g.v, realSol: 0n, tokens: Chain.SUPPLY, graduationSol: Chain.graduationSol(g.v, g.m), graduated: false }, lamports, g.fee);
+      return { exact: true, lamports: lamports, tokensOut: q.tokensOut, fee: q.fee, graduates: q.graduates, burned: q.burned, after: q.after };
+    } catch (e) { /* fall back to the float model */ }
+  }
+  // the same curve in floats, for the preview only (no chain layer, nothing can launch)
+  var V = solNum(g.v), G = solNum(gradSol(g)), fee = sol * g.fee / 10000, rest = sol - fee, T = SUPPLY_TOK, R = Math.min(rest, G);
+  var left = T * V / (V + R), out = T - left, burn = 0, grad = R >= G - 1e-12;
+  T = left; rest -= R;
+  if (grad) { burn = T * V / (V + R); T -= burn; if (rest > 0) { var l2 = T * R / (R + rest); out += T - l2; T = l2; R += rest; } }
+  return { exact: false, out: out, fee: fee, graduates: grad, burnedTok: burn, state: { virtualSol: V, realSol: R, graduationSol: G, graduated: grad } };
+}
+function fmtUnits(u) {
+  var whole = u / 1000000n, frac = (u % 1000000n).toString().padStart(6, '0');
+  return Number(whole).toLocaleString('en-US') + '.' + frac;
+}
+
+/* ================= validation as you type ================= */
+var iName = $('#fName'), iSym = $('#fSym'), iUri = $('#fUri'), iBuy = $('#fBuy');
+// every message is a live region: it is written only when its words or its state change, so typing in one field
+// does not read out the others again
+function setMsg(id, html, bad) {
+  var el = $(id), key = (bad ? '!' : '') + html;
+  if (el._key === key) return;
+  el._key = key; el.innerHTML = html; el.classList.toggle('bad', !!bad);
+}
+function counter(id, n, max) { var el = $(id); el.textContent = n + ' / ' + max + ' bytes'; el.classList.toggle('over', n > max); }
+function v() {
+  var r = { ok: true, reasons: [] };
+  readSettings(); renderSettings();
+  if (!SET.ok) { r.ok = false; r.reasons.push('settings within the bounds'); }
+  var nm = F.name.trim(), sy = F.symbol.trim(), u = F.uri.trim();
+  var nb = bytes(nm), sb = bytes(sy), ub = bytes(u);
+  counter('#ctName', nb, 32); counter('#ctSym', sb, 10); counter('#ctUri', ub, 200);
+  // name
+  var multi = function (s) { return bytes(s) > s.length ? ' Accents and emoji take two to four bytes each.' : ''; };
+  if (!nm) { setMsg('#mName', F.name ? 'Spaces alone are not a name.' : '', !!F.name); r.ok = false; r.reasons.push('a name'); }
+  else if (nb > 32) { setMsg('#mName', nb + ' bytes; the limit is 32.' + multi(nm), true); r.ok = false; r.reasons.push('a shorter name'); }
+  else setMsg('#mName', nm !== F.name ? 'Spaces at the ends are left out.' : '');
+  // symbol
+  if (!sy) { setMsg('#mSym', '', false); r.ok = false; r.reasons.push('a symbol'); }
+  else if (sb > 10) { setMsg('#mSym', sb + ' bytes; the limit is 10.' + multi(sy), true); r.ok = false; r.reasons.push('a shorter symbol'); }
+  else if (sy.charAt(0) === '$') setMsg('#mSym', 'It is stored with the $. Wallets usually add their own.');
+  else if (/\s/.test(sy)) setMsg('#mSym', 'Symbols usually have no spaces. It is stored as typed.');
+  else setMsg('#mSym', '');
+  // link
+  var uriBad = false;
+  if (!u) { if (!metaBusy) setMsg('#mUri', 'An https link to a JSON file with an <b>image</b> and a <b>description</b>. Left empty, the coin has no image, for good.'); }
+  else {
+    var parsed = null; try { parsed = new URL(u); } catch (e) {}
+    if (!parsed || !/^https?:$/.test(parsed.protocol)) { uriBad = true; setMsg('#mUri', 'Not a link yet. It should start with https://', true); }
+    else if (parsed.protocol !== 'https:') { uriBad = true; setMsg('#mUri', 'Use https, so every wallet can open it.', true); }
+    else if (ub > 200) { uriBad = true; setMsg('#mUri', ub + ' bytes; the limit is 200.', true); }
+    else if (u !== metaFor) setMsg('#mUri', 'Reading the link…');
+  }
+  if (uriBad) { r.ok = false; r.reasons.push('a working link (or none)'); }
+  // first buy, quoted on the settings
+  var raw = F.firstRaw.trim().replace(',', '.'), sol = raw === '' ? 0 : Number(raw), g = SET.good, sp = split();
+  F.first = 0; F.quote = null; F.firstOk = true;
+  if (raw !== '' && (!/^\d*\.?\d*$/.test(raw) || !isFinite(sol))) { F.firstOk = false; setMsg('#mBuy', 'Type an amount in SOL, like 0.5.', true); }
+  else if (sol > 0 && sol < 0.001) { F.firstOk = false; setMsg('#mBuy', 'At least 0.001 SOL, or leave it empty.', true); }
+  else if (sol > 1000) { F.firstOk = false; setMsg('#mBuy', 'This page quotes up to 1,000 SOL.', true); }
+  else if (sol > 0 && /\.\d{10,}/.test(raw)) { F.firstOk = false; setMsg('#mBuy', 'SOL has 9 decimals at most.', true); }
+  else if (sol > 0 && !SET.ok) { F.first = sol; setMsg('#mBuy', 'Quoted once the settings are within the bounds.'); }
+  else if (sol > 0) {
+    var q = quoteFirst(sol); F.first = sol; F.quote = q;
+    var outTok = q.exact ? Number(q.tokensOut) / 1e6 : q.out, fee = q.exact ? Number(q.fee) / LAMP : q.fee;
+    var pct = outTok / SUPPLY_TOK * 100;
+    var html = 'You get <b>' + fTok(outTok) + '</b> tokens, ' + (pct < 0.01 ? 'under 0.01' : pct.toFixed(2)) + '% of the supply. Fee <b>' + fSol(fee) + '</b> SOL' + (sp ? '; ' + sp.creator + '% of it is owed to you as the creator, to claim from the pool.' : '.');
+    if (q.graduates) html += ' This buy is big enough to <b>graduate the coin inside the launch</b>: the ' + lamText(g.v) + ' virtual SOL drops away and ' + fTok(q.exact ? Number(q.burned) / 1e6 : q.burnedTok) + ' tokens burn, so the price holds.';
+    html += '<small>' + (q.exact ? 'exactly ' + fmtUnits(q.tokensOut) + ' tokens, the program’s own math on the opening pool' : 'from the float model; the exact quote did not load') + '</small>';
+    setMsg('#mBuy', html);
+  } else setMsg('#mBuy', 'Bought in the same transaction, before anyone else can. Leave it empty to launch with no buy.');
+  if (!F.firstOk) { r.ok = false; r.reasons.push('a first buy that works'); }
+  ['#iName', '#iSym'].forEach(function (s, i) { $(s).classList.toggle('bad', (i ? sb > 10 : nb > 32)); });
+  $('#iUri').classList.toggle('bad', uriBad); $('#iBuy').classList.toggle('bad', !F.firstOk);
+  return r;
+}
+
+/* the metadata link: try to read it, so the visitor sees what wallets will see */
+var metaSeq = 0, metaTimer = 0, metaBusy = false, metaFor = '';
+function checkMeta() {
+  var u = F.uri.trim(), parsed = null;
+  try { parsed = new URL(u); } catch (e) {}
+  if (!u || !parsed || parsed.protocol !== 'https:' || bytes(u) > 200) return;
+  if (u === metaFor) return;
+  metaFor = u;
+  var seq = ++metaSeq, ctl = window.AbortController ? new AbortController() : null;
+  metaBusy = true; setMsg('#mUri', 'Reading the link…');
+  var t = setTimeout(function () { if (ctl) ctl.abort(); }, 7000);
+  fetch(u, { signal: ctl ? ctl.signal : undefined, credentials: 'omit', referrerPolicy: 'no-referrer', cache: 'no-store' })
+    .then(function (r) { if (!r.ok) throw new Error('status ' + r.status); return r.json(); })
+    .then(function (j) {
+      if (seq !== metaSeq) return;
+      var img = j && typeof j.image === 'string' ? j.image : '', desc = j && typeof j.description === 'string' ? j.description.trim() : '';
+      var html = '';
+      if (img && /^https:\/\//.test(img)) html += '<img src="' + esc(img) + '" alt="" referrerpolicy="no-referrer" onerror="this.remove()">';
+      if (img && desc) html += 'It reads: an <b>image</b> and a <b>description</b>.';
+      else if (img) html += 'It reads: an <b>image</b>, but no description.';
+      else if (desc) html += 'It reads: a <b>description</b>, but no image. Wallets will show none.';
+      else html += 'It opened, but has no image or description in it.';
+      if (desc) html += '<small>“' + esc(desc.length > 110 ? desc.slice(0, 107) + '…' : desc) + '”</small>';
+      setMsg('#mUri', html, !img && !desc);
+    })
+    .catch(function (e) {
+      if (seq !== metaSeq) return;
+      var why = e && e.name === 'AbortError' ? 'it did not answer in 7 seconds' : (e && /status/.test(e.message) ? 'it answered ' + esc(e.message) : 'its server may not let other sites read it, or it is not JSON');
+      setMsg('#mUri', 'This page could not read it: ' + why + '. It is stored exactly as typed, so check that it opens.');
+    })
+    .then(function () { clearTimeout(t); if (seq === metaSeq) metaBusy = false; });
+}
+
+function onInput(now) {
+  F.name = iName.value; F.symbol = iSym.value; F.uri = iUri.value; F.firstRaw = iBuy.value;
+  var uriChanged = F.uri.trim() !== metaFor;
+  if (uriChanged) { metaSeq++; metaBusy = false; if (!F.uri.trim()) metaFor = ''; }
+  var res = v();
+  renderPreview(now === true); markPresets(); renderGets(); renderNeed(); renderGate(res);
+  if (uriChanged) { clearTimeout(metaTimer); metaTimer = setTimeout(checkMeta, 650); }
+  schedulePre();
+  return res;
+}
+[iName, iSym, iUri, iBuy, iV, iM, iFee].forEach(function (el) { el.addEventListener('input', onInput); });
+$('#form').addEventListener('submit', function (e) { e.preventDefault(); });
+
+/* ================= what every coin gets, with these settings ================= */
+function renderGets() {
+  var g = SET.good, lk = lookOf(g), sp = split(), off = !SET.ok && !launched, OUT = 'the settings above are out of bounds';
+  var rows = [
+    ['supply', '1,000,000,000 tokens'],
+    ['mint and freeze', 'none: nobody can mint more or freeze a wallet'],
+    ['name, symbol, link', 'written into the coin, fixed'],
+    off ? ['fee', '—', OUT] : ['fee', g.fee / 100 + '% of each trade, in SOL', sp ? sp.creator + '% of it to the creator, ' + sp.treasury + '% to the platform, read from devnet' : CFG.state === 'loading' ? 'its split is being read from devnet' : 'its split could not be read from devnet'],
+    ['pool', 'one, for life', 'no migration, no LP token, and no instruction takes the liquidity out'],
+    off ? ['opens at', '—', OUT] : ['opens at', 'a ' + lamText(g.v) + ' SOL market cap', fPx(solNum(g.v) / SUPPLY_TOK) + ' SOL per 1M tokens'],
+    off ? ['graduates at', '—', OUT] : ['graduates at', 'a ' + lamText(g.m) + ' SOL market cap', 'inside the buy that gets there: the virtual SOL drops away and ' + fTok(lk.burn) + ' tokens burn, so the price holds, in the same pool'],
+    ['hooks', 'not in this version', null, 'Settings now. Hooks next.']
+  ];
+  $('#facts').innerHTML = rows.map(function (r) {
+    return '<div class="f"><dt>' + r[0] + '</dt><dd>' + esc(r[1]) + (r[2] ? '<span class="mute">' + esc(r[2]) + '</span>' : '') + (r[3] ? '<span class="y">' + esc(r[3]) + '</span>' : '') + '</dd></div>';
+  }).join('');
+}
+
+/* ================= what it takes ================= */
+function launchFee() { return CFG.cfg ? Number(CFG.cfg.launchFee) : 0; }
+function needLamports() {
+  var meta = bytes(F.name.trim()) + bytes(F.symbol.trim()) + bytes(F.uri.trim());
+  var rent = RENT_BASE + RENT_BYTE * meta + (F.first > 0 ? RENT_ATA : 0);
+  var first = F.first > 0 ? Math.round(F.first * LAMP) : 0;
+  return { rent: rent, first: first, fee: launchFee(), net: NET_FEE, total: rent + first + launchFee() + NET_FEE };
+}
+function renderNeed() {
+  var n = needLamports(), simmed = pre.ok && pre.spent != null;
+  $('#needN').textContent = simmed ? (pre.spent / LAMP).toFixed(4) : fSol(n.total / LAMP);
+  $('#needSmall').textContent = simmed ? 'SOL, simulated for this wallet' : 'SOL, about';
+  var feeTxt = CFG.state === 'ok' ? (n.fee ? '<b>' + fSol(n.fee / LAMP) + '</b> launch fee' : 'no launch fee (<b>0</b>, read from the program)') : CFG.state === 'loading' ? 'launch fee: reading…' : 'launch fee: unknown';
+  $('#needParts').innerHTML = (n.first ? '<b>' + fSol(n.first / LAMP) + '</b> first buy · ' : '') + 'about <b>' + (n.rent / LAMP).toFixed(4) + '</b> rent, kept by the coin’s accounts · ' + feeTxt + ' · <b>0.00001</b> network fee';
+  var el = $('#needWallet');
+  if (!WAL.key) { el.textContent = 'Connect a wallet to see its balance.'; return; }
+  if (WAL.sol == null) { el.textContent = WAL.reading ? 'Reading the wallet’s balance…' : 'Could not read the wallet’s balance.'; return; }
+  var has = Number(WAL.sol), need = simmed ? pre.spent : n.total;
+  var who = WAL.check ? 'The checked address' : 'Your wallet';
+  el.innerHTML = has >= need + 5000
+    ? who + ' has <b>' + fSol(has / LAMP) + '</b> SOL on devnet. Enough.'
+    : who + ' has <b>' + fSol(has / LAMP) + '</b> SOL on devnet: <span class="sh">short by ' + fSol(Math.max(0, need - has) / LAMP) + '</span>.';
+}
+
+/* ================= who may launch ================= */
+function allowed() {
+  if (!CFG.cfg || !WAL.key) return false;
+  var c = CFG.cfg;
+  return c.launchesOpen || c.admin.equals(WAL.key) || c.launcher.equals(WAL.key);
+}
+var hold = $('#holdBtn'), holdLabel = $('#holdLabel'), holdFill = $('#holdFill'), gateKey = $('#gateKey');
+var holdText = 'Hold to launch';
+function holdWords(t) { holdLabel.textContent = t; holdFill.textContent = t; }   // the yellow fill carries the same words, dark
+function setHold(text, enabled, team) {
+  holdText = text; if (!hold.classList.contains('holding')) holdWords(text);
+  hold.disabled = !enabled; hold.classList.toggle('team', !!team); hold.classList.toggle('ready', !!enabled); hold.classList.toggle('busy', busy);
+}
+function renderGate(res) {
+  res = res || v();
+  var g = $('#gate'); gateKey.hidden = true;
+  if (launched) return;
+  if (!HAVE_CHAIN) { g.textContent = 'The chain layer did not load, so this page cannot launch. The preview still works.'; setHold('Launch unavailable', false); return; }
+  if (CFG.state === 'loading') { g.textContent = 'Reading who may launch from devnet…'; setHold('Hold to launch', false); return; }
+  if (CFG.state === 'error' || CFG.state === 'none') {
+    g.textContent = CFG.state === 'none' ? 'The program on devnet has no launch config yet, so nothing can launch.' : 'Devnet did not answer, so this page cannot tell who may launch. The preview works anyway.';
+    setHold('Hold to launch', false);
+    if (CFG.state === 'error') { gateKey.hidden = false; gateKey.textContent = 'Try again'; gateKey.onclick = loadConfig; }
+    return;
+  }
+  var c = CFG.cfg;
+  if (!WAL.key) {
+    g.innerHTML = c.launchesOpen ? 'Anyone can launch. Connect a wallet to launch this coin.' : 'Only the team launches for now; a launchpad for everyone comes later. The preview works for everyone. <b>On the team? Connect your wallet.</b>';
+    setHold(c.launchesOpen ? 'Connect a wallet to launch' : 'Launches are team-only for now', false, !c.launchesOpen);
+    return;                                           // the wallet button sits just above, beside "launch on devnet"
+  }
+  if (!allowed()) {
+    g.innerHTML = 'This wallet, <b>' + shortKey(WAL.key) + '</b>, is not on the team. A launchpad for everyone comes later; until then the preview here works the same, it just cannot launch.';
+    setHold('Launches are team-only for now', false, true);
+    return;
+  }
+  var who = WAL.check ? '<b>Check mode</b> for ' + shortKey(WAL.key) + ': the button simulates the launch and never sends it.' : 'This wallet, <b>' + shortKey(WAL.key) + '</b>, may launch' + (c.launchesOpen ? '.' : ': it is on the team.');
+  if (!res.ok) { g.innerHTML = who + ' Still needed: ' + res.reasons.join(', ') + '.'; setHold(WAL.check ? 'Hold to simulate' : 'Hold to launch', false); return; }
+  var n = needLamports(), need = pre.ok && pre.spent != null ? pre.spent : n.total;
+  if (WAL.sol != null && Number(WAL.sol) < need) { g.innerHTML = who + ' It needs more SOL first.'; setHold(WAL.check ? 'Hold to simulate' : 'Hold to launch', false); return; }
+  g.innerHTML = who + (WAL.check ? '' : ' Holding signs one transaction: the coin, its pool' + (F.first > 0 ? ' and your first buy' : '') + '.');
+  setHold(busy ? 'Working…' : (WAL.check ? 'Hold to simulate the launch' : 'Hold to launch on devnet'), !busy);
+}
+
+async function loadConfig() {
+  if (!HAVE_CHAIN) { CFG.state = 'error'; onInput(); return; }
+  CFG.state = 'loading'; renderGate(); renderNeed();
+  var cfg = null, err = null;
+  for (var i = 0; i < 2; i++) {
+    try { cfg = await withTimeout(Chain.readConfig(), 12000); err = null; break; } catch (e) { err = e; await sleep(1200); }
+  }
+  if (err) CFG.state = 'error'; else if (!cfg) CFG.state = 'none'; else { CFG.state = 'ok'; CFG.cfg = cfg; }
+  onInput();                                          // the lowest fee and the split are the config's: everything is checked again
+}
+async function readBalance() {
+  if (!WAL.key || !HAVE_CHAIN) return;
+  var key = WAL.key; WAL.reading = true; WAL.sol = null; renderNeed();
+  try { var w = await withTimeout(Chain.readWallet(key), 12000); if (WAL.key && WAL.key.equals(key)) WAL.sol = w.sol; }
+  catch (e) { WAL.sol = null; }
+  WAL.reading = false; renderNeed(); renderGate();
+}
+function setWho() {
+  var cur = window.Wallet && Wallet.current;
+  if (cur) { WAL.key = cur.publicKey; WAL.check = false; }
+  else if (CHECK) { WAL.key = CHECK; WAL.check = true; }
+  else { WAL.key = null; WAL.check = false; }
+  WAL.sol = null; pre = { seq: pre.seq + 1, text: '', ok: null };
+  renderGate(); renderNeed(); readBalance(); schedulePre();
+}
+if (window.Wallet) Wallet.on(setWho);
+
+/* ================= a dry run before the hold: would it land, and what it takes ================= */
+var preTimer = 0;
+function schedulePre() {
+  clearTimeout(preTimer);
+  pre.seq++; pre.ok = null; pre.spent = null;
+  if (!allowed() || launched || busy || !v().ok) { if (!busy) status(''); return; }
+  var seq = pre.seq;
+  preTimer = setTimeout(function () { runPre(seq); }, 900);
+}
+async function rawSpent(built, payer) {
+  // the payer's balance after the simulated transaction, straight from the RPC
+  try {
+    var b64 = built.tx.serialize({ requireAllSignatures: false, verifySignatures: false }).toString('base64');
+    var res = await withTimeout(fetch(NET.rpcUrl, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'simulateTransaction', params: [b64, { encoding: 'base64', sigVerify: false, commitment: 'confirmed', accounts: { encoding: 'base64', addresses: [payer.toBase58()] } }] }) }).then(function (r) { return r.json(); }), 12000);
+    var post = res && res.result && res.result.value && res.result.value.accounts && res.result.value.accounts[0];
+    if (!post || WAL.sol == null) return null;
+    return Number(WAL.sol) - post.lamports;   // the simulation charges the network fee too
+  } catch (e) { return null; }
+}
+async function runPre(seq) {
+  if (seq !== pre.seq) return;
+  status('Checking the launch against devnet…');
+  try {
+    var built = await withTimeout(Chain.buildLaunch(args(WAL.key)), 15000);
+    var sim = await withTimeout(Chain.simulate(built, WAL.key), 15000);
+    var spent = sim.ok ? await rawSpent(built, WAL.key) : null;
+    if (seq !== pre.seq) return;
+    pre.ok = sim.ok; pre.spent = spent;
+    status(sim.ok
+      ? 'Simulated just now: it would land (' + Number(sim.units || 0).toLocaleString('en-US') + ' compute units)' + (spent != null ? ' and take <b>' + (spent / LAMP).toFixed(4) + ' SOL</b> from this wallet.' : '.')
+      : 'Simulated just now: it would fail. <b>' + esc(sim.error || 'The transaction would fail') + '</b>.');
+  } catch (e) {
+    if (seq !== pre.seq) return;
+    pre.ok = null;
+    status(e && e.problems ? 'Stopped before building: <b>' + esc(e.message) + '</b>.' : 'Could not check it against devnet just now (' + esc(e && e.message === 'timeout' ? 'no answer' : (e && e.message) || 'error') + ').');
+  }
+  renderNeed(); renderGate();
+}
+function args(creator) {
+  return { creator: creator, name: F.name.trim(), symbol: F.symbol.trim(), uri: F.uri.trim(), firstBuySol: F.first > 0 ? F.first : 0, virtualSol: SET.v, graduationMcap: SET.m, feeBps: SET.fee };
+}
+function settingsOut(s) { return { virtualSol: lamText(s.v), graduationMcap: lamText(s.m), feeBps: s.fee }; }
+function status(html) { $('#status').innerHTML = html; }
+
+/* ================= hold to launch ================= */
+(function wireHold() {
+  var t = 0;
+  function start(e) {
+    if (hold.disabled || busy) return;
+    if (e.type === 'keydown') { if (e.key !== ' ' && e.key !== 'Enter') return; if (e.repeat) { e.preventDefault(); return; } }
+    if (e.type === 'pointerdown' && e.pointerType === 'mouse' && e.button !== 0) return;
+    e.preventDefault();
+    if (hold.classList.contains('holding')) return;
+    hold.classList.add('holding'); holdWords('Keep holding…');
+    t = setTimeout(function () { hold.classList.remove('holding'); holdWords(holdText); go(); }, 900);
+  }
+  function stop(e) {
+    if (e && e.type === 'keyup' && e.key !== ' ' && e.key !== 'Enter') return;
+    if (!hold.classList.contains('holding')) return;
+    clearTimeout(t); hold.classList.remove('holding'); holdWords(holdText);
+    status('Hold it down for a moment: launching cannot be undone.');
+  }
+  hold.addEventListener('pointerdown', start); hold.addEventListener('pointerup', stop); hold.addEventListener('pointerleave', stop); hold.addEventListener('pointercancel', stop);
+  hold.addEventListener('keydown', start); hold.addEventListener('keyup', stop); hold.addEventListener('blur', function () { stop(); });
+  hold.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+})();
+
+async function go() {
+  if (busy || !allowed()) return;
+  var res = v();
+  if (!res.ok) {
+    // the page stops it before anything is built: out-of-bounds settings never reach buildLaunch
+    status('Nothing was built: it still needs ' + esc(res.reasons.join(', ')) + '.');
+    if (WAL.check) window.__lastCheck = { ok: false, stopped: 'page', reasons: res.reasons, settings: SET.msgs };
+    return;
+  }
+  busy = true; clearTimeout(preTimer); pre.seq++; renderGate();
+  var key = WAL.key, check = WAL.check, built = null;
+  try {
+    status('Building the transaction…');
+    built = await withTimeout(Chain.buildLaunch(args(key)), 15000);
+    if (!built.canLaunch) { status('<b>Launches are team-only for now</b>, and this wallet is not on the team.'); return; }
+    status('Simulating it on devnet…');
+    var sim = await withTimeout(Chain.simulate(built, key), 20000);
+    if (!sim.ok) { status('It would fail, so nothing was sent: <b>' + esc(sim.error || Chain.explain(sim)) + '</b>.'); if (check) window.__lastCheck = { ok: false, error: sim.error, settings: settingsOut(SET) }; return; }
+    if (check) {
+      var spent = await rawSpent(built, key);
+      status('Check mode: <b>the launch would land</b> for ' + shortKey(key) + ' (' + Number(sim.units || 0).toLocaleString('en-US') + ' compute units' + (spent != null ? ', ' + (spent / LAMP).toFixed(4) + ' SOL from the wallet' : '') + '). Coin address it would get: ' + shortKey(built.mint) + '. Nothing was signed or sent.');
+      window.__lastCheck = { ok: true, units: sim.units, spent: spent, mint: built.mint.toBase58(), pool: built.pool.toBase58(), settings: settingsOut({ v: built.settings.virtualSol, m: built.settings.graduationMcap, fee: built.settings.feeBps }), quote: built.quote ? { tokensOut: String(built.quote.tokensOut), fee: String(built.quote.fee) } : null };
+      return;
+    }
+    var w = window.Wallet && Wallet.current;
+    if (!w || !w.publicKey.equals(key)) { status('The wallet changed. Nothing was sent.'); return; }
+    status('Simulated: it would land. Approve it in ' + esc(w.name) + '…');
+    var sig = await Chain.send(built, w);
+    success(built, sig);
+  } catch (e) {
+    var m = String(e && e.message || e || '');
+    var hex = m.match(/custom program error: 0x([0-9a-f]+)/i);
+    var ex = !window.Chain ? '' : hex ? Chain.explain({ err: { InstructionError: [0, { Custom: parseInt(hex[1], 16) }] } }) : Chain.explain(e && e.transactionError ? { err: e.transactionError } : m);
+    var link = e && e.signature ? explorer('tx', e.signature) : null;
+    if (e && e.problems) status('Stopped before building: <b>' + esc(m) + '</b>.');
+    else if (/reject|denied|declin|cancel/i.test(m)) status('You declined in the wallet. Nothing was sent.');
+    else if (m === 'timeout') status('Devnet did not answer in time. Nothing was sent; try again.');
+    else status('It did not go through: <b>' + esc(ex && ex !== 'The transaction would fail' ? ex : m.slice(0, 160)) + '</b>.' + (link ? ' <a href="' + link + '" target="_blank" rel="noopener">The transaction ↗</a>' : ''));
+    if (check) window.__lastCheck = { ok: false, error: m.slice(0, 200) };
+  } finally {
+    busy = false; if (!launched) renderGate();
+  }
+}
+
+var FIELDS = [iName, iSym, iUri, iBuy, iV, iM, iFee];
+function success(built, sig) {
+  var mint = built.mint.toBase58(), poolKey = built.pool.toBase58();
+  launched = { mint: mint, pool: poolKey, sig: sig };
+  FIELDS.forEach(function (el) { el.readOnly = true; });
+  markPresets(); renderSettings();
+  $('#act').hidden = true;
+  $('#done').hidden = false;
+  var mx = explorer('address', mint), px = explorer('address', poolKey), tx = explorer('tx', sig);
+  $('#doneAddr').innerHTML =
+    '<div><p>coin address (the mint)</p><code>' + mint + '</code>' + (mx ? '<a href="' + mx + '" target="_blank" rel="noopener">on the explorer ↗</a>' : '') + '</div>' +
+    '<div><p>its pool, for life</p><code>' + poolKey + '</code>' + (px ? '<a href="' + px + '" target="_blank" rel="noopener">on the explorer ↗</a>' : '') + '</div>' +
+    '<div><p>the launch transaction</p><code>' + sig + '</code>' + (tx ? '<a href="' + tx + '" target="_blank" rel="noopener">on the explorer ↗</a>' : '') + '</div>';
+  $('#doneOpen').href = '/coin?mint=' + encodeURIComponent(mint);
+  var k = $('#kick'); k.textContent = 'live on devnet'; k.classList.add('live');
+  try { $('#done-h').focus({ preventScroll: false }); } catch (e) {}
+  (async function readBack() {
+    for (var i = 0; i < 4; i++) {
+      try {
+        var p = await withTimeout(Chain.readPool(mint), 12000);
+        if (p) {
+          $('#doneText').innerHTML = esc(displayName(p.name)) + ' (' + esc(p.symbol) + ') and its pool are on devnet now, for life. Read back from the chain: <b>' + fSol(Number(p.realSol) / LAMP) + '</b> real SOL in, <b>' + fTok(Number(p.tokens) / 1e6) + '</b> tokens in the pool, market cap ' + fSol(p.marketCap) + ' SOL.';
+          // only now does the hole show the pool as devnet has it
+          if (launched && launched.mint === mint) { pool = p; renderPreview(true); }
+          return;
+        }
+      } catch (e) {}
+      await sleep(2000 * (i + 1));
+    }
+  })();
+}
+$('#again').addEventListener('click', function () {
+  launched = null; pool = null;
+  FIELDS.forEach(function (el) { el.readOnly = false; });
+  [iName, iSym, iUri, iBuy].forEach(function (el) { el.value = ''; });   // the settings stay as they were
+  $('#done').hidden = true; $('#act').hidden = false;
+  var k = $('#kick'); k.textContent = 'new coin · preview'; k.classList.remove('live');
+  metaFor = ''; status(''); onInput(true); iName.focus();
+  try { window.scrollTo({ top: 0, behavior: reduce ? 'auto' : 'smooth' }); } catch (e) {}
+});
+
+/* ================= the strip: the latest launches on devnet, with their settings ================= */
+function loadTape() {
+  var tape = $('#tape');
+  if (!HAVE_CHAIN) { tape.innerHTML = '<span>devnet is not reachable from here</span>'; return; }
+  withTimeout(Promise.resolve().then(function () { return Chain.listPools(); }), 10000).then(function (pools) {
+    if (!pools || !pools.length) { tape.innerHTML = '<span>nothing launched yet</span>'; return; }
+    tape.innerHTML = pools.slice(0, 12).map(function (p) {
+      var lk = BH.fromPool(p).look, nm = String(p.symbol || '').trim() || displayName(String(p.name || '').trim()) || 'a coin';
+      return '<span class="' + (p.graduated ? 'grad' : '') + '"><i></i><b>' + esc(nm) + '</b> launched · ' + fBig(lk.V) + ' SOL virtual, graduates at ' + fBig(lk.M) + ', fee ' + lk.fee / 100 + '%' + (p.graduated ? ' · graduated' : '') + ' · ' + esc(ago(Number(p.openedAt))) + '</span>';
+    }).join('');
+  }).catch(function (e) { tape.innerHTML = '<span>' + (e && e.message === 'timeout' ? 'devnet did not answer in 10 s' : 'devnet did not answer') + '</span>'; });
+}
+
+/* ================= sizes: whole device pixels for the hole, the tiles and the marks ================= */
+var tileUrl = BH.starTile(128), skyEl = $('#sky'), lastW = 0, lastH = 0;
+function viewH() { return Math.round((window.visualViewport && visualViewport.height) || innerHeight || document.documentElement.clientHeight); }
+function layout() {
+  var cw = document.documentElement.clientWidth, vh = viewH(), phone = cw < 760, col = $('#stageCol');
+  lastW = cw; lastH = vh; PHONE = phone;
+  // wide: the name, the hole and its numbers stay in one screen beside the form
+  var availW = col.clientWidth, availH = cw > 1000 ? vh - 40 - (col.offsetHeight - cv.offsetHeight) : 1e9;
+  PX = Math.max(2, Math.min(4, Math.floor(availW / HW), Math.floor(availH / HH)));
+  var d = hole.size(PX), wide = phone ? '' : (HW * d) + 'px';
+  SHORT = phone || PX < 3;
+  $('#nums').style.maxWidth = $('#legend').style.maxWidth = wide;   // under the hole's two edges; a phone gives them the column
+  // the sky behind: the hole's own stars, tiled at its pixel, so the canvas has no edge; only behind the preview
+  skyEl.style.setProperty('--stars', 'url(' + tileUrl + ')'); skyEl.style.setProperty('--stars-size', 128 * BH.devPx(PX) + 'px');
+  var sr = skyEl.getBoundingClientRect(), cr = col.getBoundingClientRect();
+  if (cw > 1000) {                                    // beside the form: the preview's column, to the middle of the gap
+    var gap = parseFloat(getComputedStyle(col.parentNode).columnGap) || 0;
+    skyEl.style.setProperty('--sky-w', Math.round(cr.right - sr.left + gap / 2) + 'px');
+    skyEl.style.removeProperty('--sky-h'); skyEl.style.removeProperty('--sky-fade');
+  } else {                                            // above the form: they fade out under the preview
+    skyEl.style.removeProperty('--sky-w');
+    skyEl.style.setProperty('--sky-h', Math.round(cr.bottom - sr.top + 24) + 'px'); skyEl.style.setProperty('--sky-fade', '160px');
+  }
+  // each tile's still as large as its card allows, 3 css px a pixel at most
+  tiles.forEach(function (x) {
+    var c = x.cv.parentNode, cs = getComputedStyle(c), inner = c.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+    BH.fit(x.cv, Math.max(1, Math.min(3, Math.floor(inner / x.cv.width))));
+  });
+  BH.mark($('#sym'), 2); BH.mark($('#sym1'), 2);
+  renderLegend();                                     // its long or short words
+}
+// re-lay out when the width changes (a phone's address bar showing or hiding only changes the height: ignored there)
+var rz = 0;
+function maybeLayout() {
+  clearTimeout(rz);
+  rz = setTimeout(function () { var cw = document.documentElement.clientWidth, vh = viewH(); if (cw !== lastW || (cw > 1000 && Math.abs(vh - lastH) > 40)) layout(); }, 140);
+}
+addEventListener('resize', maybeLayout);
+addEventListener('load', maybeLayout);
+if (window.visualViewport) visualViewport.addEventListener('resize', maybeLayout);
+// the name's line height (and so the room the hole has) is known once the fonts are in
+try { if (document.fonts && document.fonts.ready) document.fonts.ready.then(function () { layout(); }); } catch (e) {}
+// a window moved to a screen with another pixel ratio: whole device pixels again
+(function watchRatio() {
+  try { matchMedia('(resolution: ' + (window.devicePixelRatio || 1) + 'dppx)').addEventListener('change', function () { layout(); watchRatio(); }, { once: true }); } catch (e) {}
+})();
+
+/* ================= start ================= */
+[['name', iName], ['symbol', iSym], ['uri', iUri], ['first', iBuy]].forEach(function (p) { var x = params.get(p[0]); if (x != null) p[1].value = x.slice(0, 220); });
+(function () {
+  var prog = window.NET && NET.program, link = $('#progLink');
+  if (prog && NET.explorer) link.href = NET.explorer('address', prog); else link.removeAttribute('href');
+})();
+BH.favicon();
+layout();
+onInput(true);
+setWho();
+loadTape();
+loadConfig().then(function () {
+  if (CHECK && params.get('run') === '1') setTimeout(function () { if (allowed()) go(); }, 300);
+});
+
+// handles for checks and screenshots. Nothing here sends anything: pool(p) shows a pool in the preview as if it had been
+// read back after a launch (the done state is not shown)
+window.__launch = {
+  hole: hole,
+  set: function (o) { o = o || {}; if (o.v != null) iV.value = o.v; if (o.m != null) iM.value = o.m; if (o.fee != null) iFee.value = o.fee; if (o.name != null) iName.value = o.name; if (o.symbol != null) iSym.value = o.symbol; if (o.first != null) iBuy.value = o.first; return onInput(true).ok; },
+  preset: function (id) { var su = presetOf(id); if (su) usePreset(su); },
+  pool: function (p) { pool = p || null; renderPreview(true); return pool; },
+  go: go,
+  freeze: function () { window.__frozen = true; hole.stop(); },
+  perf: function () { return hole.perf(); },
+  layout: layout,
+  state: function () {
+    var lk = hole.look;
+    return {
+      settings: { v: SET.raw.v != null ? lamText(SET.raw.v) : null, m: SET.raw.m != null ? lamText(SET.raw.m) : null, fee: SET.raw.fee, ok: SET.ok, msgs: SET.msgs },
+      good: settingsOut(SET.good),
+      hole: { V: lk.V, M: lk.M, fee: lk.fee, G: lk.G, reach: lk.reach, rOut: hole.hole.rOut, jet: hole.hole.jet, shown: hole.shown, busy: hole.busy, graduated: hole.graduated, state: hole.state },
+      nums: { px: $('#nPx').textContent, grad: $('#nG').textContent, mcap: $('#nM').textContent, burn: $('#nB').textContent, off: $('#nums').classList.contains('off') },
+      legend: $('#legend').textContent, buyMsg: $('#mBuy').textContent,
+      presets: tiles.map(function (x) { return x.bt.getAttribute('aria-pressed'); }).join(''),
+      px: PX, config: CFG.state, minFeeBps: minFee(), split: split(), hold: { text: holdText, disabled: hold.disabled }, gate: $('#gate').textContent, status: $('#status').textContent,
+      need: $('#needN').textContent + ' ' + $('#needSmall').textContent, tape: $('#tape').children.length,
+      overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth
+    };
+  }
+};
+});
+</script>
+</body>
+</html>

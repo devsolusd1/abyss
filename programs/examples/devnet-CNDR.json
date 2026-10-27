@@ -1,0 +1,24 @@
+{
+  "cluster": "devnet",
+  "program": "CbAjrrCk8WEyh9uTQ1cNJWxNGJk2ipJtxK5p8yBwnURK",
+  "signatures": {
+    "launch": "5ULfo3fTDatoSdvsTCdfJkqj8j3Ap5VkY9R1q4UjCnw9HNE8o4knoZdgTqy8sbZymtGowcMLypjLPPqx9zYPuKBS",
+    "sell": "325XnDGnwXQLJ89tuxoU5yoNMfK1vUcXLF1qthEH6rXj24oH5TPkZiwY4TzqFg7u7pkpaX8z6aPEoSFJ3RS9B2Ak",
+    "buy": "3Q3CYP36DLAjzPQpXNyF2EW1sLFBZMZ3JyoTpCQrUQFtomNYSzcW2yGpsFFCqsU9Gfr1QoHtgb9FmffzKrCNjgjE"
+  },
+  "config": "6GgPpYEhGhcNuUVdLnFrp5pmzjFyVLrjwqn7wv5oxtN9",
+  "mint": "hvquiqAHHo7UvZ6F1cG8xDiFtAYEMZUBUf3jUzqPURA",
+  "pool": "QSj33hfaVGjppx8hxK1Ms6weBSvKdNZCD7Xv3dU8rhf",
+  "vault": "77GX1Q4Vx3kzJSCCpLKMTpeiGybqYVpVFShAruxnGVCr",
+  "summary": {
+    "tokensHeld": "44,498,830.32",
+    "realSol": "1.397136",
+    "tokenReserve": "955,501,169.68",
+    "feesOwed": {
+      "creator": "0.010924",
+      "treasury": "0.010924"
+    },
+    "volumeSol": "2.184864",
+    "graduated": false
+  }
+}

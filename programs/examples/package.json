@@ -1,0 +1,13 @@
+{
+  "name": "dex-examples",
+  "private": true,
+  "type": "module",
+  "description": "Client examples for the pool program: full runs on devnet.",
+  "scripts": {
+    "devnet": "node devnet.mjs"
+  },
+  "dependencies": {
+    "@solana/spl-token": "^0.4.15",
+    "@solana/web3.js": "^1.98.0"
+  }
+}
