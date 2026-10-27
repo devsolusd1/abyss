@@ -73,6 +73,13 @@
 .c-btn:focus-visible::before { box-shadow: inset 0 0 0 2px var(--f-bg), inset 0 0 0 4px var(--f-yellow); }
 .c-note { font-size: 11px; line-height: 1.6; color: var(--f-mute); margin-top: 12px; min-height: 1.6em; overflow-wrap: anywhere; }
 .c-note a { color: var(--f-cream); }
+/* the fees this wallet can claim, under a dashed line */
+.c-claim { margin-top: 14px; padding-top: 14px; border-top: 1px dashed var(--f-line); }
+#claimC:not([hidden]) + #claimT { margin-top: 16px; }   /* a gap only between two blocks shown */
+.c-cl { font-size: 12px; line-height: 1.6; color: var(--f-mute); }
+.c-cl b { color: var(--f-cream); font-weight: 600; }
+.c-claim .btn { width: 100%; margin-top: 10px; }
+.c-claim [hidden] { display: none; }
 
 /* ---------- in numbers: a flat list on the dark ground, two columns ---------- */
 #numbers { padding-bottom: 0; }
@@ -237,6 +244,12 @@
       <p class="c-quote" id="quote" aria-live="polite">Reading the pool…</p>
       <button type="button" class="c-btn" id="hold"><span id="holdTxt">Connect a wallet to buy</span><i id="holdFill" aria-hidden="true"></i></button>
       <p class="c-note" id="note" aria-live="polite"></p>
+      <!-- the fees this wallet can claim: only for the coin's creator, or its treasury -->
+      <div class="c-claim" id="claim" hidden>
+        <div id="claimC" hidden><p class="c-cl" id="claimCTxt"></p><button type="button" class="btn sm" id="claimCBtn">Claim</button></div>
+        <div id="claimT" hidden><p class="c-cl" id="claimTTxt"></p><button type="button" class="btn sm ghost" id="claimTBtn">Send to the treasury</button></div>
+        <p class="c-note" id="claimNote" aria-live="polite"></p>
+      </div>
     </aside>
   </div>
 </section>
@@ -730,6 +743,7 @@ function renderQuote() {
 function holdLabel(t) { holdTxt.textContent = t; holdFill.textContent = t; }   // the yellow fill carries the same words, dark
 function paintHold() {
   var w = window.Wallet && Wallet.current;
+  if (claimEl) paintClaim();                           // the claim buttons wait while a trade goes out, and the other way round
   holdBtn.classList.toggle('connect', !w);
   holdBtn.classList.toggle('busy', busy);
   if (busy) { holdLabel('Working…'); holdBtn.disabled = true; holdBtn.classList.remove('ready'); return; }
@@ -800,7 +814,7 @@ function sendError(e) {
   if (m === 'timeout') return 'Devnet did not answer in time. Check your wallet\'s activity before trying again.';
   var hex = m.match(/custom program error: 0x([0-9a-f]+)/i);
   if (hex) return 'It did not go through: ' + Chain.explain({ err: { InstructionError: [0, { Custom: parseInt(hex[1], 16) }] } }) + '.';
-  if (/insufficient/i.test(m)) return 'Not enough SOL for this trade and its fees.';
+  if (/insufficient/i.test(m)) return 'Not enough SOL for it and its network fee.';
   if (/blockhash|expired/i.test(m)) return 'It took too long to sign and expired. Nothing was sent; try again.';
   return 'It did not go through: ' + (m || 'unknown error') + '.';
 }
@@ -831,14 +845,76 @@ async function execute() {
   } finally { busy = false; paintHold(); }
 }
 
+/* ================= fees: the creator's paid to the creator, the platform's to its treasury ================= */
+// a wallet that is the pool's creator sees what the pool owes it and a button that claims it all (the program pays
+// the creator only, and the creator must sign). A wallet that is the pool's treasury sees the platform's share; the
+// program lets anyone send that to the treasury, the page offers it to that wallet only. Both share the trade
+// panel's busy flag, so one transaction goes out at a time
+var claimEl = $('#claim'), claimNote = $('#claimNote'), claiming = false;   // claiming: the block stays as it is until the claim ends, whatever the wallet does
+function cnote(text, bad) { claimNote.classList.toggle('bad', !!bad); claimNote.textContent = text; }
+function cnoteHTML(html, bad) { claimNote.classList.toggle('bad', !!bad); claimNote.innerHTML = html; }
+function rolesOf() {
+  var w = window.Wallet && Wallet.current;
+  if (!w || !POOL) return null;
+  var k = String(w.publicKey);
+  return { creator: k === String(POOL.creator), treasury: k === String(POOL.treasury) };
+}
+function paintClaim() {
+  if (claiming) return;
+  var r = rolesOf(), show = !!(r && (r.creator || r.treasury));
+  if (claimEl.hidden === show) claimEl.hidden = !show;
+  if (!show) return;
+  [['C', r.creator, POOL.creatorFees, 'This wallet is the coin\'s creator. ', 'of its fees are yours, waiting in the pool.', 'Claim ', 'Nothing to claim'],
+   ['T', r.treasury, POOL.treasuryFees, 'This wallet is the platform\'s treasury. ', 'of platform fees wait in the pool for it.', 'Collect ', 'Nothing to collect']].forEach(function (x) {
+    var box = $('#claim' + x[0]), owed = x[2], btn = $('#claim' + x[0] + 'Btn');
+    box.hidden = !x[1];
+    if (!x[1]) return;
+    var html = x[3] + (owed > 0n ? '<b>' + fSol(lam(owed)) + '</b> SOL ' + x[4] : (x[0] === 'C' ? 'Nothing is owed to you now: the fees build up with every trade.' : 'Nothing is owed to the treasury now.'));
+    var t = $('#claim' + x[0] + 'Txt'); if (t._h !== html) { t._h = html; t.innerHTML = html; }
+    var lbl = owed > 0n ? x[5] + fSol(lam(owed)) + ' SOL' : x[6];
+    if (btn.textContent !== lbl) btn.textContent = lbl;
+    btn.disabled = busy || owed <= 0n;
+  });
+}
+async function claim(asCreator) {
+  var w = window.Wallet && Wallet.current;
+  if (busy || !w || !POOL) return;
+  busy = true; paintHold(); paintClaim(); claiming = true;
+  var paidBefore = asCreator ? POOL.creatorFeesPaid : POOL.treasuryFeesPaid, done = asCreator ? 'Claimed' : 'Sent to the treasury';
+  try {
+    cnote('Reading the pool again…');
+    try { var fresh = await withTimeout(Chain.readPool(POOL.mint), 12000); if (fresh) { PINNED = false; applyPool(fresh); } } catch (e) { /* claim on what we have */ }
+    var r = rolesOf();
+    if (!r || !(asCreator ? r.creator : r.treasury)) { cnote(asCreator ? 'This wallet is no longer the coin\'s creator.' : 'This wallet is not the coin\'s treasury.', true); return; }
+    if ((asCreator ? POOL.creatorFees : POOL.treasuryFees) <= 0n) { cnote('Nothing is owed now.', true); return; }
+    var built = await Chain.buildClaim({ pool: POOL, owner: w.publicKey, creator: asCreator });
+    cnote('Asking devnet whether it would go through…');
+    var sim = await withTimeout(Chain.simulate(built, w.publicKey), 15000);
+    if (!sim.ok) { cnote('Devnet says it would fail: ' + sim.error + '. Nothing was sent.', true); return; }
+    cnote('Devnet says it goes through. Confirm in ' + (w.name || 'your wallet') + '.');
+    paidBefore = asCreator ? POOL.creatorFeesPaid : POOL.treasuryFeesPaid;   // the pool the claim was built on
+    var sig = await Chain.send(built, w);
+    cnoteHTML(done + ': ' + link('tx', sig, 'the signature ' + esc(shortKey(sig))) + '. Reading the pool…');
+    await refresh(true);
+    // the program pays what is owed when the transaction runs (a trade meanwhile adds to it): the amount is read back
+    var d = POOL ? (asCreator ? POOL.creatorFeesPaid : POOL.treasuryFeesPaid) - paidBefore : 0n;
+    cnoteHTML((d > 0n ? fSol(lam(d)) + ' SOL ' + done.toLowerCase() : done + ', everything owed') + ': ' + link('tx', sig, 'the signature ' + esc(shortKey(sig))) + '.');
+  } catch (e) {
+    if (e && e.signature) cnoteHTML(esc(sendError(e)) + ' ' + link('tx', e.signature, 'See it on the explorer'), true);
+    else cnote(sendError(e), true);
+  } finally { claiming = false; busy = false; paintHold(); paintClaim(); }
+}
+$('#claimCBtn').addEventListener('click', function () { claim(true); });
+$('#claimTBtn').addEventListener('click', function () { claim(false); });
+
 /* ================= reading devnet ================= */
-function changed(a, b) { return !b || a.realSol !== b.realSol || a.tokens !== b.tokens || a.graduated !== b.graduated || a.volume !== b.volume || a.creatorFees !== b.creatorFees || a.treasuryFees !== b.treasuryFees || a.creatorFeesPaid !== b.creatorFeesPaid || a.treasuryFeesPaid !== b.treasuryFeesPaid; }
+function changed(a, b) { return !b || a.realSol !== b.realSol || a.tokens !== b.tokens || a.graduated !== b.graduated || a.volume !== b.volume || a.creatorFees !== b.creatorFees || a.treasuryFees !== b.treasuryFees || a.creatorFeesPaid !== b.creatorFeesPaid || a.treasuryFeesPaid !== b.treasuryFeesPaid || String(a.creator) !== String(b.creator); }
 function applyPool(p) {
   var first = !POOL || String(POOL.mint) !== String(p.mint), diff = first || changed(p, POOL);
   POOL = p; lastRead = Date.now(); readFail = 0;
   if (!diff) { paintStatus(); return false; }
   showState(first);
-  renderHero(); renderFacts(); renderQuote();
+  renderHero(); renderFacts(); renderQuote(); paintClaim();
   return true;
 }
 async function loadHistory() {
@@ -880,7 +956,7 @@ async function readAll(force) {
   if (window.Wallet && Wallet.current) await readWal();
 }
 setInterval(function () { if (!document.hidden && !busy && POOL && !PINNED) refresh(false).catch(report); }, REFRESH_MS);
-function onWallet() { WAL = null; paintHoldings(); renderQuote(); readWal(); }
+function onWallet() { WAL = null; paintHoldings(); renderQuote(); paintClaim(); if (!claiming) cnote(''); readWal(); }
 if (window.Wallet) Wallet.on(onWallet);
 var again = $('#again');
 again.addEventListener('click', function () {

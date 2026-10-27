@@ -44,6 +44,22 @@ if (wallet.tokens > 0n) {
   line(sellSim.ok, `sell a tenth -> ${Chain.sol(sell.quote.solOut).toFixed(6)} SOL: ${sellSim.ok ? "simulated cleanly" : sellSim.error} (${sellSim.units} units)`);
 }
 
+// fee claims, on the first pool that owes something: the creator's signed by its creator, the platform's sent by OWNER
+const owing = pools.find((p) => p.creatorFees > 0n) ?? null;
+if (owing) {
+  const claim = await Chain.buildClaim({ pool: owing, owner: owing.creator });
+  const claimSim = await Chain.simulate(claim, owing.creator);
+  line(claimSim.ok, `creator claims ${Chain.sol(claim.amount)} SOL from ${owing.name}: ${claimSim.ok ? "simulated cleanly" : claimSim.error} (${claimSim.units} units)`);
+  const wrong = await Chain.simulate(await Chain.buildClaim({ pool: owing, owner: "11111111111111111111111111111112" }), OWNER);
+  line(!wrong.ok, `someone else claiming the creator's fees is refused: ${wrong.error}`);
+}
+const owingT = pools.find((p) => p.treasuryFees > 0n) ?? null;
+if (owingT) {
+  const claimT = await Chain.buildClaim({ pool: owingT, owner: OWNER, creator: false });
+  const claimTSim = await Chain.simulate(claimT, OWNER);
+  line(claimTSim.ok, `platform's ${Chain.sol(claimT.amount)} SOL sent to the treasury: ${claimTSim.ok ? "simulated cleanly" : claimTSim.error} (${claimTSim.units} units)`);
+}
+
 const launch = await Chain.buildLaunch({ creator: OWNER, name: "Check", symbol: "CHK", uri: "", firstBuySol: 0.05 });
 const launchSim = await Chain.simulate(launch, OWNER);
 line(launchSim.ok, `launch with a first buy: ${launchSim.ok ? "simulated cleanly" : launchSim.error} (${launchSim.units} units)`);

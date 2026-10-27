@@ -63,11 +63,11 @@ p { margin: 0; }
 
 /* ---------- buttons with pixel corners: .btn filled yellow, .btn.ghost outlined, .btn.sm smaller ---------- */
 .btn { --s: 3px; display: inline-flex; align-items: center; justify-content: center; gap: 12px; padding: 15px 22px 14px; font: 850 13px/1 var(--f-head); font-stretch: 125%; text-transform: uppercase; letter-spacing: .06em; text-decoration: none; background: var(--f-yellow); color: var(--f-bg); clip-path: var(--step); -webkit-user-select: none; user-select: none; touch-action: manipulation; }
-.btn:hover, .btn:focus-visible { background: var(--f-cream); }
+.btn:hover:not([disabled]):not([aria-disabled="true"]), .btn:focus-visible { background: var(--f-cream); }   /* a disabled button does not light up */
 .btn.sm { padding: 11px 15px 10px; font-size: 11px; }
 .btn.ghost { position: relative; isolation: isolate; background: var(--f-line2); color: var(--f-cream); }
 .btn.ghost::before { content: ''; position: absolute; inset: 2px; background: var(--f-bg); clip-path: var(--step); z-index: -1; }
-.btn.ghost:hover, .btn.ghost:focus-visible { background: var(--f-yellow); }
+.btn.ghost:hover:not([disabled]):not([aria-disabled="true"]), .btn.ghost:focus-visible { background: var(--f-yellow); }
 .btn[disabled], .btn[aria-disabled="true"] { opacity: .45; cursor: default; }
 /* keyboard focus: the pixel corners clip any outline, so the ring is drawn inside: the edge, a dark line, then a
    second line (on a filled button the fill is the second line) */

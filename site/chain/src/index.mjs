@@ -367,6 +367,23 @@ export async function buildSell({ pool, owner, tokens, slippageBps = 100 }) {
   return { tx, signers: [], quote: { ...quote, minOut } };
 }
 
+/**
+ * A claim of the fees a pool owes. As the creator (`creator: true`, the default): `owner` must be the pool's creator,
+ * signs, and is paid. As the platform: the SOL goes to the treasury written into the pool, whoever sends it
+ * (`owner` only pays the network fee). Returns the transaction and the lamports it would pay.
+ */
+export async function buildClaim({ pool, owner, creator = true }) {
+  owner = new PublicKey(owner);
+  const keys = creator
+    ? [meta(owner, { signer: true, writable: true }), meta(pool.address, { writable: true })]
+    : [meta(pool.address, { writable: true }), meta(new PublicKey(pool.treasury), { writable: true })];
+  const tx = new Transaction().add(
+    ComputeBudgetProgram.setComputeUnitLimit({ units: 20_000 }),
+    await ix(creator ? "claim_creator_fees" : "claim_treasury_fees", keys),
+  );
+  return { tx, signers: [], amount: creator ? pool.creatorFees : pool.treasuryFees };
+}
+
 /** Lamports as SOL in words: whole SOL with thousands commas, up to 9 decimals, no trailing zeros. */
 function solWords(lamports) {
   const whole = (lamports / LAMPORTS).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
@@ -516,6 +533,8 @@ export function explain(errorOrSim) {
     return `Program error ${code}`;
   }
   if (text.includes("InsufficientFunds") || text.includes("insufficient lamports")) return "Not enough SOL";
+  // a fee payer with no lamports has no account at all
+  if (text.includes("AccountNotFound")) return "This wallet has no SOL yet, and it needs a little for the network fee";
   return "The transaction would fail";
 }
 
