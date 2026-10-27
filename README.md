@@ -26,4 +26,5 @@ working name.
 node site/serve.mjs
 ```
 
-Then open http://localhost:4900.
+Then open http://localhost:4900. On Vercel, `vercel.json` serves `site/` as the root, and
+`/coins` opens `coins.html`, as `serve.mjs` does.
