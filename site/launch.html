@@ -91,6 +91,7 @@ form > .blk:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
 .msg img { width: 28px; height: 28px; object-fit: cover; vertical-align: middle; margin-right: 10px; image-rendering: auto; }
 .fixed { margin-top: 24px; font-size: 11px; color: var(--f-mute); max-width: 46ch; }
 .fixed b { color: var(--f-cream); font-weight: 600; }
+.fixed a { color: var(--f-cream); text-underline-offset: 4px; }
 
 /* ---------- what it takes, and the launch ---------- */
 .need-n { margin-top: 10px; font-size: 32px; font-weight: 500; letter-spacing: -.02em; line-height: 1.1; font-variant-numeric: tabular-nums; }
@@ -192,6 +193,7 @@ form > .blk:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
   <nav class="nav" aria-label="Site">
     <a href="/#how"><span class="long">how it works</span><span class="short">how</span></a>
     <a href="/coins">coins</a>
+    <a href="/sim">sim</a>
     <a class="btn sm" href="/launch" aria-current="page">launch</a>
   </nav>
 </header>
@@ -236,6 +238,7 @@ form > .blk:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
             <div class="inp" id="iFee"><input id="fFee" name="fee" inputmode="decimal" spellcheck="false" maxlength="8" aria-describedby="mFee"><span class="unit">%</span><button type="button" class="st" data-f="fee" data-d="-1" aria-label="Lower fee">−</button><button type="button" class="st" data-f="fee" data-d="1" aria-label="Higher fee">+</button></div>
             <p class="msg" id="mFee" aria-live="polite"></p>
           </div>
+          <p class="fixed"><a id="simLink" href="/sim">Try these settings in the simulator</a>: play SOL and a made-up crowd, nothing sent.</p>
         </section>
 
         <section class="blk" aria-labelledby="coin-h">
@@ -489,6 +492,16 @@ function renderSettings() {
   $('#iV').classList.toggle('bad', !!ms.virtualSol); $('#iM').classList.toggle('bad', !!ms.graduationMcap); $('#iFee').classList.toggle('bad', !!ms.feeBps);
   steppers.forEach(function (b) { b.disabled = !!launched || stepOf(b.getAttribute('data-f'), +b.getAttribute('data-d')) == null; });
 }
+
+/* the simulator, with the settings (and the name and first buy, once typed) as they stand when it is followed */
+function simHref() {
+  var g = SET.good, q = new URLSearchParams(), nm = String(F.name || '').trim(), sy = String(F.symbol || '').trim();
+  if (nm) q.set('name', nm); if (sy) q.set('sym', sy);
+  q.set('v', String(Number(g.v) / 1e9)); q.set('m', String(Number(g.m) / 1e9)); q.set('fee', String(g.fee / 100));
+  if (F.first > 0 && F.firstOk) q.set('first', String(F.first));
+  return '/sim?' + q.toString();
+}
+['pointerdown', 'focus', 'click', 'mouseenter'].forEach(function (n) { $('#simLink').addEventListener(n, function () { try { this.href = simHref(); } catch (e) {} }); });
 
 /* ================= presets: the landing's four settings, each a still hole at its full disk ================= */
 var tiles = [];

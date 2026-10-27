@@ -1,0 +1,844 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>sim · Nox</title>
+<meta name="description" content="Launch a coin in your browser and watch it trade: the Nox pool program's own math, play SOL, a made-up crowd, a candle chart. Nothing touches a chain.">
+<script>window.__errors = []; addEventListener('error', function (e) { __errors.push(String(e.message || e)); }); addEventListener('unhandledrejection', function (e) { __errors.push('promise: ' + String(e.reason && e.reason.message || e.reason)); });</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anybody:wdth,wght@50..150,100..900&family=Martian+Mono:wdth,wght@75..112.5,100..800&display=swap">
+<link rel="stylesheet" href="/assets/nox.css">
+<style>
+/* ===== the simulator: one coin on the pool program's math (assets/pool-math.js, assets/sim.js), its candles
+   (assets/chart.js), its hole (assets/bh.js); the shared look is assets/nox.css ===== */
+.tape .me b { color: var(--f-yellow); }
+
+/* ---------- the head: the coin's name and settings, then five numbers ---------- */
+.s-head { display: flex; justify-content: space-between; align-items: flex-end; flex-wrap: wrap; gap: 18px 32px; padding-top: clamp(14px, 2.6vw, 34px); }
+.s-head .kick { margin-bottom: 12px; }
+.s-head h1 { font-size: clamp(34px, 4.6vw, 64px); overflow-wrap: anywhere; }
+.sym { margin-left: .6em; font: 400 12px/1 var(--f-mono); font-stretch: 87.5%; letter-spacing: 0; text-transform: none; color: var(--f-mute); vertical-align: .55em; white-space: nowrap; }
+.s-set { margin-top: 12px; font-size: 12px; color: var(--f-mute); }
+.s-acts { display: flex; align-items: center; gap: 14px 20px; flex-wrap: wrap; }
+.s-stats { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 22px 24px; margin-top: clamp(22px, 3vw, 34px); padding-top: 18px; border-top: 1px solid var(--f-line); }
+.s-stats .mute { overflow: hidden; text-overflow: ellipsis; }
+.bar { --s: 2px; display: block; height: 8px; margin-top: 8px; background: var(--f-deep); clip-path: var(--step); position: relative; overflow: hidden; max-width: 180px; }
+.bar i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--f-yellow); width: 0; }
+.up { color: var(--f-yellow); }
+.down { color: var(--f-lilac); }
+
+/* ---------- the board: the chart and the crowd on the left, the hole and the trade panel on the right ---------- */
+.s-grid { display: grid; grid-template-columns: minmax(0, 1fr) 340px; grid-template-areas: "chart side" "crowd side"; gap: 20px clamp(24px, 3vw, 40px); align-items: start; margin-top: clamp(22px, 3vw, 34px); }
+.s-chart { grid-area: chart; padding: 14px 16px 14px; }
+.s-crowd { grid-area: crowd; padding: 16px 18px 18px; }
+.s-side { grid-area: side; display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; align-items: start; }
+
+/* small square buttons in a row; the one pressed is filled yellow */
+.chips { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+.chips button { min-width: 30px; padding: 7px 9px 6px; font-size: 11px; line-height: 1; color: var(--f-mute); box-shadow: inset 0 0 0 1px var(--f-line); -webkit-user-select: none; user-select: none; touch-action: manipulation; }
+.chips button:hover { color: var(--f-cream); box-shadow: inset 0 0 0 1px var(--f-line2); }
+.chips button[aria-pressed="true"] { background: var(--f-yellow); color: var(--f-bg); box-shadow: none; }
+.chips button:focus-visible { outline-offset: 2px; }
+.chips button:disabled { opacity: .4; cursor: default; }
+
+/* the chart's toolbar, the line that reads the candle under the pointer, the canvas, the key */
+.s-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
+.s-bar .sp { flex: 1; }
+.s-bar .lbl { font-size: 10px; color: var(--f-mute); text-transform: uppercase; letter-spacing: .1em; margin-right: 2px; }
+.s-read { margin-top: 12px; min-height: 1.65em; font-size: 11px; color: var(--f-mute); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.s-read b { font-weight: 500; color: var(--f-cream); }
+.s-read b.up { color: var(--f-yellow); }
+.s-read b.down { color: var(--f-lilac); }
+.s-cv { margin-top: 6px; }
+.s-cv canvas { cursor: crosshair; image-rendering: auto; }
+.s-cv canvas.dragging { cursor: grabbing; }
+.s-key { display: flex; flex-wrap: wrap; gap: 4px 18px; margin-top: 10px; font-size: 10px; color: var(--f-mute); }
+.s-key span { display: inline-flex; align-items: center; gap: 7px; }
+.s-key i { display: inline-block; width: 8px; height: 8px; }
+.s-key .ku { background: var(--f-yellow); }
+.s-key .kd { background: var(--f-lilac); }
+.s-key .kg { width: 10px; height: 2px; background: var(--f-cream); box-shadow: 4px 0 0 var(--f-bg); }
+.s-key .km { width: auto; height: auto; font-style: normal; color: var(--f-cream); font-size: 9px; }
+
+/* the hole, on its own sky */
+.s-hole { position: relative; display: flex; flex-direction: column; align-items: center; padding: 12px 0 10px; background-repeat: repeat; image-rendering: pixelated; }
+.s-hole p { margin-top: 8px; font-size: 10px; color: var(--f-mute); text-align: center; }
+
+/* the trade panel: as on a coin's page, without a wallet */
+.c-trade { padding: 18px 20px 20px; }
+.c-row { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; }
+.c-seg { display: flex; gap: 28px; margin-top: 10px; }
+.c-seg button { display: flex; align-items: center; gap: 11px; font: 850 22px/1 var(--f-head); font-stretch: 125%; text-transform: uppercase; color: var(--f-mute); }
+.c-seg button:hover, .c-seg button[aria-pressed="true"] { color: var(--f-cream); }
+.slot { flex: none; width: 10px; height: 10px; box-shadow: inset 0 0 0 2px var(--f-mute); }
+.c-seg button[aria-pressed="true"] .slot { box-shadow: none; background: var(--f-yellow); }
+.c-amt { display: flex; align-items: baseline; gap: 12px; margin-top: 18px; padding-bottom: 8px; border-bottom: 2px solid var(--f-line2); }
+.c-amt:focus-within { border-bottom-color: var(--f-yellow); }
+.c-amt input { flex: 1; min-width: 0; font: 500 26px/1.15 var(--f-mono); font-stretch: 87.5%; letter-spacing: -.02em; font-variant-numeric: tabular-nums; color: var(--f-cream); caret-color: var(--f-yellow); background: none; border: 0; border-radius: 0; padding: 0; outline: none; }
+.c-amt .u { font-size: 12px; color: var(--f-mute); white-space: nowrap; }
+.c-trade .chips { margin-top: 10px; }
+.c-quote { font-size: 12px; line-height: 1.65; color: var(--f-mute); margin-top: 12px; min-height: 5em; }
+.c-quote b { color: var(--f-cream); font-weight: 600; }
+.c-quote.bad, .c-note.bad { color: var(--f-yellow); }
+.c-btn { --s: 3px; --edge: var(--f-yellow); position: relative; isolation: isolate; display: flex; align-items: center; justify-content: center; width: 100%; height: 50px; margin-top: 12px; background: var(--edge); clip-path: var(--step); color: var(--f-bg); font: 850 13px/1 var(--f-head); font-stretch: 125%; text-transform: uppercase; letter-spacing: .06em; -webkit-user-select: none; user-select: none; touch-action: manipulation; }
+.c-btn:hover { --edge: var(--f-cream); }
+.c-btn:disabled { --edge: var(--f-line); color: var(--f-mute); cursor: default; }
+.c-btn:disabled::before { content: ''; position: absolute; inset: 2px; background: var(--f-bg); clip-path: var(--step); z-index: -1; }
+.c-btn:focus-visible { box-shadow: inset 0 0 0 2px var(--f-yellow), inset 0 0 0 4px var(--f-bg); }
+.c-note { font-size: 11px; line-height: 1.6; color: var(--f-mute); margin-top: 10px; min-height: 1.6em; }
+.you { display: grid; gap: 5px; margin: 14px 0 0; padding-top: 13px; border-top: 1px dashed var(--f-line); font-size: 12px; }
+.you div { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.you dt { color: var(--f-mute); font-size: 11px; white-space: nowrap; }
+.you dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+
+/* the crowd: the clock, its mood, a few nudges */
+.s-ctl { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 22px; margin-top: 14px; }
+.s-ctl .grp { display: inline-flex; align-items: center; gap: 8px; }
+.s-ctl .lbl { font-size: 10px; color: var(--f-mute); text-transform: uppercase; letter-spacing: .1em; }
+#play { min-width: 92px; }
+.s-mood { margin-top: 12px; font-size: 11px; color: var(--f-mute); }
+.s-ev { display: flex; flex-wrap: wrap; gap: 8px 22px; margin-top: 14px; padding-top: 12px; border-top: 1px dashed var(--f-line); font-size: 12px; }
+.s-cnote { margin-top: 10px; font-size: 11px; color: var(--f-mute); min-height: 1.6em; }
+
+/* ---------- every trade and who holds what ---------- */
+.s-low { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: 48px clamp(32px, 5vw, 80px); align-items: start; padding-top: clamp(56px, 8vw, 104px); }
+.s-low h2 { font-size: clamp(26px, 3vw, 40px); }
+.s-low .lead { margin-top: 10px; }
+.trades { width: 100%; margin-top: 24px; border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
+.trades th, .trades td { padding: 6px 0 6px 14px; text-align: right; white-space: nowrap; font-weight: 400; }
+.trades th:first-child, .trades td:first-child { padding-left: 8px; text-align: left; }
+.trades th:last-child, .trades td:last-child { padding-right: 8px; }
+.trades th:nth-child(2), .trades td:nth-child(2) { text-align: left; }
+.trades th { padding-top: 0; padding-bottom: 10px; font-size: 11px; color: var(--f-mute); border-bottom: 1px solid var(--f-line); }
+.trades tbody tr:first-child td { padding-top: 10px; }
+.trades .k { display: inline-block; width: 8px; height: 8px; margin-right: 10px; }
+.trades tr.buy td { color: var(--f-cream); }
+.trades tr.buy .k { background: var(--f-yellow); }
+.trades tr.sell td { color: var(--f-mute); }
+.trades tr.sell .k { box-shadow: inset 0 0 0 2px var(--f-lilac); }
+.trades tr.grad td { color: var(--f-yellow); }
+.trades tr.grad .k { background: var(--f-cream); }
+.trades tr.me td { background: var(--f-deep); }
+.trades td b { font-weight: 600; color: var(--f-yellow); }
+.trades .ev td { color: var(--f-mute); }
+.s-empty { margin-top: 14px; font-size: 11px; color: var(--f-mute); }
+
+/* ---------- what is real here ---------- */
+.s-real { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 28px clamp(28px, 4vw, 64px); padding-top: clamp(56px, 8vw, 104px); }
+.s-real h3 { font-size: 20px; margin-bottom: 12px; }
+.s-real p { font-size: 12px; color: var(--f-mute); max-width: 44ch; }
+.s-real a { color: var(--f-cream); text-underline-offset: 4px; }
+.foot { margin-top: clamp(64px, 10vw, 120px); }
+
+/* ---------- a new coin: a dialog over the page ---------- */
+dialog.dlg { width: min(560px, calc(100vw - 24px)); max-height: calc(100vh - 24px); max-height: calc(100dvh - 24px); overflow: auto; padding: 0; border: 0; background: transparent; color: var(--f-cream); }
+dialog.dlg::backdrop { background: rgba(7, 4, 13, .84); }
+.dlg .card { --card-bg: var(--f-surface); padding: 24px 24px 22px; }
+.dlg h2 { font-size: 30px; }
+.dlg .lead { margin-top: 10px; font-size: 12px; }
+.frow { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 20px; margin-top: 18px; }
+.frow.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.fl { display: grid; align-content: start; gap: 4px; font-size: 11px; color: var(--f-mute); }
+.fl input { width: 100%; min-width: 0; font: 500 16px/1.2 var(--f-mono); font-stretch: 87.5%; color: var(--f-cream); caret-color: var(--f-yellow); background: none; border: 0; border-bottom: 2px solid var(--f-line2); border-radius: 0; padding: 6px 0 5px; outline: none; }
+.fl input:focus { border-bottom-color: var(--f-yellow); }
+.fl input[aria-invalid="true"] { border-bottom-color: var(--f-lilac); }
+.fl .err { min-height: 1.5em; font-size: 10px; line-height: 1.5; color: var(--f-yellow); }
+.dlg .chips { margin-top: 18px; }
+.dlg .chips button { padding: 8px 10px 7px; }
+.dlg .derived { margin-top: 6px; font-size: 11px; color: var(--f-mute); min-height: 3.3em; }
+.dlg .derived b { color: var(--f-cream); font-weight: 500; }
+.dlg .keys { display: flex; align-items: center; gap: 22px; margin-top: 18px; }
+
+/* the panel goes under the chart on a tablet; the hole and the trade panel side by side while they fit */
+@media (max-width: 1040px) {
+  .s-grid { grid-template-columns: minmax(0, 1fr); grid-template-areas: "chart" "side" "crowd"; }
+  .s-side { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: center; }
+  .s-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 760px) {
+  .s-side { grid-template-columns: minmax(0, 1fr); }
+  .s-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px 16px; }
+  .s-stats .n:last-child { grid-column: 1 / -1; }
+  .s-chart { padding: 12px 12px 12px; }
+  /* the toolbar in two rows: the interval and the zoom, then what is shown */
+  .s-bar .sp { display: none; }
+  .s-bar .zoom { order: 1; margin-left: auto; }
+  #series { order: 2; }
+  .s-bar .logc { order: 3; }
+  #latest { order: 4; }
+  .s-crowd, .c-trade { padding: 16px 16px 18px; }
+  .s-read { white-space: normal; }
+  .s-low { grid-template-columns: minmax(0, 1fr); }
+  .s-real { grid-template-columns: minmax(0, 1fr); }
+  .trades { font-size: 11px; }
+  .trades th, .trades td { padding-left: 10px; }
+  .chips button { padding: 9px 10px 8px; }
+  .frow.three { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .dlg .card { padding: 20px 16px 18px; }
+}
+@media (max-width: 359px) {
+  .trades { font-size: 10px; }
+  .trades th, .trades td { padding-left: 6px; }
+  .trades .k { margin-right: 6px; }
+  .c-seg { gap: 20px; }
+  .frow, .frow.three { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 560px) { .tick .tag { padding-left: 16px; } }
+</style>
+<script defer src="/assets/bh.js"></script>
+<script defer src="/assets/pool-math.js"></script>
+<script defer src="/assets/sim.js"></script>
+<script defer src="/assets/chart.js"></script>
+</head>
+<body>
+
+<!-- the strip: the simulation's latest trades -->
+<div class="tick" aria-hidden="true">
+  <span class="tag"><i></i>simulation</span>
+  <div class="tape" id="tape"></div>
+</div>
+
+<header class="top">
+  <a class="brand" href="/" aria-label="Nox, home"><canvas id="sym" aria-hidden="true"></canvas><b>nox</b></a>
+  <nav class="nav" aria-label="Site">
+    <a href="/#how" class="how"><span class="long">how it works</span><span class="short">how</span></a>
+    <a href="/coins">coins</a>
+    <a href="/sim" aria-current="page">sim</a>
+    <a class="btn sm" href="/launch">launch</a>
+  </nav>
+</header>
+
+<main id="top">
+<!-- ===== the coin: its name and settings, five numbers ===== -->
+<section class="wrap">
+  <div class="s-head">
+    <div>
+      <p class="kick">simulator · play SOL, no chain</p>
+      <h1 id="name">MOTE</h1>
+      <p class="s-set" id="setLine"></p>
+    </div>
+    <div class="s-acts">
+      <button type="button" class="btn sm" id="newBtn">new coin</button>
+      <button type="button" class="q" id="restart">start over</button>
+    </div>
+  </div>
+  <div class="s-stats">
+    <div class="n"><b id="sPx">0.0300</b><span class="l1">SOL per 1M tokens</span><span class="mute" id="sChg">at launch</span></div>
+    <div class="n"><b id="sCap">30.0</b><span class="l1">SOL market cap</span><span class="mute" id="sAth"></span></div>
+    <div class="n"><b id="sSol">0.00</b><span class="l1">real SOL in</span><span class="mute" id="sGoal"></span><span class="bar" aria-hidden="true"><i id="sBar"></i></span></div>
+    <div class="n"><b id="sVol">0.00</b><span class="l1">SOL traded</span><span class="mute" id="sTr">0 trades</span></div>
+    <div class="n"><b id="sHold">0</b><span class="l1">holders</span><span class="mute" id="sClock">0:00 since launch</span></div>
+  </div>
+</section>
+
+<!-- ===== the board ===== -->
+<section class="wrap s-grid">
+  <figure class="card s-chart" style="margin:0">
+    <div class="s-bar">
+      <div class="chips" role="group" aria-label="One candle per" id="tfs">
+        <button type="button" data-tf="15">15s</button><button type="button" data-tf="60">1m</button><button type="button" data-tf="300">5m</button><button type="button" data-tf="900">15m</button>
+      </div>
+      <div class="chips" role="group" aria-label="What the chart shows" id="series">
+        <button type="button" data-series="price">price</button><button type="button" data-series="mcap">market cap</button>
+      </div>
+      <div class="chips logc"><button type="button" id="logBtn" aria-pressed="false" title="A log scale: the same rise looks the same size at any price">log</button></div>
+      <span class="sp"></span>
+      <div class="chips zoom" role="group" aria-label="Zoom">
+        <button type="button" id="zOut" aria-label="Zoom out">−</button><button type="button" id="zIn" aria-label="Zoom in">+</button>
+      </div>
+      <button type="button" class="q" id="latest" hidden>latest →</button>
+    </div>
+    <p class="s-read" id="read"></p>
+    <div class="s-cv" id="cvBox"><canvas id="chart" tabindex="0" role="img" aria-label="The coin's price in candles"></canvas></div>
+    <figcaption class="s-key">
+      <span><i class="ku"></i>closed up</span><span><i class="kd"></i>closed down</span><span><i class="kg"></i>graduation</span><span><i class="km">▲▼</i>your trades</span><span>drag sideways to look back · − and + zoom</span>
+    </figcaption>
+  </figure>
+
+  <div class="s-side">
+    <div class="s-hole" id="holeBox">
+      <canvas id="hole" aria-hidden="true"></canvas>
+      <p id="holeKey">disk: real SOL in the pool, full at graduation</p>
+    </div>
+
+    <aside class="c-trade card" aria-labelledby="tradeH">
+      <div class="c-row"><p class="kick" id="tradeH">trade · play SOL</p></div>
+      <div class="c-seg" role="group" aria-label="Buy or sell">
+        <button type="button" data-side="buy" aria-pressed="true"><i class="slot"></i>buy</button><button type="button" data-side="sell" aria-pressed="false"><i class="slot"></i>sell</button>
+      </div>
+      <div class="c-amt">
+        <label class="vh" for="amt" id="amtLabel">Amount of SOL to spend</label>
+        <input id="amt" inputmode="decimal" autocomplete="off" spellcheck="false" value="1">
+        <span class="u" id="unit">SOL</span>
+      </div>
+      <div class="chips" id="quick" role="group" aria-label="Quick amounts"></div>
+      <p class="c-quote" id="quote"></p>
+      <button type="button" class="c-btn" id="go">Buy</button>
+      <p class="c-note" id="note" aria-live="polite"></p>
+      <dl class="you">
+        <div><dt>your play SOL</dt><dd id="ySol">100.00</dd></div>
+        <div><dt>your tokens</dt><dd id="yTok">0</dd></div>
+        <div><dt>sold now, you get</dt><dd id="yVal">0 SOL</dd></div>
+        <div><dt>profit</dt><dd id="yPnl">no trades yet</dd></div>
+        <div><dt>creator fees, yours</dt><dd id="yFee">0 SOL</dd></div>
+      </dl>
+    </aside>
+  </div>
+
+  <div class="card s-crowd">
+    <div class="c-row"><p class="kick">the crowd</p><span class="mute" style="font-size:11px" id="crowdLine"></span></div>
+    <div class="s-ctl">
+      <button type="button" class="btn sm" id="play">pause</button>
+      <span class="grp"><span class="lbl">clock</span><span class="chips" role="group" aria-label="Clock speed" id="speeds"><button type="button" data-speed="1">1×</button><button type="button" data-speed="10">10×</button><button type="button" data-speed="60">60×</button></span></span>
+      <span class="grp"><span class="lbl">mood</span><span class="chips" role="group" aria-label="The crowd's mood" id="moods"><button type="button" data-mood="quiet">quiet</button><button type="button" data-mood="steady">steady</button><button type="button" data-mood="hype">hype</button><button type="button" data-mood="panic">panic</button></span></span>
+    </div>
+    <p class="s-mood" id="moodLine"></p>
+    <div class="s-ev">
+      <button type="button" class="q" id="whale">a whale buys</button>
+      <button type="button" class="q" id="dump">the biggest holder sells it all</button>
+    </div>
+    <p class="s-cnote" id="cnote" aria-live="polite"></p>
+  </div>
+</section>
+
+<!-- ===== every trade, and who holds what ===== -->
+<section class="wrap s-low">
+  <div>
+    <h2>Every trade.</h2>
+    <p class="lead">Newest first. Buys in yellow, sells in lilac, yours on a darker row.</p>
+    <table class="trades">
+      <thead><tr><th scope="col">when</th><th scope="col">who</th><th scope="col">SOL</th><th scope="col">tokens</th><th scope="col">per 1M</th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+    <p class="s-empty" id="rowsNote"></p>
+  </div>
+  <div>
+    <h2>Who holds it.</h2>
+    <p class="lead">Of the 1B tokens made at launch.</p>
+    <table class="trades">
+      <thead><tr><th scope="col">#</th><th scope="col">who</th><th scope="col">tokens</th><th scope="col">share</th></tr></thead>
+      <tbody id="holders"></tbody>
+    </table>
+    <p class="s-empty" id="holdNote"></p>
+  </div>
+</section>
+
+<!-- ===== what is real here ===== -->
+<section class="wrap s-real" aria-label="What is real in the simulator">
+  <div><h3>Real: the math.</h3><p>Every quote and every trade runs on the pool program's own integers: the same fee, rounded the same way, the same graduation, the same burn. A trade here gets what it would get on devnet from the same pool.</p></div>
+  <div><h3>Made up: the crowd.</h3><p>About sixty traders with random wallets, a few whales, newcomers now and then. They buy, take profit and panic on a roll of the dice, more or less often by mood.</p></div>
+  <div><h3>Not here: a chain.</h3><p>No wallet, no signatures, no network fees, and play SOL is worth nothing. To trade a real coin, go to <a href="/coins">the devnet coins</a>.</p></div>
+</section>
+</main>
+
+<footer class="wrap foot">
+  <a class="brand" href="#top" aria-label="Nox, top of the page"><canvas id="sym1" aria-hidden="true"></canvas><b>nox</b></a>
+  <p>simulation · play SOL has no value · the devnet program's math</p>
+</footer>
+
+<!-- ===== a new coin ===== -->
+<dialog class="dlg" id="dlg" aria-labelledby="dlgH">
+  <form class="card" id="form" novalidate>
+    <h2 id="dlgH">New coin.</h2>
+    <p class="lead">The settings a launch can take, within the program's bounds. The crowd starts over with it.</p>
+    <div class="frow">
+      <label class="fl">name<input id="fName" maxlength="32" autocomplete="off" spellcheck="false"><span class="err" id="eName"></span></label>
+      <label class="fl">symbol<input id="fSym" maxlength="10" autocomplete="off" spellcheck="false" autocapitalize="characters"><span class="err" id="eSym"></span></label>
+    </div>
+    <div class="chips" role="group" aria-label="Ready-made settings" id="presets"></div>
+    <div class="frow three">
+      <label class="fl">virtual SOL<input id="fV" inputmode="decimal" autocomplete="off"><span class="err" id="eV"></span></label>
+      <label class="fl">graduates at, SOL<input id="fM" inputmode="decimal" autocomplete="off"><span class="err" id="eM"></span></label>
+      <label class="fl">fee, %<input id="fFee" inputmode="decimal" autocomplete="off"><span class="err" id="eFee"></span></label>
+    </div>
+    <p class="derived" id="derived"></p>
+    <div class="frow">
+      <label class="fl">your buy at launch, SOL<input id="fFirst" inputmode="decimal" autocomplete="off"><span class="err" id="eFirst"></span></label>
+    </div>
+    <div class="keys"><button type="submit" class="btn">Launch it</button><button type="button" class="q" id="fCancel">cancel</button></div>
+  </form>
+</dialog>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+'use strict';
+var $ = function (s) { return document.querySelector(s); };
+function report(e) { try { window.__errors.push(String(e && e.stack || e)); } catch (_) {} }
+function esc(s) { return String(s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+if (!window.BH || !window.PoolMath || !window.NoxSim || !window.NoxChart) { $('#name').textContent = 'The page did not load all its parts.'; return; }
+try { main(); } catch (e) { report(e); $('#name').textContent = 'Something broke in the simulator.'; }
+
+function main() {
+var PM = PoolMath;
+var QS; try { QS = new URLSearchParams(location.search); } catch (e) { QS = { get: function () { return null; } }; }
+var MAX_TRADES = 150000;
+
+/* ================= number formats (as on the other pages) ================= */
+function fSol(v) { return v >= 100 ? v.toFixed(1) : v >= 1 ? v.toFixed(2) : v >= 0.01 || v <= 0 ? v.toFixed(3) : v.toPrecision(2); }
+function fTok(v) { if (v >= 999.95e6) return (v / 1e9).toFixed(v >= 1e9 + 5e6 ? 2 : 0) + 'B'; if (v < 1e4) return '0'; return (v / 1e6).toFixed(v >= 1e8 ? 1 : 2) + 'M'; }
+function tok(v) { if (v >= 1e4) return fTok(v); if (v <= 0) return '0'; return v.toLocaleString('en-US', { maximumFractionDigits: v < 10 ? 6 : 2 }); }
+function fPx(p) { var m = p * 1e6; return m.toFixed(m >= 1 ? 3 : 4); }     // SOL per whole token, shown per 1M
+function fAmt(v) { return String(+v.toFixed(2)); }
+function lam(n) { return Number(n) / 1e9; }
+function units(n) { return Number(n) / 1e6; }
+function pad2(n) { return (n < 10 ? '0' : '') + n; }
+function fClock(t) { t = Math.max(0, Math.floor(t)); var h = Math.floor(t / 3600), m = Math.floor(t % 3600 / 60), s = t % 60; return h ? h + ':' + pad2(m) + ':' + pad2(s) : m + ':' + pad2(s); }
+function signed(v, d) { return (v > 0 ? '+' : v < 0 ? '−' : '') + Math.abs(v).toFixed(d); }
+function pctS(x) { var p = x * 100; return signed(p, Math.abs(p) >= 100 ? 0 : 1) + '%'; }
+function share(u) { var x = Number(u) / 1e13; return (x >= 10 ? x.toFixed(1) : x >= .01 ? x.toFixed(2) : 'under 0.01') + '%'; }   // of the 1B made
+// an exact number of token units as the amount box shows it (the units themselves are kept beside it): 52.77m
+function unitsText(u) { var t = Number(u) / 1e6; return t >= 1e6 ? String(+(t / 1e6).toFixed(2)) + 'm' : t >= 1e3 ? String(+(t / 1e3).toFixed(2)) + 'k' : String(+t.toFixed(6)); }
+function setText(sel, v) { var el = typeof sel === 'string' ? $(sel) : sel; if (el && el.textContent !== v) el.textContent = v; }
+function parseAmt(s) {
+  s = String(s || '').trim().toLowerCase().replace(/[\s_]/g, '');
+  s = /^\d{1,3}(,\d{3})+(\.\d*)?[kmb]?$/.test(s) ? s.replace(/,/g, '') : s.replace(',', '.');
+  var m = s.match(/^(\d*\.?\d*)([kmb]?)$/);
+  if (!m || m[1] === '' || m[1] === '.') return NaN;
+  return parseFloat(m[1]) * { '': 1, k: 1e3, m: 1e6, b: 1e9 }[m[2]];
+}
+
+/* ================= the coin's settings: from the link, or the house defaults ================= */
+var DEF = { name: 'MOTE', symbol: 'MOTE', V: 30, M: 420, fee: 100, first: 1 };
+var PRESETS = [{ V: 30, M: 420, fee: 100 }, { V: 20, M: 180, fee: 200 }, { V: 200, M: 800, fee: 150 }, { V: 60, M: 420, fee: 300 }];
+function cleanSym(s) { return String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10); }
+function problems(s) {
+  var p = {};
+  if (!s.name) p.name = 'A name, up to 32 letters.';
+  if (!/^[A-Z0-9]{1,10}$/.test(s.symbol)) p.symbol = 'Up to 10 letters or digits.';
+  if (!(s.V >= 1 && s.V <= 1000)) p.V = 'From 1 to 1,000 SOL.';
+  else if (!(s.M >= 2 * s.V && s.M <= 100 * s.V)) p.M = 'From ' + fAmt(2 * s.V) + ' to ' + fAmt(100 * s.V) + ': 2 to 100 times the virtual SOL.';
+  if (!(s.fee >= 0 && s.fee <= 300) || s.fee !== Math.round(s.fee)) p.fee = 'From 0 to 3%, in steps of 0.01.';
+  if (!(s.first >= 0 && s.first <= 100)) p.first = 'From 0 to 100 play SOL.';
+  return p;
+}
+function fromLink() {
+  var s = Object.assign({}, DEF), g = function (k) { var v = QS.get(k); return v == null ? NaN : parseFloat(v); };
+  var n = String(QS.get('name') || '').trim().slice(0, 32), y = cleanSym(QS.get('sym'));
+  if (n) { s.name = n; s.symbol = y || cleanSym(n) || 'COIN'; }
+  if (y) s.symbol = y;
+  var v = g('v'), m = g('m'), f = g('fee'), fb = g('first');
+  if (v > 0) s.V = v; if (m > 0) s.M = m; if (f >= 0) s.fee = Math.round(f * 100); if (fb >= 0) s.first = fb;
+  var bad = problems(s);
+  if (bad.V || bad.M || bad.fee) { s.V = DEF.V; s.M = DEF.M; s.fee = DEF.fee; }
+  if (bad.first) s.first = DEF.first;
+  if (bad.name || bad.symbol) { s.name = DEF.name; s.symbol = DEF.symbol; }
+  return s;
+}
+function toLink(s) {
+  try {
+    var q = new URLSearchParams();
+    q.set('name', s.name); q.set('sym', s.symbol); q.set('v', fAmt(s.V)); q.set('m', fAmt(s.M)); q.set('fee', String(s.fee / 100)); q.set('first', fAmt(s.first));
+    history.replaceState(null, '', location.pathname + '?' + q.toString());
+  } catch (e) {}
+}
+
+/* ================= state ================= */
+var S = null, SET = null, CS = null, ATH = 0;
+var TF = 60, SERIES = 'price', LOG = false, SPEED = 10, PLAYING = true, MOOD = 'steady';
+var side = 'buy', Q = null, maxText = null, maxUnits = null;
+(function () {
+  var md = QS.get('mood'), sp = parseInt(QS.get('speed'), 10);
+  if (NoxSim.MOODS[md]) MOOD = md;
+  if (sp === 1 || sp === 10 || sp === 60) SPEED = sp;
+  if (QS.get('play') === '0') PLAYING = false;
+})();
+
+/* marks */
+BH.mark($('#sym'), 2); BH.mark($('#sym1'), 2); BH.favicon();
+
+/* ================= the hole: the pool's real SOL as its disk ================= */
+var holeCv = $('#hole'), holeBox = $('#holeBox'), LOOK = BH.look();
+var hole = BH.live(holeCv, { look: LOOK, state: BH.stateOf({}), w: 168, h: 100, onGraduate: function () { setText('#holeKey', 'disk: real SOL in the pool · jets: graduated'); } });
+function holeState() { var p = S.pool; return BH.stateOf({ virtualSol: p.virtualSol, realSol: p.realSol, graduationSol: p.graduationSol, graduated: p.graduated }); }
+holeBox.addEventListener('pointermove', function (e) { if (e.pointerType !== 'mouse') return; var r = holeCv.getBoundingClientRect(); hole.lean(((e.clientY - r.top) / r.height - .5) * 2); });
+holeBox.addEventListener('pointerleave', function () { hole.lean(0); });
+
+/* ================= the chart ================= */
+var chartCv = $('#chart'), readEl = $('#read'), latestBtn = $('#latest');
+function chartH() { var w = document.documentElement.clientWidth; return w >= 1040 ? 420 : w >= 760 ? 360 : 300; }
+var chart = new NoxChart(chartCv, { height: chartH, onHover: function () { renderRead(); } });
+function val(tr) { return SERIES === 'price' ? tr.price * 1e6 : tr.mcap; }
+function launchVal() { return SERIES === 'price' ? NoxSim.launchPrice(S) * 1e6 : lam(S.pool.virtualSol); }   // at launch the market cap is the virtual SOL
+function fmtV(v) { return SERIES === 'price' ? (v >= 1 ? v.toFixed(3) : v >= .001 ? v.toFixed(4) : v.toPrecision(3)) : fSol(v); }
+// candles grow with the trades: each trade's price after it goes into the candle of its moment; an interval with no
+// trade is a flat dash at the last close
+function syncCandles() {
+  if (!CS || CS.tf !== TF || CS.series !== SERIES || CS.sim !== S) CS = { tf: TF, series: SERIES, sim: S, list: [], upto: 0, marks: [], events: [], lastC: launchVal() };
+  var L = CS.list;
+  function reach(b) { while (L.length <= b) L.push({ t: L.length * CS.tf, o: CS.lastC, h: CS.lastC, l: CS.lastC, c: CS.lastC, v: 0, n: 0 }); }
+  for (var T = S.trades; CS.upto < T.length; CS.upto++) {
+    var tr = T[CS.upto], b = Math.floor(tr.t / CS.tf), v = val(tr);
+    reach(b);
+    var c = L[b];
+    if (!c.n) { c.o = CS.lastC; c.h = c.l = c.o; }
+    if (v > c.h) c.h = v; if (v < c.l) c.l = v;
+    c.c = v; c.v += lam(tr.buy ? tr.sol : tr.sol + tr.fee); c.n++;
+    CS.lastC = v;
+    if (tr.mcap > ATH) ATH = tr.mcap;
+    if (tr.w === 0) CS.marks.push({ i: b, buy: tr.buy });
+    if (tr.graduates) CS.events.push({ i: b, label: 'graduated' });
+  }
+  reach(Math.floor(S.t / CS.tf));
+}
+var chartKey = '';
+function pushChart(force) {
+  var L = CS.list, lc = L[L.length - 1];
+  var key = [CS.upto, L.length, TF, SERIES, LOG, S.pool.graduated, lc && lc.c].join('|');
+  if (key === chartKey && !force) return;
+  chartKey = key;
+  var g = SERIES === 'price' ? SET.M / 1000 : SET.M;
+  chart.set({ candles: L, marks: CS.marks, events: CS.events, log: LOG, fmt: fmtV, tfmt: fClock,
+    goal: S.pool.graduated ? null : { v: g, label: 'graduation at ' + fmtV(g) } });
+  chartCv.setAttribute('aria-label', 'Candles of ' + S.name + '\'s ' + (SERIES === 'price' ? 'price, in SOL per 1M tokens' : 'market cap, in SOL') + ', one per ' + tfName(TF) + ' of the simulation. The last is at ' + fmtV(lc ? lc.c : launchVal()) + '.');
+  renderRead();
+}
+function tfName(tf) { return tf === 15 ? '15 seconds' : tf === 60 ? 'minute' : (tf / 60) + ' minutes'; }
+function renderRead() {
+  if (!CS) return;
+  var k = chart.hover >= 0 ? chart.hover : CS.list.length - 1, c = CS.list[k];
+  if (!c) { readEl.textContent = ''; return; }
+  var ch = c.o > 0 ? c.c / c.o - 1 : 0;
+  readEl.innerHTML = '<b>' + fClock(c.t) + '</b>' + (chart.hover >= 0 ? '' : ' now') +
+    ' · O <b>' + fmtV(c.o) + '</b> H <b>' + fmtV(c.h) + '</b> L <b>' + fmtV(c.l) + '</b> C <b>' + fmtV(c.c) + '</b> <b class="' + (ch >= 0 ? 'up' : 'down') + '">' + pctS(ch) + '</b> · ' +
+    (c.n ? fSol(c.v) + ' SOL in ' + c.n + ' trade' + (c.n === 1 ? '' : 's') : 'no trades');
+}
+function press(group, attr, value) { Array.prototype.forEach.call(document.querySelectorAll('#' + group + ' [' + attr + ']'), function (b) { b.setAttribute('aria-pressed', String(b.getAttribute(attr) === String(value))); }); }
+function setTf(tf) { TF = tf; press('tfs', 'data-tf', tf); chart.fit(); flush(true); }
+function setSeries(s) { SERIES = s; press('series', 'data-series', s); chart.latest(); flush(true); }
+$('#tfs').addEventListener('click', function (e) { var b = e.target.closest('[data-tf]'); if (b) setTf(+b.getAttribute('data-tf')); });
+$('#series').addEventListener('click', function (e) { var b = e.target.closest('[data-series]'); if (b) setSeries(b.getAttribute('data-series')); });
+$('#logBtn').addEventListener('click', function () { LOG = !LOG; this.setAttribute('aria-pressed', String(LOG)); pushChart(true); });
+$('#zIn').addEventListener('click', function () { chart.zoom(1); });
+$('#zOut').addEventListener('click', function () { chart.zoom(-1); });
+latestBtn.addEventListener('click', function () { chart.latest(); latestBtn.hidden = true; });
+chartCv.addEventListener('keydown', function (e) {
+  var k = e.key;
+  if (k === 'ArrowLeft' || k === 'ArrowRight') { e.preventDefault(); chart.off = chart.clampOff(chart.off + (k === 'ArrowLeft' ? 1 : -1)); chart.draw(); }
+  else if (k === '+' || k === '=') { e.preventDefault(); chart.zoom(1); }
+  else if (k === '-') { e.preventDefault(); chart.zoom(-1); }
+  else if (k === 'End') { e.preventDefault(); chart.latest(); }
+});
+
+/* ================= the numbers at the top ================= */
+function renderHead() {
+  document.title = SET.name + ' · Nox sim';
+  $('#name').innerHTML = esc(SET.name) + '<span class="sym">$' + esc(SET.symbol) + '</span>';
+  setText('#setLine', fAmt(SET.V) + ' virtual SOL · graduates at a ' + fAmt(SET.M) + ' SOL market cap · ' + (SET.fee / 100) + '% fee' +
+    (SET.first > 0 ? ' · you bought ' + fAmt(SET.first) + ' SOL of it at launch' : ''));
+  setText('#holeKey', 'disk: real SOL in the pool, full at graduation');
+  $('#quick').innerHTML = '';
+  paintQuick();
+}
+function renderStats() {
+  var p = S.pool, px = S.price(), holders = 0;
+  for (var i = 0; i < S.wallets.length; i++) if (S.wallets[i].tokens > 0n) holders++;
+  setText('#sPx', fPx(px));
+  setText('#sChg', S.trades.length ? pctS(px / NoxSim.launchPrice(S) - 1) + ' since launch' : 'at launch');
+  setText('#sCap', fSol(S.marketCap()));
+  setText('#sAth', ATH > 0 ? 'highest ' + fSol(ATH) : 'no trades yet');
+  setText('#sSol', fSol(lam(p.realSol)));
+  setText('#sGoal', p.graduated ? 'graduated at ' + fClock(S.gradAt) + ', same pool' : 'of ' + fSol(lam(p.graduationSol)) + ' to graduate');
+  var w = p.graduated ? '100%' : Math.min(100, lam(p.realSol) / lam(p.graduationSol) * 100).toFixed(1) + '%';
+  var bar = $('#sBar'); if (bar.style.width !== w) bar.style.width = w;
+  setText('#sVol', fSol(lam(p.volume)));
+  setText('#sTr', S.trades.length.toLocaleString('en-US') + ' trade' + (S.trades.length === 1 ? '' : 's'));
+  setText('#sHold', String(holders));
+  setText('#sClock', fClock(S.t) + ' since launch');
+  setText('#crowdLine', (S.wallets.length - 1) + ' traders, all made up');
+}
+
+/* ================= trading ================= */
+var amt = $('#amt'), quoteEl = $('#quote'), goBtn = $('#go'), noteEl = $('#note');
+function paintQuick() {
+  var box = $('#quick'), want = side === 'buy' ? ['0.1', '0.5', '1', '5', '10'] : ['25%', '50%', '100%'];
+  if (box.getAttribute('data-side') === side && box.children.length) return;
+  box.setAttribute('data-side', side);
+  box.innerHTML = want.map(function (v) { return '<button type="button" data-q="' + v + '">' + v + (side === 'buy' ? '' : '') + '</button>'; }).join('');
+}
+$('#quick').addEventListener('click', function (e) {
+  var b = e.target.closest('[data-q]'); if (!b) return;
+  var v = b.getAttribute('data-q');
+  if (side === 'buy') { amt.value = v; maxText = maxUnits = null; }
+  else {
+    var held = S.wallets[0].tokens, f = parseInt(v, 10);
+    maxUnits = f === 100 ? held : held * BigInt(f) / 100n; maxText = unitsText(maxUnits); amt.value = maxText;
+  }
+  renderQuote(); amt.focus();
+});
+function makeQuote() {
+  var v = parseAmt(amt.value), W = S.wallets[0];
+  if (!(v > 0)) return { msg: side === 'buy' ? 'Type how much play SOL to spend.' : 'Type how many tokens to sell. 5m means five million.' };
+  if (side === 'buy') {
+    var l = BigInt(Math.round(v * 1e9));
+    if (l < 10000n) return { msg: 'Too small to trade.', bad: true };
+    if (l > W.sol) return { msg: 'You have ' + fSol(lam(W.sol)) + ' play SOL.', bad: true };
+    var q = S.quoteBuy(l);
+    if (q.tokensOut <= 0n) return { msg: 'Too small to trade.', bad: true };
+    return { side: 'buy', l: l, q: q, after: PM.priceOf(q.after, S.pool.burned + q.burned).price };
+  }
+  var u = (maxUnits != null && amt.value === maxText) ? maxUnits : BigInt(Math.round(v * 1e6));
+  if (u <= 0n) return { msg: 'Too small to trade.', bad: true };
+  if (u > W.tokens) return { msg: W.tokens > 0n ? 'You hold ' + tok(units(W.tokens)) + '.' : 'You hold none yet. Buy some first.', bad: true };
+  var q2 = S.quoteSell(u);
+  if (q2.solOut <= 0n) return { msg: 'Too small to trade.', bad: true };
+  return { side: 'sell', u: u, q: q2, after: PM.priceOf(q2.after, S.pool.burned).price };
+}
+function renderQuote() {
+  try { Q = makeQuote(); } catch (e) { report(e); Q = { msg: 'Could not quote that amount.', bad: true }; }
+  var t, sym = esc(S.symbol), px = S.price();
+  if (!Q.q) t = esc(Q.msg);
+  else if (Q.side === 'buy') {
+    t = 'You get <b>' + tok(units(Q.q.tokensOut)) + '</b> ' + sym + '. Fee <b>' + fSol(lam(Q.q.fee)) + '</b> SOL. ';
+    t += Q.q.graduates ? 'This buy <b>graduates the coin</b>: the ' + fAmt(SET.V) + ' virtual SOL drops out and ' + fTok(units(Q.q.burned)) + ' tokens burn, so the price does not jump.'
+      : 'Price after it: <b>' + fPx(Q.after) + '</b> per 1M, ' + pctS(Q.after / px - 1) + '.';
+  } else t = 'You get <b>' + fSol(lam(Q.q.solOut)) + '</b> SOL. Fee <b>' + fSol(lam(Q.q.fee)) + '</b> SOL. Price after it: <b>' + fPx(Q.after) + '</b> per 1M, ' + pctS(Q.after / px - 1) + '.';
+  var key = (Q.bad ? '!' : '') + t;
+  if (quoteEl._h !== key) { quoteEl._h = key; quoteEl.classList.toggle('bad', !!Q.bad); quoteEl.innerHTML = t; }
+  goBtn.disabled = !Q.q;
+  setText(goBtn, (side === 'buy' ? 'Buy ' : 'Sell ') + S.symbol);
+}
+function setSide(s) {
+  if (s === side) return;
+  side = s;
+  Array.prototype.forEach.call(document.querySelectorAll('[data-side]'), function (b) { b.setAttribute('aria-pressed', String(b.getAttribute('data-side') === side)); });
+  setText('#unit', side === 'buy' ? 'SOL' : S.symbol);
+  setText('#amtLabel', side === 'buy' ? 'Amount of play SOL to spend' : 'Number of tokens to sell');
+  maxText = maxUnits = null;
+  var held = S.wallets[0].tokens;
+  if (side === 'sell' && held > 0n) { maxUnits = held; maxText = unitsText(held); amt.value = maxText; }
+  else amt.value = side === 'buy' ? '1' : '';
+  noteEl.textContent = '';
+  paintQuick(); renderQuote();
+}
+Array.prototype.forEach.call(document.querySelectorAll('[data-side]'), function (b) { b.addEventListener('click', function () { setSide(b.getAttribute('data-side')); }); });
+amt.addEventListener('input', function () { if (amt.value !== maxText) maxText = maxUnits = null; renderQuote(); });
+amt.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); trade(); } });
+goBtn.addEventListener('click', trade);
+function note(text, bad) { noteEl.classList.toggle('bad', !!bad); noteEl.textContent = text; }
+function trade() {
+  var q = makeQuote();
+  if (!q.q) { note(q.msg, true); return; }
+  var r = q.side === 'buy' ? S.buy(0, q.l) : S.sell(0, q.u);
+  if (r.error) { note(r.error, true); return; }
+  if (q.side === 'buy') note('You bought ' + tok(units(r.tokens)) + ' ' + S.symbol + ' for ' + fSol(lam(r.sol)) + ' SOL at ' + fClock(r.t) + '.' + (r.graduates ? ' Your buy graduated the coin.' : ''));
+  else {
+    note('You sold ' + tok(units(r.tokens)) + ' ' + S.symbol + ' for ' + fSol(lam(r.sol)) + ' SOL at ' + fClock(r.t) + '.');
+    var held = S.wallets[0].tokens;
+    maxUnits = held > 0n ? held : null; maxText = held > 0n ? unitsText(held) : null; amt.value = maxText || '';
+  }
+  flush(true);
+}
+function renderYou() {
+  var W = S.wallets[0], val = W.tokens > 0n ? S.quoteSell(W.tokens).solOut : 0n, pnl = lam(W.got) + lam(val) - lam(W.spent);
+  setText('#ySol', fSol(lam(W.sol)));
+  setText('#yTok', W.tokens > 0n ? tok(units(W.tokens)) + ' · ' + share(W.tokens) : '0');
+  setText('#yVal', fSol(lam(val)) + ' SOL');
+  var el = $('#yPnl');
+  setText(el, W.spent > 0n ? signed(pnl, Math.abs(pnl) >= 100 ? 1 : 3) + ' SOL, ' + pctS(pnl / lam(W.spent)) : 'no trades yet');
+  el.className = W.spent > 0n ? (pnl >= 0 ? 'up' : 'down') : '';
+  setText('#yFee', fSol(lam(S.pool.creatorFees)) + ' SOL');
+}
+
+/* ================= the crowd ================= */
+var MOODLINE = {
+  quiet: 'quiet: a trade every 20 s or so, buyers and sellers about even',
+  steady: 'steady: about 8 trades a minute, a few more buys than sells',
+  hype: 'hype: about 20 trades a minute, mostly buys, and bigger ones',
+  panic: 'panic: two sellers to every buyer, and most sell the whole bag'
+};
+var playBtn = $('#play'), cnote = $('#cnote');
+function setPlaying(on) { PLAYING = !!on; playBtn.textContent = PLAYING ? 'pause' : 'play'; playBtn.setAttribute('aria-label', PLAYING ? 'Pause the crowd and the clock' : 'Start the crowd and the clock'); }
+function setSpeed(v) { SPEED = v; press('speeds', 'data-speed', v); }
+function setMood(m) { MOOD = m; if (S) S.setMood(m); press('moods', 'data-mood', m); paintMood(); }
+function paintMood() { setText('#moodLine', MOODLINE[MOOD] + (S && S.t < 40 && MOOD !== 'panic' ? ' · the first buyers are piling in' : '') + ' · 1× is real time'); }
+playBtn.addEventListener('click', function () { setPlaying(!PLAYING); });
+$('#speeds').addEventListener('click', function (e) { var b = e.target.closest('[data-speed]'); if (b) setSpeed(+b.getAttribute('data-speed')); });
+$('#moods').addEventListener('click', function (e) { var b = e.target.closest('[data-mood]'); if (b) setMood(b.getAttribute('data-mood')); });
+function nameOf(w) { return w === 0 ? 'You' : S.wallets[w].name; }
+$('#whale').addEventListener('click', function () {
+  var r = S.whale();
+  cnote.textContent = r ? 'A whale, ' + nameOf(r.w) + ', bought ' + fSol(lam(r.sol)) + ' SOL of it at ' + fClock(r.t) + '.' + (r.graduates ? ' That graduated the coin.' : '') : 'No whale has SOL left.';
+  flush(true);
+});
+$('#dump').addEventListener('click', function () {
+  var r = S.dump();
+  cnote.textContent = r ? nameOf(r.w) + ' sold all ' + tok(units(r.tokens)) + ' tokens for ' + fSol(lam(r.sol)) + ' SOL at ' + fClock(r.t) + '.' : 'No trader holds any yet.';
+  flush(true);
+});
+$('#restart').addEventListener('click', function () { start(SET); cnote.textContent = 'Started over: the same settings, a new crowd.'; });
+
+/* ================= the tables and the strip ================= */
+function who(w) { var W = S.wallets[w]; return w === 0 ? '<b>you</b>' : esc(W.name) + (W.whale ? ' <span class="mute">whale</span>' : ''); }
+function renderTrades() {
+  var rows = [], T = S.trades;
+  for (var i = T.length - 1; i >= 0 && rows.length < 40; i--) {
+    var tr = T[i];
+    if (tr.graduates) rows.push('<tr class="grad"><td>' + fClock(tr.t) + '</td><td><i class="k"></i>graduated</td><td>−' + fAmt(SET.V) + '</td><td>−' + fTok(units(tr.burned)) + '</td><td>' + fPx(tr.price) + '</td></tr>');
+    rows.push('<tr class="' + (tr.buy ? 'buy' : 'sell') + (tr.w === 0 ? ' me' : '') + '"><td>' + fClock(tr.t) + '</td><td><i class="k"></i>' + who(tr.w) + '</td><td>' + fSol(lam(tr.sol)) + '</td><td>' + tok(units(tr.tokens)) + '</td><td>' + fPx(tr.price) + '</td></tr>');
+  }
+  $('#rows').innerHTML = rows.join('');
+  setText('#rowsNote', !T.length ? 'No trades yet.' : T.length > 40 ? 'The latest 40 of ' + T.length.toLocaleString('en-US') + '.' : '');
+}
+function renderHolders() {
+  var hs = S.holders(), p = S.pool, rows = [];
+  rows.push('<tr class="ev"><td></td><td>the pool</td><td>' + tok(units(p.tokens)) + '</td><td>' + share(p.tokens) + '</td></tr>');
+  if (p.burned > 0n) rows.push('<tr class="ev"><td></td><td>burned at graduation</td><td>' + tok(units(p.burned)) + '</td><td>' + share(p.burned) + '</td></tr>');
+  hs.slice(0, 12).forEach(function (w, i) {
+    rows.push('<tr class="' + (w === 0 ? 'buy me' : 'buy') + '"><td>' + (i + 1) + '</td><td>' + who(w) + '</td><td>' + tok(units(S.wallets[w].tokens)) + '</td><td>' + share(S.wallets[w].tokens) + '</td></tr>');
+  });
+  $('#holders').innerHTML = rows.join('');
+  setText('#holdNote', !hs.length ? 'Nobody holds any yet.' : hs.length > 12 ? 'And ' + (hs.length - 12) + ' more holders.' : '');
+}
+var tape = $('#tape'), tapeSeen = null;
+function renderTape() {
+  var items = [], seen = {}, T = S.trades, sym = esc(S.symbol);
+  for (var i = T.length - 1; i >= 0 && items.length < 12; i--) {
+    var tr = T[i], cls = (tr.buy ? 'buy' : 'sell') + (tr.w === 0 ? ' me' : '');
+    seen[tr.n] = 1;
+    if (tapeSeen && !tapeSeen[tr.n] && !BH.reduced) cls += ' new';
+    if (tr.graduates) items.push('<span class="grad' + (cls.indexOf('new') >= 0 ? ' new' : '') + '"><i></i><b>' + sym + '</b> graduated · ' + fTok(units(tr.burned)) + ' tokens burned</span>');
+    items.push('<span class="' + cls + '"><i></i>◎' + fSol(lam(tr.sol)) + ' ' + (tr.w === 0 ? '<b>you</b> ' + (tr.buy ? 'bought ' : 'sold ') : tr.buy ? '<b>bought</b> ' : 'sold ') + sym + ' · ' + fClock(tr.t) + '</span>');
+  }
+  tapeSeen = seen;
+  tape.innerHTML = items.join('');
+}
+
+/* ================= one loop: the clock moves, the crowd trades, the page catches up ================= */
+// cheap parts every 100 ms; the tables, the strip and the hole at their own slower beats
+var seenN = -1, pend = { tables: false, tape: false, hole: false }, beat = { tables: 0, tape: 0, hole: 0 };
+function due(k, ms, now, force) { if (force || (pend[k] && now - beat[k] >= ms)) { pend[k] = false; beat[k] = now; return true; } return false; }
+function flush(force) {
+  if (!S) return;
+  var now = performance.now();
+  if (S.trades.length !== seenN) { seenN = S.trades.length; pend.tables = pend.tape = pend.hole = true; }
+  syncCandles(); pushChart(force); renderStats(); renderQuote(); renderYou();
+  if (due('tables', 600, now, force)) { renderTrades(); renderHolders(); }
+  if (due('tape', 900, now, force)) renderTape();
+  if (due('hole', 400, now, force)) hole.show(holeState());
+  if (S.t < 45) paintMood();
+}
+var lastT = performance.now();
+setInterval(function () {
+  var now = performance.now(), dt = Math.min(.25, (now - lastT) / 1000); lastT = now;
+  if (!S) return;
+  try {
+    if (PLAYING && !document.hidden) {
+      if (S.trades.length >= MAX_TRADES) { setPlaying(false); cnote.textContent = 'The crowd stopped at 150,000 trades, as many as this page keeps. Start over to go on.'; }
+      else S.run(dt * SPEED);
+    }
+    flush(false);
+    if (latestBtn.hidden !== chart.following) latestBtn.hidden = chart.following;
+  } catch (e) { report(e); setPlaying(false); cnote.textContent = 'Something broke in the simulation. Start over to go on.'; }
+}, 100);
+
+function start(set, seed) {
+  SET = set;
+  S = NoxSim.create({ name: set.name, symbol: set.symbol, virtualSol: BigInt(Math.round(set.V * 1e9)), graduationMcap: BigInt(Math.round(set.M * 1e9)), feeBps: set.fee,
+    first: BigInt(Math.round(set.first * 1e9)), seed: seed, mood: MOOD });
+  CS = null; ATH = 0; tapeSeen = null; seenN = -1; chartKey = '';
+  LOOK = BH.look({ virtualSol: set.V, graduationMcap: set.M, feeBps: set.fee });
+  hole.put(LOOK, BH.stateOf({ virtualSol: S.pool.virtualSol, realSol: 0n, graduationSol: S.pool.graduationSol, graduated: false }));
+  chart.fit(); chart.hover = -1;
+  renderHead();
+  side = ''; setSide('buy');
+  note(''); cnote.textContent = '';
+  flush(true);
+}
+
+/* ================= a new coin ================= */
+var dlg = $('#dlg'), form = $('#form');
+var F = { name: $('#fName'), symbol: $('#fSym'), V: $('#fV'), M: $('#fM'), fee: $('#fFee'), first: $('#fFirst') };
+var E = { name: $('#eName'), symbol: $('#eSym'), V: $('#eV'), M: $('#eM'), fee: $('#eFee'), first: $('#eFirst') };
+$('#presets').innerHTML = PRESETS.map(function (p, i) { return '<button type="button" data-p="' + i + '">' + p.V + ' · ' + p.M + ' · ' + (p.fee / 100) + '%</button>'; }).join('');
+function readForm() {
+  var n = function (el) { var v = parseAmt(el.value); return isNaN(v) ? NaN : v; };
+  return { name: F.name.value.trim().slice(0, 32), symbol: cleanSym(F.symbol.value), V: n(F.V), M: n(F.M), fee: Math.round(n(F.fee) * 100), first: F.first.value.trim() === '' ? 0 : n(F.first) };
+}
+function checkForm(show) {
+  var s = readForm(), bad = problems(s);
+  Object.keys(F).forEach(function (k) {
+    var b = bad[k] || '';
+    if (show || !b) { E[k].textContent = b; F[k].setAttribute('aria-invalid', String(!!b)); }
+  });
+  press('presets', 'data-p', PRESETS.findIndex(function (p) { return p.V === s.V && p.M === s.M && p.fee === s.fee; }));
+  var d = $('#derived');
+  if (bad.V || bad.M || bad.fee) d.textContent = '';
+  else {
+    var G = lam(PM.graduationSol(BigInt(Math.round(s.V * 1e9)), BigInt(Math.round(s.M * 1e9)))), lk = BH.look({ virtualSol: s.V, graduationMcap: s.M, feeBps: s.fee });
+    d.innerHTML = 'It starts at <b>' + fPx(s.V / 1e9) + '</b> SOL per 1M tokens and graduates when <b>' + fSol(G) + '</b> real SOL is in, at <b>' + fPx(s.M / 1e9) + '</b> per 1M: ' +
+      '<b>' + fAmt(s.M / s.V) + '×</b> the launch price. Then ' + fTok(lk.burn) + ' tokens burn.';
+  }
+  return bad;
+}
+function openNew() {
+  F.name.value = SET.name; F.symbol.value = SET.symbol; F.symbol._typed = false; F.V.value = fAmt(SET.V); F.M.value = fAmt(SET.M); F.fee.value = String(SET.fee / 100); F.first.value = fAmt(SET.first);
+  Object.keys(E).forEach(function (k) { E[k].textContent = ''; F[k].setAttribute('aria-invalid', 'false'); });
+  checkForm(false);
+  if (typeof dlg.showModal === 'function') dlg.showModal(); else dlg.setAttribute('open', '');
+  F.name.focus(); F.name.select();
+}
+function closeNew() { if (typeof dlg.close === 'function') dlg.close(); else dlg.removeAttribute('open'); $('#newBtn').focus(); }
+$('#newBtn').addEventListener('click', openNew);
+$('#fCancel').addEventListener('click', closeNew);
+$('#presets').addEventListener('click', function (e) {
+  var b = e.target.closest('[data-p]'); if (!b) return;
+  var p = PRESETS[+b.getAttribute('data-p')];
+  F.V.value = String(p.V); F.M.value = String(p.M); F.fee.value = String(p.fee / 100); checkForm(false);
+});
+form.addEventListener('input', function () { checkForm(false); });
+F.name.addEventListener('input', function () { if (!F.symbol._typed) F.symbol.value = cleanSym(F.name.value); });
+F.symbol.addEventListener('input', function () { F.symbol._typed = true; F.symbol.value = cleanSym(F.symbol.value); });
+form.addEventListener('submit', function (e) {
+  e.preventDefault();
+  var bad = checkForm(true), first = Object.keys(F).filter(function (k) { return bad[k]; })[0];
+  if (first) { F[first].focus(); return; }
+  var s = readForm();
+  closeNew(); start(s); toLink(s);
+  cnote.textContent = s.name + ' launched' + (s.first > 0 ? ', with your buy of ' + fAmt(s.first) + ' SOL' : '') + '.';
+});
+
+/* ================= sizes ================= */
+var tileUrl = BH.starTile(128), lastW = 0;
+function layout() {
+  var cw = document.documentElement.clientWidth, avail = holeBox.clientWidth;
+  lastW = cw;
+  var px = Math.min(3, Math.floor(avail / 168));
+  if (px < 2) px = BH.fitPx(avail, 168);
+  hole.size(px);
+  holeBox.style.backgroundImage = 'url(' + tileUrl + ')'; holeBox.style.backgroundSize = 128 * BH.devPx(px) + 'px';
+  chart.resize();
+}
+var rz = 0;
+addEventListener('resize', function () { clearTimeout(rz); rz = setTimeout(function () { if (document.documentElement.clientWidth !== lastW) layout(); }, 140); });
+(function watchRatio() {
+  try { matchMedia('(resolution: ' + (window.devicePixelRatio || 1) + 'dppx)').addEventListener('change', function () { layout(); watchRatio(); }, { once: true }); } catch (e) {}
+})();
+
+// for checking the page by hand from the console: run(s) moves the clock s seconds at once; ?seed=, ?play=0, ?mood=,
+// ?speed= and ?t= (seconds to run before the first paint) are in the link too
+window.__sim = {
+  sim: function () { return S; },
+  run: function (sec) { S.run(sec); flush(true); return S.trades.length; },
+  chart: chart, candles: function () { return CS && CS.list; },
+  start: function (o) { o = o || {}; start(Object.assign({}, SET, o), o.seed); },
+  play: setPlaying, speed: setSpeed, mood: setMood, tf: setTf, series: setSeries, side: setSide, layout: layout,
+  state: function () {
+    return { t: S.t, trades: S.trades.length, graduated: S.pool.graduated, price: S.price(), candles: CS && CS.list.length, px: holeCv.style.width,
+      chart: [chartCv.width, chartCv.height, chartCv.style.width], overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth, errors: window.__errors.slice() };
+  }
+};
+
+setPlaying(PLAYING); setSpeed(SPEED); press('moods', 'data-mood', MOOD); press('tfs', 'data-tf', TF); press('series', 'data-series', SERIES);
+layout();
+var seed = parseInt(QS.get('seed'), 10);
+start(fromLink(), isNaN(seed) ? undefined : seed);
+var pre = parseFloat(QS.get('t'));
+if (pre > 0) { S.run(Math.min(pre, 36000)); flush(true); }
+paintMood();
+}
+});
+</script>
+</body>
+</html>

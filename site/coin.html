@@ -76,6 +76,7 @@
 
 /* ---------- in numbers: a flat list on the dark ground, two columns ---------- */
 #numbers { padding-top: clamp(32px, 5vw, 64px); padding-bottom: 0; }
+#numbers .lead a { color: var(--f-cream); text-underline-offset: 4px; }
 .facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: repeat(5, auto); grid-auto-flow: column; column-gap: clamp(32px, 6vw, 96px); margin: clamp(36px, 5vw, 56px) 0 0; }
 .f { display: grid; grid-template-columns: 10em minmax(0, 1fr); gap: 16px; padding: 14px 0 15px; border-top: 1px solid var(--f-line); }
 .f:nth-child(5), .f:last-child { border-bottom: 1px solid var(--f-line); }
@@ -160,6 +161,7 @@
   <nav class="nav" aria-label="Site">
     <a href="/#how"><span class="long">how it works</span><span class="short">how</span></a>
     <a href="/coins" aria-current="true">coins</a>
+    <a href="/sim">sim</a>
     <a class="btn sm" href="/launch">launch</a>
   </nav>
 </header>
@@ -210,7 +212,7 @@
 <section class="sec" id="numbers" aria-labelledby="numH">
   <div class="wrap">
     <h2 id="numH">In numbers.</h2>
-    <p class="lead">Read from the pool account on devnet.</p>
+    <p class="lead">Read from the pool account on devnet. <a id="simLink" href="/sim">Run a coin with these settings in the simulator</a>.</p>
     <dl class="facts" id="facts"></dl>
   </div>
 </section>
@@ -410,6 +412,11 @@ function renderFacts() {
   out += row('mint', link('address', p.mint, esc(shortKey(p.mint))));
   out += row('pool', link('address', p.address, esc(shortKey(p.address))));
   $('#facts').innerHTML = out;
+  // the simulator, launching a coin with the same name and settings from nothing
+  var q = new URLSearchParams(), sym = String(p.symbol || '').trim();
+  q.set('name', nameOf(p).slice(0, 32)); if (sym && !isTest(p)) q.set('sym', sym);
+  q.set('v', String(V)); q.set('m', String(M)); q.set('fee', String(p.feeBps / 100)); q.set('first', '0');
+  $('#simLink').href = '/sim?' + q.toString();
 }
 
 /* ================= every trade: newest first ================= */

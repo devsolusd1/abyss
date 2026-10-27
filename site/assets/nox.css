@@ -115,4 +115,6 @@ p { margin: 0; }
   .nav .btn.sm { padding: 10px 11px 9px; }
   .n span { white-space: normal; }   /* two number blocks side by side: their small lines wrap rather than meet */
 }
+/* the narrowest phones: "how" goes (the landing's section is one scroll away), so coins, sim and launch fit */
+@media (max-width: 380px) { .nav a[href$="#how"] { display: none; } }
 @media (prefers-reduced-motion: reduce) { .tick .tag i, .tape .new { animation: none; } }
