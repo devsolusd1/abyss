@@ -3,18 +3,18 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>forma launch</title>
-<meta name="description" content="Launch a coin on forma (working name): pick its settings, name it, one pool for life. Team-only for now, on Solana devnet.">
+<title>Nox launch</title>
+<meta name="description" content="Launch a coin on Nox: pick its settings, name it, one pool for life. Team-only for now, on Solana devnet.">
 <script>window.__errors = []; addEventListener('error', function (e) { __errors.push(String(e.message || e)); }); addEventListener('unhandledrejection', function (e) { __errors.push('promise: ' + String(e.reason && e.reason.message || e.reason)); });</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anybody:wdth,wght@50..150,100..900&family=Martian+Mono:wdth,wght@75..112.5,100..800&display=swap">
-<link rel="stylesheet" href="/assets/forma.css">
+<link rel="stylesheet" href="/assets/nox.css">
 <style>
 /* ===== launch: the new coin as its own black hole (assets/bh.js), beside the form that sets it up; the shared
-   look is assets/forma.css ===== */
+   look is assets/nox.css ===== */
 [hidden] { display: none !important; }
-.still .tick .tag i, .still .tape .new { animation: none; }   /* ?motion=reduce, as forma.css does for the system setting */
+.still .tick .tag i, .still .tape .new { animation: none; }   /* ?motion=reduce, as nox.css does for the system setting */
 
 /* ---------- the sky: the hole's own stars behind the preview only, so the canvas never shows an edge while the
    preview stays in view, and the form's small text has none behind it. Wide, they fill the preview's column down
@@ -188,7 +188,7 @@ form > .blk:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
 </div>
 
 <header class="top">
-  <a class="brand" href="/" aria-label="forma, home"><canvas id="sym" aria-hidden="true"></canvas><b>forma</b></a>
+  <a class="brand" href="/" aria-label="Nox, home"><canvas id="sym" aria-hidden="true"></canvas><b>nox</b></a>
   <nav class="nav" aria-label="Site">
     <a href="/#how"><span class="long">how it works</span><span class="short">how</span></a>
     <a href="/coins">coins</a>
@@ -302,8 +302,8 @@ form > .blk:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
 </main>
 
 <footer class="wrap foot">
-  <a class="brand" href="#top" aria-label="forma, top of the page"><canvas id="sym1" aria-hidden="true"></canvas><b>forma</b></a>
-  <p>forma is a working name · devnet only · the team launches the coins for now · <a id="progLink" href="#" target="_blank" rel="noopener">program</a></p>
+  <a class="brand" href="#top" aria-label="Nox, top of the page"><canvas id="sym1" aria-hidden="true"></canvas><b>nox</b></a>
+  <p>devnet only · the team launches the coins for now · <a id="progLink" href="#" target="_blank" rel="noopener">program</a></p>
 </footer>
 
 <script>
@@ -1014,6 +1014,7 @@ function layout() {
   // wide: the name, the hole and its numbers stay in one screen beside the form
   var availW = col.clientWidth, availH = cw > 1000 ? vh - 40 - (col.offsetHeight - cv.offsetHeight) : 1e9;
   PX = Math.max(2, Math.min(4, Math.floor(availW / HW), Math.floor(availH / HH)));
+  if (HW * PX > cw - 16) PX = BH.fitPx(cw - 24, HW);   // under 344 px wide: smaller than 2, in whole device pixels
   var d = hole.size(PX), wide = phone ? '' : (HW * d) + 'px';
   SHORT = phone || PX < 3;
   $('#nums').style.maxWidth = $('#legend').style.maxWidth = wide;   // under the hole's two edges; a phone gives them the column

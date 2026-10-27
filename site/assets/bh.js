@@ -1,4 +1,4 @@
-/* forma (working name): the black hole every page draws, in dark purple and light yellow (window.BH).
+/* Nox: the black hole every page draws, in dark purple and light yellow (window.BH).
  *
  * The light is bent the way a Schwarzschild black hole bends it (mass M = 1: horizon at r = 2, the
  * shadow's edge at impact parameter b = 3√3, the disk's inner edge at r = 6). A ray's path depends only
@@ -35,7 +35,8 @@
  * The page
  *   BH.mark(cv, px, ink)   the hand-drawn mark, 21x12 (ink: one colour for all but the shadow); BH.favicon()
  *   BH.starTile(n)         a data URL of n x n sky pixels: the same colours and density as the hole's sky
- *   BH.devPx(px), BH.fit(cv, px) whole device pixels; BH.reduced (reduced motion, or ?motion=reduce)
+ *   BH.devPx(px), BH.fit(cv, px) whole device pixels; BH.fitPx(avail, n) the largest whole-device pixel that fits
+ *                          n of them in avail css px (the narrowest phones); BH.reduced (reduced motion, or ?motion=reduce)
  */
 (function () {
 'use strict';
@@ -332,6 +333,7 @@ var R0 = 10;          // the disk's edge with nothing in: a thin bright ring of 
 
 function devPx(px) { var r = window.devicePixelRatio || 1; return Math.max(1, Math.round(px * r)) / r; }
 function fit(cv, px) { var d = devPx(px); cv.style.width = cv.width * d + 'px'; cv.style.height = cv.height * d + 'px'; return d; }
+function fitPx(avail, n) { var r = window.devicePixelRatio || 1; return Math.max(1, Math.floor(avail * r / n)) / r; }
 
 function still(cv, o) {
   o = o || {};
@@ -493,6 +495,6 @@ function starTile(n) {
 window.BH = {
   HEX: HEX, Hole: Hole, run: run, reduced: reduced, hash: hash2, BC: BC, R_IN: R_IN,
   look: look, stateOf: stateOf, fromPool: fromPool, progress: progress, rAt: rAt, still: still, live: live,
-  mark: mark, favicon: favicon, starTile: starTile, devPx: devPx, fit: fit
+  mark: mark, favicon: favicon, starTile: starTile, devPx: devPx, fit: fit, fitPx: fitPx
 };
 })();

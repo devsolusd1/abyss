@@ -3,13 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>forma</title>
-<meta name="description" content="forma (working name): a Solana DEX where every coin keeps one pool for life. On devnet.">
+<title>Nox</title>
+<meta name="description" content="Nox: a Solana DEX where every coin keeps one pool for life. On devnet.">
 <script>window.__errors = []; addEventListener('error', function (e) { __errors.push(String(e.message || e)); }); addEventListener('unhandledrejection', function (e) { __errors.push('promise: ' + String(e.reason && e.reason.message || e.reason)); });</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anybody:wdth,wght@50..150,100..900&family=Martian+Mono:wdth,wght@75..112.5,100..800&display=swap">
-<link rel="stylesheet" href="/assets/forma.css">
+<link rel="stylesheet" href="/assets/nox.css">
 <style>
 /* ----- hero: the headline over the hole's empty sky, the hole, one line of numbers, two buttons ----- */
 .hero { position: relative; padding: clamp(18px, 4vh, 44px) 0 clamp(36px, 7vh, 72px); text-align: center; background-repeat: repeat; image-rendering: pixelated; }
@@ -86,6 +86,7 @@ a.coin:hover .card, a.coin:focus-visible .card { background: var(--f-line2); }
   .coins { grid-template-columns: repeat(2, 1fr); gap: 10px; }
   .coin .card { padding: 12px 12px 14px; }
 }
+@media (max-width: 359px) { .setups { grid-template-columns: minmax(0, 1fr); } }   /* two would cut the settings' words */
 </style>
 <script defer src="/assets/bh.js"></script>
 <script defer src="/net.js"></script>
@@ -99,7 +100,7 @@ a.coin:hover .card, a.coin:focus-visible .card { background: var(--f-line2); }
 </div>
 
 <header class="top">
-  <a class="brand" href="/" aria-label="forma, home"><canvas id="sym" aria-hidden="true"></canvas><b>forma</b></a>
+  <a class="brand" href="/" aria-label="Nox, home"><canvas id="sym" aria-hidden="true"></canvas><b>nox</b></a>
   <nav class="nav" aria-label="Site">
     <a href="#how"><span class="long">how it works</span><span class="short">how</span></a>
     <a href="/coins">coins</a>
@@ -192,8 +193,8 @@ a.coin:hover .card, a.coin:focus-visible .card { background: var(--f-line2); }
 </main>
 
 <footer class="wrap foot">
-  <a class="brand" href="#top" aria-label="forma, top of the page"><canvas id="sym1" aria-hidden="true"></canvas><b>forma</b></a>
-  <p>forma is a working name · devnet only · the black hole at the top is a simulation · <a id="progLink" href="#" target="_blank" rel="noopener">program</a></p>
+  <a class="brand" href="#top" aria-label="Nox, top of the page"><canvas id="sym1" aria-hidden="true"></canvas><b>nox</b></a>
+  <p>devnet only · the black hole at the top is a simulation · <a id="progLink" href="#" target="_blank" rel="noopener">program</a></p>
 </footer>
 
 <script>
@@ -366,9 +367,16 @@ var tileUrl = BH.starTile(128);
 function heroPx() {
   var vw = document.documentElement.clientWidth, vh = innerHeight;
   var byW = Math.floor((Math.min(vw, 1240) - 24) / 168), byH = Math.floor((vh - 300) / 80);
-  return Math.max(2, Math.min(5, byW, Math.max(3, byH)));
+  var px = Math.max(2, Math.min(5, byW, Math.max(3, byH)));
+  return 168 * px > vw - 16 ? BH.fitPx(vw - 24, 168) : px;   // under 344 px wide: smaller than 2, in whole device pixels
 }
-function sizeStills() { var sp = document.documentElement.clientWidth < 560 ? 2 : 3; stills.concat(coinEls).forEach(function (x) { BH.fit(x.cv, sp); }); }
+function sizeStills() {
+  var vw = document.documentElement.clientWidth, sp = vw < 560 ? 2 : 3;
+  // the devnet coins stay two to a row on the narrowest phones: there their stills go under 2 px, in whole device pixels
+  var cp = vw < 360 ? BH.fitPx((vw - 42) / 2 - 24, 64) : sp;
+  stills.forEach(function (x) { BH.fit(x.cv, sp); });
+  coinEls.forEach(function (x) { BH.fit(x.cv, cp); });
+}
 var lastW = 0;
 function layout() {
   lastW = document.documentElement.clientWidth;
@@ -386,7 +394,7 @@ addEventListener('resize', function () { clearTimeout(rz); rz = setTimeout(funct
 })();
 
 /* ---------- handles for checks and screenshots ---------- */
-window.__forma = {
+window.__nox = {
   hero: hero, sim: sim, setups: SETUPS, buy: buy, sell: sell, pick: pick, next: next, readout: readout, layout: layout,
   graduate: function () { buy(Math.max(1, sim.lk.G - sim.x + .5)); },
   freeze: function (t, theta) { window.__frozen = true; hero.stop(); if (t != null) hero.hole.t = t; if (theta != null) hero.hole.theta = theta; hero.hole.paint(); },

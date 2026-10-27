@@ -3,20 +3,20 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>coin · forma</title>
-<meta name="description" content="One coin on forma (working name): its pool as a black hole, its numbers, its trades, and a way to buy or sell it on devnet.">
+<title>coin · Nox</title>
+<meta name="description" content="One coin on Nox: its pool as a black hole, its numbers, its trades, and a way to buy or sell it on devnet.">
 <script>window.__errors = []; addEventListener('error', function (e) { __errors.push(String(e.message || e)); }); addEventListener('unhandledrejection', function (e) { __errors.push('promise: ' + String(e.reason && e.reason.message || e.reason)); });</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anybody:wdth,wght@50..150,100..900&family=Martian+Mono:wdth,wght@75..112.5,100..800&display=swap">
-<link rel="stylesheet" href="/assets/forma.css">
+<link rel="stylesheet" href="/assets/nox.css">
 <style>
-/* ===== one coin: its pool as its own black hole (assets/bh.js), the trade panel beside it; the shared look is assets/forma.css ===== */
+/* ===== one coin: its pool as its own black hole (assets/bh.js), the trade panel beside it; the shared look is assets/nox.css ===== */
 
 /* ---------- the strip: this coin's latest trades on devnet, each a link to its transaction; nothing while there are none ---------- */
 .tick.none { visibility: hidden; }
 .tape a:hover { color: var(--f-cream); }
-.still .tick .tag i, .still .tape .new { animation: none; }   /* ?motion=reduce, as forma.css does for the system setting */
+.still .tick .tag i, .still .tape .new { animation: none; }   /* ?motion=reduce, as nox.css does for the system setting */
 
 /* ---------- hero: the name, the hole, its two numbers under it, the trade panel beside it ---------- */
 .hero { position: relative; background-repeat: repeat; image-rendering: pixelated; }
@@ -135,6 +135,11 @@
   .trades th, .trades td { padding-left: 10px; }
   .c-path { padding: 14px 14px 12px; }
 }
+@media (max-width: 359px) {   /* the five columns of trades fit a 320 px phone */
+  .trades { font-size: 10px; }
+  .trades th, .trades td { padding-left: 6px; }
+  .trades .k { margin-right: 6px; }
+}
 @media (max-width: 560px) { .tick .tag { padding-left: 16px; } }
 </style>
 <script defer src="/assets/bh.js"></script>
@@ -151,7 +156,7 @@
 </div>
 
 <header class="top">
-  <a class="brand" href="/" aria-label="forma, home"><canvas id="sym" aria-hidden="true"></canvas><b>forma</b></a>
+  <a class="brand" href="/" aria-label="Nox, home"><canvas id="sym" aria-hidden="true"></canvas><b>nox</b></a>
   <nav class="nav" aria-label="Site">
     <a href="/#how"><span class="long">how it works</span><span class="short">how</span></a>
     <a href="/coins" aria-current="true">coins</a>
@@ -233,8 +238,8 @@
 </main>
 
 <footer class="wrap foot">
-  <a class="brand" href="#top" aria-label="forma, top of the page"><canvas id="sym1" aria-hidden="true"></canvas><b>forma</b></a>
-  <p>forma is a working name · devnet only · devnet SOL has no value · <a id="progLink" href="#" target="_blank" rel="noopener">program</a></p>
+  <a class="brand" href="#top" aria-label="Nox, top of the page"><canvas id="sym1" aria-hidden="true"></canvas><b>nox</b></a>
+  <p>devnet only · devnet SOL has no value · <a id="progLink" href="#" target="_blank" rel="noopener">program</a></p>
 </footer>
 
 <script>
@@ -248,7 +253,7 @@ function fail(title, html) {
   if (hush) hush();
   document.body.classList.remove('reading');
   document.body.classList.add('nocoin');
-  document.title = 'coin · forma';
+  document.title = 'coin · Nox';
   $('#kicker').textContent = 'devnet';
   var h = $('#name'); h.className = 'wait'; h.textContent = title;
   var m = $('#msg'); m.innerHTML = html || ''; m.hidden = !html;
@@ -354,7 +359,7 @@ setInterval(paintStatus, 5000);
 
 function renderHead(busiest) {
   var p = POOL, nm = nameOf(p), sym = String(p.symbol || '').trim();
-  document.title = nm + ' · forma';
+  document.title = nm + ' · Nox';
   var h = $('#name'); h.className = '';
   h.innerHTML = esc(nm) + (sym ? '<span class="sym">$' + esc(sym) + '</span>' : '');
   $('#kicker').innerHTML = busiest ? 'the busiest coin on devnet · <a href="/coins">all coins</a>' : isTest(p) ? 'a test coin on devnet' : 'a coin on devnet';
@@ -767,6 +772,7 @@ function layout() {
   var availW = $('#main').clientWidth;
   var top = heroCv.getBoundingClientRect().top + (window.scrollY || 0), availH = vh - top - 120;
   PX = Math.max(2, Math.min(4, Math.floor(availW / HW), Math.max(3, Math.floor(availH / HH))));
+  if (HW * PX > cw - 16) PX = BH.fitPx(cw - 24, HW);   // under 344 px wide: smaller than 2, in whole device pixels
   var d = hole.size(PX), wide = phone ? '' : (HW * d) + 'px';
   $('#nums').style.maxWidth = $('#ctl').style.maxWidth = wide;    // under the hole's two edges; a phone gives them the column
   // the sky behind: the hole's own stars, tiled at its pixel, so the canvas has no edge

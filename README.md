@@ -1,9 +1,8 @@
-# abyss
+# Nox
 
 A Solana launchpad where each coin gets one pool for life. The coin starts on a bonding curve
 and keeps trading in the same pool after it graduates: no migration. The site draws every coin
-as a pixel black hole whose disk is the real SOL in its pool. The site still says "forma", a
-working name.
+as a pixel black hole whose disk is the real SOL in its pool.
 
 **Devnet only, unaudited.** Program `CbAjrrCk8WEyh9uTQ1cNJWxNGJk2ipJtxK5p8yBwnURK`. No hooks yet.
 
@@ -15,7 +14,7 @@ working name.
   and the records of the coins launched on devnet.
 - `site`: the pages. `index.html` (the landing), `coins.html`, `coin.html` and `launch.html`.
   - `assets/bh.js` draws the black hole.
-  - `assets/forma.css` is the look the pages share.
+  - `assets/nox.css` is the look the pages share.
   - `net.js` picks the cluster and the program.
   - `chain/` is the chain layer, bundled into `vendor/chain.js` with `npm install && npm run build`.
 - `site/prototypes`: the design rounds; `round7` is the black hole.

@@ -1,4 +1,4 @@
-/* forma (working name): the look every page shares. Dark purple and light yellow, the black hole's eight
+/* Nox: the look every page shares. Dark purple and light yellow, the black hole's eight
    colours and nothing else (assets/bh.js draws the hole and the mark); Anybody for headings, set in
    capitals, Martian Mono for the rest (each page loads the two from Google Fonts in its <head>).
    Every section is dark: .paper is kept as a name and is now a slightly lighter purple ground.
@@ -106,13 +106,13 @@ p { margin: 0; }
   .nav .short { display: inline; }
   .n b { font-size: 22px; }
 }
-/* small phones (360 px and under): the header has to fit in one row; under 350 px the mark stands alone */
+/* small phones (down to 320 px): the header has to fit in one row */
 @media (max-width: 420px) {
   .top { gap: 10px; }
   .brand { gap: 8px; }
   .brand b { font-size: 18px; }
   .nav { gap: 12px; }
   .nav .btn.sm { padding: 10px 11px 9px; }
+  .n span { white-space: normal; }   /* two number blocks side by side: their small lines wrap rather than meet */
 }
-@media (max-width: 350px) { .brand b { display: none; } }
 @media (prefers-reduced-motion: reduce) { .tick .tag i, .tape .new { animation: none; } }
