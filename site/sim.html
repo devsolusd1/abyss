@@ -389,7 +389,7 @@ function signed(v, d) { return (v > 0 ? '+' : v < 0 ? '−' : '') + Math.abs(v).
 function pctS(x) { var p = x * 100; return signed(p, Math.abs(p) >= 100 ? 0 : 1) + '%'; }
 function share(u) { var x = Number(u) / 1e13; return (x >= 10 ? x.toFixed(1) : x >= .01 ? x.toFixed(2) : 'under 0.01') + '%'; }   // of the 1B made
 // an exact number of token units as the amount box shows it (the units themselves are kept beside it): 52.77m
-function unitsText(u) { var t = Number(u) / 1e6; return t >= 1e6 ? String(+(t / 1e6).toFixed(2)) + 'm' : t >= 1e3 ? String(+(t / 1e3).toFixed(2)) + 'k' : String(+t.toFixed(6)); }
+function unitsText(u) { var t = Number(u) / 1e6, dn = function (x) { return String(Math.floor(x * 100 + 1e-9) / 100); }; return t >= 1e6 ? dn(t / 1e6) + 'm' : t >= 1e3 ? dn(t / 1e3) + 'k' : String(Math.floor(t * 1e6) / 1e6); }   // rounded down, so typing it back never asks for more than is held
 function setText(sel, v) { var el = typeof sel === 'string' ? $(sel) : sel; if (el && el.textContent !== v) el.textContent = v; }
 function parseAmt(s) {
   s = String(s || '').trim().toLowerCase().replace(/[\s_]/g, '');
@@ -403,14 +403,15 @@ function parseAmt(s) {
 var DEF = { name: 'MOTE', symbol: 'MOTE', V: 30, M: 420, fee: 100, first: 1 };
 var PRESETS = [{ V: 30, M: 420, fee: 100 }, { V: 20, M: 180, fee: 200 }, { V: 200, M: 800, fee: 150 }, { V: 60, M: 420, fee: 300 }];
 function cleanSym(s) { return String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10); }
+// s.fee is in basis points as typed (not rounded yet); the bounds are checked in whole lamports, as the program does
 function problems(s) {
-  var p = {};
+  var p = {}, vL = Math.round(s.V * 1e9), mL = Math.round(s.M * 1e9);
   if (!s.name) p.name = 'A name, up to 32 letters.';
   if (!/^[A-Z0-9]{1,10}$/.test(s.symbol)) p.symbol = 'Up to 10 letters or digits.';
   if (!(s.V >= 1 && s.V <= 1000)) p.V = 'From 1 to 1,000 SOL.';
-  else if (!(s.M >= 2 * s.V && s.M <= 100 * s.V)) p.M = 'From ' + fAmt(2 * s.V) + ' to ' + fAmt(100 * s.V) + ': 2 to 100 times the virtual SOL.';
-  if (!(s.fee >= 0 && s.fee <= 300) || s.fee !== Math.round(s.fee)) p.fee = 'From 0 to 3%, in steps of 0.01.';
-  if (!(s.first >= 0 && s.first <= 100)) p.first = 'From 0 to 100 play SOL.';
+  else if (!(mL >= 2 * vL && mL <= 100 * vL)) p.M = 'From ' + fAmt(2 * s.V) + ' to ' + fAmt(100 * s.V) + ': 2 to 100 times the virtual SOL.';
+  if (!(s.fee >= 0 && s.fee <= 300 + 1e-6) || Math.abs(s.fee - Math.round(s.fee)) > 1e-6) p.fee = 'From 0 to 3%, in steps of 0.01.';
+  if (!(s.first >= 0 && s.first <= 100) || (s.first > 0 && s.first < 0.00001)) p.first = 'From 0.00001 to 100 play SOL, or 0 for none.';
   return p;
 }
 function fromLink() {
@@ -419,9 +420,10 @@ function fromLink() {
   if (n) { s.name = n; s.symbol = y || cleanSym(n) || 'COIN'; }
   if (y) s.symbol = y;
   var v = g('v'), m = g('m'), f = g('fee'), fb = g('first');
-  if (v > 0) s.V = v; if (m > 0) s.M = m; if (f >= 0) s.fee = Math.round(f * 100); if (fb >= 0) s.first = fb;
+  if (v > 0) s.V = v; if (m > 0) s.M = m; if (f >= 0) s.fee = f * 100; if (fb >= 0) s.first = fb;
   var bad = problems(s);
   if (bad.V || bad.M || bad.fee) { s.V = DEF.V; s.M = DEF.M; s.fee = DEF.fee; }
+  s.fee = Math.round(s.fee);
   if (bad.first) s.first = DEF.first;
   if (bad.name || bad.symbol) { s.name = DEF.name; s.symbol = DEF.symbol; }
   return s;
@@ -429,7 +431,7 @@ function fromLink() {
 function toLink(s) {
   try {
     var q = new URLSearchParams();
-    q.set('name', s.name); q.set('sym', s.symbol); q.set('v', fAmt(s.V)); q.set('m', fAmt(s.M)); q.set('fee', String(s.fee / 100)); q.set('first', fAmt(s.first));
+    q.set('name', s.name); q.set('sym', s.symbol); q.set('v', String(s.V)); q.set('m', String(s.M)); q.set('fee', String(s.fee / 100)); q.set('first', String(s.first));   // exact, so the link launches this same coin
     history.replaceState(null, '', location.pathname + '?' + q.toString());
   } catch (e) {}
 }
@@ -491,7 +493,10 @@ function pushChart(force) {
   var g = SERIES === 'price' ? SET.M / 1000 : SET.M;
   chart.set({ candles: L, marks: CS.marks, events: CS.events, log: LOG, fmt: fmtV, tfmt: fClock,
     goal: S.pool.graduated ? null : { v: g, label: 'graduation at ' + fmtV(g) } });
-  chartCv.setAttribute('aria-label', 'Candles of ' + S.name + '\'s ' + (SERIES === 'price' ? 'price, in SOL per 1M tokens' : 'market cap, in SOL') + ', one per ' + tfName(TF) + ' of the simulation. The last is at ' + fmtV(lc ? lc.c : launchVal()) + '.');
+  // the canvas's name changes only with what it shows (the read line above has the numbers), so a screen reader on it
+  // is not told again at every trade
+  var al = 'Candles of ' + S.name + '\'s ' + (SERIES === 'price' ? 'price, in SOL per 1M tokens' : 'market cap, in SOL') + ', one per ' + tfName(TF) + ' of the simulation. The line above it reads the candle in focus.';
+  if (chartCv.getAttribute('aria-label') !== al) chartCv.setAttribute('aria-label', al);
   renderRead();
 }
 function tfName(tf) { return tf === 15 ? '15 seconds' : tf === 60 ? 'minute' : (tf / 60) + ' minutes'; }
@@ -512,10 +517,10 @@ $('#series').addEventListener('click', function (e) { var b = e.target.closest('
 $('#logBtn').addEventListener('click', function () { LOG = !LOG; this.setAttribute('aria-pressed', String(LOG)); pushChart(true); });
 $('#zIn').addEventListener('click', function () { chart.zoom(1); });
 $('#zOut').addEventListener('click', function () { chart.zoom(-1); });
-latestBtn.addEventListener('click', function () { chart.latest(); latestBtn.hidden = true; });
+latestBtn.addEventListener('click', function () { chartCv.focus(); chart.latest(); latestBtn.hidden = true; });   // the button hides itself: focus goes to the chart
 chartCv.addEventListener('keydown', function (e) {
   var k = e.key;
-  if (k === 'ArrowLeft' || k === 'ArrowRight') { e.preventDefault(); chart.off = chart.clampOff(chart.off + (k === 'ArrowLeft' ? 1 : -1)); chart.draw(); }
+  if (k === 'ArrowLeft' || k === 'ArrowRight') { e.preventDefault(); chart.pan(k === 'ArrowLeft' ? 1 : -1); }
   else if (k === '+' || k === '=') { e.preventDefault(); chart.zoom(1); }
   else if (k === '-') { e.preventDefault(); chart.zoom(-1); }
   else if (k === 'End') { e.preventDefault(); chart.latest(); }
@@ -526,7 +531,7 @@ function renderHead() {
   document.title = SET.name + ' · Nox sim';
   $('#name').innerHTML = esc(SET.name) + '<span class="sym">$' + esc(SET.symbol) + '</span>';
   setText('#setLine', fAmt(SET.V) + ' virtual SOL · graduates at a ' + fAmt(SET.M) + ' SOL market cap · ' + (SET.fee / 100) + '% fee' +
-    (SET.first > 0 ? ' · you bought ' + fAmt(SET.first) + ' SOL of it at launch' : ''));
+    (SET.first > 0 && S.trades.length && S.trades[0].w === 0 ? ' · you bought ' + fSol(SET.first) + ' SOL of it at launch' : ''));
   setText('#holeKey', 'disk: real SOL in the pool, full at graduation');
   $('#quick').innerHTML = '';
   paintQuick();
@@ -643,16 +648,16 @@ function renderYou() {
 
 /* ================= the crowd ================= */
 var MOODLINE = {
-  quiet: 'quiet: a trade every 20 s or so, buyers and sellers about even',
+  quiet: 'quiet: a trade every 25 s or so, buyers and sellers about even',
   steady: 'steady: about 8 trades a minute, a few more buys than sells',
   hype: 'hype: about 20 trades a minute, mostly buys, and bigger ones',
-  panic: 'panic: two sellers to every buyer, and most sell the whole bag'
+  panic: 'panic: most trades are sells, and most sellers sell the whole bag'
 };
 var playBtn = $('#play'), cnote = $('#cnote');
 function setPlaying(on) { PLAYING = !!on; playBtn.textContent = PLAYING ? 'pause' : 'play'; playBtn.setAttribute('aria-label', PLAYING ? 'Pause the crowd and the clock' : 'Start the crowd and the clock'); }
 function setSpeed(v) { SPEED = v; press('speeds', 'data-speed', v); }
 function setMood(m) { MOOD = m; if (S) S.setMood(m); press('moods', 'data-mood', m); paintMood(); }
-function paintMood() { setText('#moodLine', MOODLINE[MOOD] + (S && S.t < 40 && MOOD !== 'panic' ? ' · the first buyers are piling in' : '') + ' · 1× is real time'); }
+function paintMood() { setText('#moodLine', MOODLINE[MOOD] + (S && S.t < 40 && MOOD !== 'panic' && MOOD !== 'quiet' ? ' · the first buyers are piling in' : '') + ' · 1× is real time'); }
 playBtn.addEventListener('click', function () { setPlaying(!PLAYING); });
 $('#speeds').addEventListener('click', function (e) { var b = e.target.closest('[data-speed]'); if (b) setSpeed(+b.getAttribute('data-speed')); });
 $('#moods').addEventListener('click', function (e) { var b = e.target.closest('[data-mood]'); if (b) setMood(b.getAttribute('data-mood')); });
@@ -717,7 +722,7 @@ function flush(force) {
   if (due('tables', 600, now, force)) { renderTrades(); renderHolders(); }
   if (due('tape', 900, now, force)) renderTape();
   if (due('hole', 400, now, force)) hole.show(holeState());
-  if (S.t < 45) paintMood();
+  paintMood();                                         // writes only when its words change
 }
 var lastT = performance.now();
 setInterval(function () {
@@ -754,7 +759,7 @@ var E = { name: $('#eName'), symbol: $('#eSym'), V: $('#eV'), M: $('#eM'), fee: 
 $('#presets').innerHTML = PRESETS.map(function (p, i) { return '<button type="button" data-p="' + i + '">' + p.V + ' · ' + p.M + ' · ' + (p.fee / 100) + '%</button>'; }).join('');
 function readForm() {
   var n = function (el) { var v = parseAmt(el.value); return isNaN(v) ? NaN : v; };
-  return { name: F.name.value.trim().slice(0, 32), symbol: cleanSym(F.symbol.value), V: n(F.V), M: n(F.M), fee: Math.round(n(F.fee) * 100), first: F.first.value.trim() === '' ? 0 : n(F.first) };
+  return { name: F.name.value.trim().slice(0, 32), symbol: cleanSym(F.symbol.value), V: n(F.V), M: n(F.M), fee: n(F.fee) * 100, first: F.first.value.trim() === '' ? 0 : n(F.first) };
 }
 function checkForm(show) {
   var s = readForm(), bad = problems(s);
@@ -794,9 +799,9 @@ form.addEventListener('submit', function (e) {
   e.preventDefault();
   var bad = checkForm(true), first = Object.keys(F).filter(function (k) { return bad[k]; })[0];
   if (first) { F[first].focus(); return; }
-  var s = readForm();
+  var s = readForm(); s.fee = Math.round(s.fee);
   closeNew(); start(s); toLink(s);
-  cnote.textContent = s.name + ' launched' + (s.first > 0 ? ', with your buy of ' + fAmt(s.first) + ' SOL' : '') + '.';
+  cnote.textContent = s.name + ' launched' + (s.first > 0 ? ', with your buy of ' + fSol(s.first) + ' SOL' : '') + '.';
 });
 
 /* ================= sizes ================= */
@@ -805,7 +810,7 @@ function layout() {
   var cw = document.documentElement.clientWidth, avail = holeBox.clientWidth;
   lastW = cw;
   var px = Math.min(3, Math.floor(avail / 168));
-  if (px < 2) px = BH.fitPx(avail, 168);
+  if (px < 2 || 168 * BH.devPx(px) > avail) px = BH.fitPx(avail, 168);   // whole device pixels can round a size up past the column
   hole.size(px);
   holeBox.style.backgroundImage = 'url(' + tileUrl + ')'; holeBox.style.backgroundSize = 128 * BH.devPx(px) + 'px';
   chart.resize();

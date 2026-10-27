@@ -75,7 +75,7 @@
 .c-note a { color: var(--f-cream); }
 
 /* ---------- in numbers: a flat list on the dark ground, two columns ---------- */
-#numbers { padding-top: clamp(32px, 5vw, 64px); padding-bottom: 0; }
+#numbers { padding-bottom: 0; }
 #numbers .lead a { color: var(--f-cream); text-underline-offset: 4px; }
 .facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: repeat(5, auto); grid-auto-flow: column; column-gap: clamp(32px, 6vw, 96px); margin: clamp(36px, 5vw, 56px) 0 0; }
 .f { display: grid; grid-template-columns: 10em minmax(0, 1fr); gap: 16px; padding: 14px 0 15px; border-top: 1px solid var(--f-line); }
@@ -85,10 +85,37 @@
 .f dd .mute { display: block; font-size: 11px; }
 .f a { text-underline-offset: 4px; }
 
-/* ---------- every trade: the list, and the price path in an outlined card ---------- */
-#trades { padding-bottom: 0; }
-.c-low { display: grid; grid-template-columns: minmax(0, 6fr) minmax(0, 5fr); gap: 40px clamp(40px, 6vw, 96px); align-items: start; margin-top: clamp(36px, 5vw, 56px); }
-.trades { width: 100%; border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
+/* ---------- every trade: the candles in an outlined card (as on /sim), then the list ---------- */
+#trades { padding-top: clamp(32px, 5vw, 64px); padding-bottom: 0; }
+.s-chart { margin: clamp(28px, 4vw, 44px) 0 0; padding: 14px 16px 14px; }
+.chips { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+.chips button { min-width: 30px; padding: 7px 9px 6px; font-size: 11px; line-height: 1; color: var(--f-mute); box-shadow: inset 0 0 0 1px var(--f-line); -webkit-user-select: none; user-select: none; touch-action: manipulation; }
+.chips button:hover:not(:disabled) { color: var(--f-cream); box-shadow: inset 0 0 0 1px var(--f-line2); }
+.chips button[aria-pressed="true"] { background: var(--f-yellow); color: var(--f-bg); box-shadow: none; }
+.chips button:focus-visible { outline-offset: 2px; }
+.chips button:disabled { opacity: .35; cursor: default; }
+.s-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
+.s-bar .sp { flex: 1; }
+.s-read { margin-top: 12px; min-height: 1.65em; font-size: 11px; color: var(--f-mute); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.s-read b { font-weight: 500; color: var(--f-cream); }
+.s-read b.up { color: var(--f-yellow); }
+.s-read b.down { color: var(--f-lilac); }
+.s-cv { margin-top: 6px; }
+.s-cv canvas { cursor: crosshair; image-rendering: auto; }
+.s-cv canvas.dragging { cursor: grabbing; }
+.s-key { display: flex; flex-wrap: wrap; gap: 4px 18px; margin-top: 10px; font-size: 10px; color: var(--f-mute); }
+.s-key span { display: inline-flex; align-items: center; gap: 7px; }
+.s-key span[hidden] { display: none; }
+.s-key i { display: inline-block; width: 8px; height: 8px; }
+.s-key .ku { background: var(--f-yellow); }
+.s-key .kd { background: var(--f-lilac); }
+.s-key .kg { width: 10px; height: 2px; background: var(--f-cream); box-shadow: 4px 0 0 var(--f-bg); }
+.s-key .kq { width: 10px; height: 2px; background: var(--f-lilac); box-shadow: 4px 0 0 var(--f-bg); }
+.s-key .km { width: auto; height: auto; font-style: normal; color: var(--f-cream); font-size: 9px; }
+.trades { width: 100%; margin-top: clamp(28px, 4vw, 44px); border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
+.trades tr.more { display: none; }                  /* the oldest rows, until "show all" */
+.trades.all tr.more { display: table-row; }
+.c-more { margin-top: 14px; font-size: 12px; }
 .trades th, .trades td { padding: 7px 0 7px 14px; text-align: right; white-space: nowrap; font-weight: 400; }
 .trades th:first-child, .trades td:first-child { padding-left: 8px; text-align: left; }
 .trades th:last-child, .trades td:last-child { padding-right: 8px; }
@@ -105,10 +132,8 @@
 .trades tr.ev .k { box-shadow: inset 0 0 0 2px var(--f-violet); }
 .trades tr.grad td { color: var(--f-yellow); }
 .trades tr.grad .k { box-shadow: none; background: var(--f-cream); }
-.trades tr.on td { color: var(--f-cream); background: var(--f-deep); }   /* its step in the price path turns cream */
+.trades tr.on td { color: var(--f-cream); background: var(--f-deep); }   /* the trades in the candle under the pointer, and the other way round */
 .c-empty { margin-top: 18px; font-size: 11px; color: var(--f-mute); }
-.c-path { margin: 0; padding: 18px 18px 16px; }
-.c-path figcaption { margin-top: 14px; font-size: 11px; color: var(--f-mute); }
 .foot { margin-top: clamp(72px, 12vw, 140px); }
 
 /* ---------- no coin to show: the words and an empty hole, still ---------- */
@@ -131,10 +156,17 @@
   .f:nth-child(5):not(:last-child) { border-bottom: 0; }
   .f { grid-template-columns: 8.6em minmax(0, 1fr); gap: 12px; }
   .f dd { font-size: 12px; }
-  .c-low { grid-template-columns: minmax(0, 1fr); }
   .trades { font-size: 11px; }
   .trades th, .trades td { padding-left: 10px; }
-  .c-path { padding: 14px 14px 12px; }
+  .s-chart { padding: 12px 12px 12px; }
+  .s-read { white-space: normal; }
+  .chips button { padding: 9px 10px 8px; }
+  /* the toolbar in two rows: the intervals, then what is shown and the zoom */
+  .s-bar .sp { display: none; }
+  #series { order: 2; }
+  .s-bar .logc { order: 3; }
+  .s-bar .zoom { order: 4; margin-left: auto; }
+  #latest { order: 5; }
 }
 @media (max-width: 359px) {   /* the five columns of trades fit a 320 px phone */
   .trades { font-size: 10px; }
@@ -144,6 +176,7 @@
 @media (max-width: 560px) { .tick .tag { padding-left: 16px; } }
 </style>
 <script defer src="/assets/bh.js"></script>
+<script defer src="/assets/chart.js"></script>
 <script defer src="/net.js"></script>
 <script defer src="/vendor/chain.js"></script>
 <script defer src="/assets/wallet.js"></script>
@@ -208,33 +241,47 @@
   </div>
 </section>
 
+<!-- ===== every trade: as candles (assets/chart.js), then as a list, newest first ===== -->
+<section class="sec" id="trades" aria-labelledby="tradesH">
+  <div class="wrap">
+    <h2 id="tradesH">Every trade.</h2>
+    <p class="lead">Read from devnet: the price after each trade, as candles, then the trades themselves.</p>
+    <figure class="card s-chart">
+      <div class="s-bar">
+        <div class="chips" role="group" aria-label="One candle per" id="tfs">
+          <button type="button" data-tf="0">trade</button><button type="button" data-tf="60">1m</button><button type="button" data-tf="900">15m</button><button type="button" data-tf="3600">1h</button><button type="button" data-tf="14400">4h</button><button type="button" data-tf="86400">1d</button>
+        </div>
+        <div class="chips" role="group" aria-label="What the chart shows" id="series">
+          <button type="button" data-series="price" aria-pressed="true">price</button><button type="button" data-series="mcap" aria-pressed="false">market cap</button>
+        </div>
+        <div class="chips logc"><button type="button" id="logBtn" aria-pressed="false" title="A log scale: the same rise looks the same size at any price">log</button></div>
+        <span class="sp"></span>
+        <div class="chips zoom" role="group" aria-label="Zoom">
+          <button type="button" id="zOut" aria-label="Zoom out">−</button><button type="button" id="zIn" aria-label="Zoom in">+</button>
+        </div>
+        <button type="button" class="q" id="latest" hidden>latest →</button>
+      </div>
+      <p class="s-read" id="read"></p>
+      <div class="s-cv"><canvas id="chart" tabindex="0" role="img" aria-label="The coin's price in candles"></canvas></div>
+      <figcaption class="s-key">
+        <span><i class="ku"></i>closed up</span><span><i class="kd"></i>closed down</span><span><i class="kg"></i>graduation</span><span><i class="kq"></i>after the trade you are typing</span><span id="keyMine" hidden><i class="km">▲▼</i>your wallet's trades</span><span>drag sideways to look back · − and + zoom</span>
+      </figcaption>
+    </figure>
+    <table class="trades" id="tradeList">
+      <thead><tr><th scope="col">when</th><th scope="col">side</th><th scope="col">SOL</th><th scope="col">tokens</th><th scope="col">per 1M</th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+    <p class="c-empty" id="histNote">Reading the trades…</p>
+    <button type="button" class="q c-more" id="moreRows" hidden></button>
+  </div>
+</section>
+
 <!-- ===== the pool account, as a short list ===== -->
 <section class="sec" id="numbers" aria-labelledby="numH">
   <div class="wrap">
     <h2 id="numH">In numbers.</h2>
     <p class="lead">Read from the pool account on devnet. <a id="simLink" href="/sim">Run a coin with these settings in the simulator</a>.</p>
     <dl class="facts" id="facts"></dl>
-  </div>
-</section>
-
-<!-- ===== trades, newest first, and the price after each ===== -->
-<section class="sec" id="trades" aria-labelledby="tradesH">
-  <div class="wrap">
-    <h2 id="tradesH">Every trade.</h2>
-    <p class="lead">Newest first, read from devnet. Buys in yellow, sells in lilac.</p>
-    <div class="c-low">
-      <div>
-        <table class="trades">
-          <thead><tr><th scope="col">when</th><th scope="col">side</th><th scope="col">SOL</th><th scope="col">tokens</th><th scope="col">per 1M</th></tr></thead>
-          <tbody id="rows"></tbody>
-        </table>
-        <p class="c-empty" id="histNote">Reading the trades…</p>
-      </div>
-      <figure class="c-path card">
-        <div id="pathBox"><canvas id="pathCv" role="img" aria-label="The price after each trade, one step per trade"></canvas></div>
-        <figcaption id="pathNote"></figcaption>
-      </figure>
-    </div>
   </div>
 </section>
 </main>
@@ -261,7 +308,7 @@ function fail(title, html) {
   var m = $('#msg'); m.innerHTML = html || ''; m.hidden = !html;
   var qe = $('#quote'); qe.textContent = 'Trading needs the pool, and it could not be read.'; qe._html = null;
 }
-if (!window.BH) { fail('The page did not load all its parts.', '<a href="' + esc(location.pathname + location.search) + '">Reload</a>'); return; }
+if (!window.BH || !window.NoxChart) { fail('The page did not load all its parts.', '<a href="' + esc(location.pathname + location.search) + '">Reload</a>'); return; }
 try { main(); } catch (e) { report(e); fail('Something broke while drawing this coin.', '<a href="/coins">See all coins</a>'); }
 
 function main() {
@@ -302,7 +349,7 @@ function mute(html) { return '<span class="mute">' + html + '</span>'; }
 
 /* ================= state ================= */
 var POOL = null, LOOK = null, ST = null, EVENTS = null, WAL = null, side = 'buy', busy = false, hi = -1;
-var lastRead = 0, readFail = 0, maxText = null, maxUnits = null, Q = null;
+var lastRead = 0, readFail = 0, maxText = null, maxUnits = null, Q = null, histStale = false;
 var PINNED = false;                                    // a pool shown through __coin.show, not read: the 20 s reads leave it on screen
 var mintParam = null;
 try { mintParam = (QS.get('mint') || '').trim() || null; } catch (e) {}
@@ -432,6 +479,14 @@ function ordered(events) {
     if (e.graduated && e.buy) grads.forEach(function (g) { if (g.signature === e.signature) pre += g.burned; });
     return pre;
   }
+  // a history of the latest 100 transactions can start after the launch: the chain then starts at its head, the trade
+  // whose reserve before it no other trade in the window left (the earliest such, if the window has gaps)
+  if (!launch.length && left.length) {
+    var afters = {};
+    left.forEach(function (e) { afters[String(e.tokenReserve)] = true; });
+    var heads = left.filter(function (e) { return !afters[String(before(e))]; });
+    cur = before((heads.length ? heads : left).reduce(function (a, e) { return (e.time || Infinity) < (a.time || Infinity) ? e : a; }));
+  }
   while (left.length) {
     var at = -1, best = null;
     for (var i = 0; i < left.length; i++) {
@@ -456,73 +511,172 @@ function ordered(events) {
 function priceAt(e) { var x = (e.graduated ? 0 : lam(POOL.virtualSol)) + lam(e.realSol), t = units(e.tokenReserve); return t > 0 ? x / t : 0; }
 function launchPrice() { return lam(POOL.virtualSol) / units(Chain.SUPPLY); }
 function tr(cls, i, cells) { return '<tr class="' + cls + '" data-i="' + i + '">' + cells.map(function (c, j) { return '<td>' + (j === 1 ? '<i class="k"></i>' : '') + c + '</td>'; }).join('') + '</tr>'; }
+var SHOWN = 15, allRows = false;                        // the list shows the newest 15 rows until "show all"
 function renderHistory() {
-  var body = $('#rows'), note = $('#histNote');
-  if (!EVENTS) { body.innerHTML = ''; return; }
+  var body = $('#rows'), note = $('#histNote'), more = $('#moreRows');
+  if (!EVENTS) { body.innerHTML = ''; more.hidden = true; return; }
   var rows = [], trades = 0;
   EVENTS.forEach(function (e, i) {
     var t = e.time ? txLink(e.signature, esc(ago(e.time))) : '';
     if (e.kind === 'trade') { trades++; rows.push(tr(e.buy ? 'buy' : 'sell', i, [t, e.buy ? 'buy' : 'sell', fSol(lam(e.sol)), tok(units(e.tokens)), fPx(priceAt(e))])); }
     else if (e.kind === 'launch') rows.push(tr('ev', i, [t, 'launch', '', '1B', fPx(launchPrice())]));
-    else if (e.kind === 'graduation') rows.push(tr('ev grad', i, [t, 'graduated', '−' + fAmt(lam(POOL.virtualSol)), '−' + fTok(units(e.burned)), fPx(lam(e.realSol) / units(e.tokenReserve))]));
+    else if (e.kind === 'graduation') rows.push(tr('ev grad', i, [t, 'graduated', '−' + fAmt(lam(POOL.virtualSol)), '−' + fTok(units(e.burned)), fPx(lam(POOL.graduationMcap) / 1e9)]));   // the price it graduates at: the graduation market cap over the 1B made
     else if (e.kind === 'claim') rows.push(tr('ev', i, [t, (e.creator ? 'creator' : 'platform') + ' claim', fSol(lam(e.amount)), '', '']));
   });
-  body.innerHTML = rows.reverse().join('');
+  rows.reverse();
+  body.innerHTML = rows.map(function (r, k) { return k < SHOWN ? r : r.replace('<tr class="', '<tr class="more '); }).join('');
+  more.hidden = rows.length <= SHOWN;
+  paintMore();
+  if (hi >= 0) rowsOn([hi]);
   note.textContent = trades ? (EVENTS.length >= 100 ? 'The most recent 100 events.' : '') : 'No trades yet.';
   note.hidden = !note.textContent;
 }
-function hover(i) { if (hi === i) return; hi = i; Array.prototype.forEach.call(document.querySelectorAll('#rows tr'), function (r) { r.classList.toggle('on', +r.getAttribute('data-i') === i); }); drawPath(); }
+function paintMore() { $('#tradeList').classList.toggle('all', allRows); setText('#moreRows', allRows ? 'show the newest ' + SHOWN : 'show all ' + $('#rows').children.length); }
+$('#moreRows').addEventListener('click', function () { allRows = !allRows; paintMore(); });
+// a row under the pointer marks its candle on the chart; a candle under the pointer lights its rows
+function rowsOn(list) { Array.prototype.forEach.call(document.querySelectorAll('#rows tr'), function (r) { r.classList.toggle('on', list.indexOf(+r.getAttribute('data-i')) >= 0); }); }
+function candleOf(i) { for (var k = 0; k < CANDLES.length; k++) if (CANDLES[k].ev.indexOf(i) >= 0) return k; return -1; }
+function hover(i) { if (hi === i) return; hi = i; rowsOn(i >= 0 ? [i] : []); chart.select(i >= 0 ? candleOf(i) : -1); }
 $('#rows').addEventListener('mouseover', function (e) { var r = e.target.closest('tr'); if (r) hover(+r.getAttribute('data-i')); });
 $('#rows').addEventListener('mouseleave', function () { hover(-1); });
 $('#rows').addEventListener('focusin', function (e) { var r = e.target.closest('tr'); if (r) hover(+r.getAttribute('data-i')); });
 $('#rows').addEventListener('focusout', function () { hover(-1); });
 
-/* ================= the price path: flat pixel steps, one per trade, on the hole's pixel ================= */
-// a level per trade at the price it left: yellow after a buy, lilac after a sell, violet at launch and for a newer
-// read; the trade being quoted dotted at the end. The row under the pointer turns its step cream and the rest
-// darker. The scale is the prices', not from zero, so small steps show
-var pathCv = $('#pathCv'), pathBox = $('#pathBox');
-function pathPoints() {
-  var pts = [];
+/* ================= the chart: the price after each trade, as candles (assets/chart.js) ================= */
+// one candle per trade, or per minute, 15 minutes, hour, 4 hours or day of the clock. Until one is chosen the
+// interval is picked from the trades: by the clock when at least a fifth of the candles would hold a trade, else one
+// per trade (a devnet coin's few trades, days apart, would be a row of empty dashes by the clock). The trade being
+// typed in the panel shows as a lilac dashed level: where it would leave the price
+var chartCv = $('#chart'), latestBtn = $('#latest'), readEl = $('#read');
+var TF = null, SERIES = 'price', LOG = false, CANDLES = [];
+var TFS = [60, 900, 3600, 14400, 86400], MAX_CANDLES = 3000;
+function chartH() { var w = document.documentElement.clientWidth; return w >= 1040 ? 380 : w >= 760 ? 340 : 280; }
+var chart = new NoxChart(chartCv, { height: chartH,
+  onHover: function (k) { renderRead(); rowsOn(k >= 0 && CANDLES[k] ? CANDLES[k].ev : hi >= 0 ? [hi] : []); },
+  onView: function () { latestBtn.hidden = chart.following; } });
+function pad2(n) { return (n < 10 ? '0' : '') + n; }
+function pctS(x) { var p = x * 100; return (p > 0 ? '+' : p < 0 ? '−' : '') + Math.abs(p).toFixed(Math.abs(p) >= 100 ? 0 : 1) + '%'; }
+function stamp(sec) { try { return new Date(sec * 1000).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }); } catch (e) { return ''; } }
+// the first and last trade times (the last at least now), and how many candles of tf run between them
+function span() { var a = Infinity, b = -Infinity; EVENTS.forEach(function (e) { if (e.kind === 'trade' && e.time) { if (e.time < a) a = e.time; if (e.time > b) b = e.time; } }); return a <= b ? [a, Math.max(b, Date.now() / 1000)] : null; }
+function countFor(tf, s) { return Math.floor(s[1] / tf) - Math.floor(s[0] / tf) + 1; }
+function autoTf() {
+  var s = span(), times = [];
+  if (!s) return 0;
+  EVENTS.forEach(function (e) { if (e.kind === 'trade' && e.time) times.push(e.time); });
+  if (times.length < 2) return 0;
+  for (var i = 0; i < TFS.length; i++) {
+    var n = countFor(TFS[i], s);
+    if (n > 150) continue;
+    var used = {}; times.forEach(function (t) { used[Math.floor(t / TFS[i])] = 1; });
+    return Object.keys(used).length / n >= .2 ? TFS[i] : 0;
+  }
+  return 0;
+}
+// the price after a trade per 1M tokens, or the market cap on the tokens then in existence (the burn comes with graduation)
+function valOf(p, supply) { return SERIES === 'price' ? p * 1e6 : p * supply; }
+function supplyAt(e) { return units(Chain.SUPPLY - (e.graduated ? POOL.burned : 0n)); }
+// the value just before a trade, from the trade itself: the first candle's open when the launch is older than the
+// history read. A buy's sol is paid in with its fee, a sell's is received after it; a graduating buy also burned
+function valBefore(e) {
+  var g = null;
+  EVENTS.forEach(function (x) { if (x.kind === 'graduation' && x.signature === e.signature) g = x; });
+  var real = e.buy ? e.realSol - (e.sol - e.fee) : e.realSol + e.sol + e.fee;
+  var toks = e.buy ? e.tokenReserve + e.tokens + (g ? g.burned : 0n) : e.tokenReserve - e.tokens;
+  var was = e.graduated && !g;                              // graduated before this trade
+  if (real < 0n || toks <= 0n) return null;
+  return valOf(((was ? 0 : lam(POOL.virtualSol)) + lam(real)) / units(toks), units(Chain.SUPPLY - (was ? POOL.burned : 0n)));
+}
+function fmtV(v) { return SERIES === 'price' ? (v >= 1 ? v.toFixed(3) : v >= .001 ? v.toFixed(4) : v.toPrecision(3)) : fSol(v); }
+function buildCandles(tf) {
+  var out = [], marks = [], evs = [], prev = null, cur = null, k = -1, t0 = null;
+  var me = window.Wallet && Wallet.current ? String(Wallet.current.publicKey) : null;
+  var tz = new Date().getTimezoneOffset() * 60;             // candles start on the visitor's own hours and midnights
   EVENTS.forEach(function (e, i) {
-    if (e.kind === 'launch') pts.push({ p: launchPrice(), kind: 'launch', i: i });
-    else if (e.kind === 'trade') pts.push({ p: priceAt(e), kind: e.buy ? 'buy' : 'sell', i: i });
+    if (e.kind === 'launch') { if (prev == null) prev = valOf(launchPrice(), units(Chain.SUPPLY)); return; }
+    if (e.kind === 'graduation') { if (k >= 0) { evs.push({ i: k, label: 'graduated' }); out[k].ev.push(i); } return; }
+    if (e.kind !== 'trade') return;
+    var v = valOf(priceAt(e), supplyAt(e)), t = e.time || (cur ? cur.t : Date.now() / 1000);
+    if (prev == null) prev = valBefore(e);
+    if (tf > 0) {
+      if (t0 == null) t0 = Math.floor((t - tz) / tf) * tf + tz;
+      var b = Math.max(k, Math.floor((t - t0) / tf));       // never back in time, should a later stamp come first in a slot
+      while (out.length <= b) { var c0 = prev != null ? prev : v; out.push({ t: t0 + out.length * tf, o: c0, h: c0, l: c0, c: c0, v: 0, n: 0, ev: [] }); }
+      k = b; cur = out[k];
+    } else { cur = { t: t, o: 0, h: 0, l: 0, c: 0, v: 0, n: 0, ev: [] }; out.push(cur); k = out.length - 1; }
+    if (!cur.n) { cur.o = prev != null ? prev : v; cur.h = cur.l = cur.o; }
+    if (v > cur.h) cur.h = v;
+    if (v < cur.l) cur.l = v;
+    cur.c = v; cur.v += lam(e.sol); cur.n++; cur.ev.push(i);
+    prev = v;
+    if (me && e.trader && String(e.trader) === me) marks.push({ i: k, buy: e.buy });
   });
-  // a pool read newer than its history: the price now goes on the end
-  if (!pts.length || Math.abs(pts[pts.length - 1].p / POOL.price - 1) > 1e-6) pts.push({ p: POOL.price, kind: 'now', i: -2 });
-  return pts;
+  // by the clock, the candles run on to now, flat at the last price
+  if (tf > 0 && t0 != null) {
+    var nowB = Math.floor((Date.now() / 1000 - t0) / tf);
+    while (out.length <= nowB && out.length < MAX_CANDLES) out.push({ t: t0 + out.length * tf, o: prev, h: prev, l: prev, c: prev, v: 0, n: 0, ev: [] });
+  }
+  return { list: out, marks: marks, events: evs };
 }
-function drawPath() {
-  var note = $('#pathNote');
-  if (!POOL || !EVENTS) { pathCv.style.width = pathCv.style.height = '0'; note.textContent = ''; return; }
-  var cw = pathBox.clientWidth, d = BH.devPx(PX);
-  if (!(cw > 0)) return;
-  var W = Math.max(24, Math.floor(cw / d)), H = Math.max(24, Math.min(60, Math.round(W * 0.48)));
-  var pts = pathPoints(), first = pts[0], q = Q && Q.q ? { p: Q.after.price, kind: 'quote', i: -3 } : null;
-  if (q) pts.push(q);
-  if (pts.length > W) pts = pts.slice(pts.length - W);
-  var lo = Infinity, top = -Infinity;
-  pts.forEach(function (p) { lo = Math.min(lo, p.p); top = Math.max(top, p.p); });
-  if (!(top - lo > lo * 1e-6)) { top *= 1.01; lo *= 0.99; }
-  var n = pts.length, sw = Math.max(1, Math.floor(W / n));
-  function Y(p) { return (H - 1) - Math.round((p - lo) / (top - lo) * (H - 1)); }
-  if (pathCv.width !== W || pathCv.height !== H) { pathCv.width = W; pathCv.height = H; }
-  pathCv.style.width = (W * d) + 'px'; pathCv.style.height = (H * d) + 'px';
-  var ctx = pathCv.getContext('2d'); if (!ctx) return;
-  ctx.clearRect(0, 0, W, H);
-  var qBuy = side === 'buy', picked = hi >= 0 && pts.some(function (p) { return p.i === hi; });
-  pts.forEach(function (p, k) {
-    var x = k * sw, y = Y(p.p), w = k === n - 1 ? W - x : sw, dotted = p.kind === 'quote', on = picked && p.i === hi;
-    var up = p.kind === 'buy' || (dotted && qBuy), down = !up && (p.kind === 'sell' || dotted);
-    ctx.fillStyle = on ? HEX[7] : picked ? (up ? HEX[4] : HEX[3]) : up ? HEX[6] : down ? HEX[5] : HEX[4];
-    function dot(xx, yy) { if (!dotted || (xx + yy) % 2 === 0) ctx.fillRect(xx, yy, 1, 1); }
-    if (k) { var yp = Y(pts[k - 1].p); for (var yy = Math.min(yp, y); yy <= Math.max(yp, y); yy++) dot(x, yy); }   // the step up or down
-    for (var xx = x; xx < x + w; xx++) dot(xx, y);                                                                // the level it left
+// the hour under a candle, and the date where a day starts (and on the first label, when the candles span days)
+function timeLabel(tf, list) {
+  var long = list.length > 1 && list[list.length - 1].t - list[0].t > 86400;
+  function day(t) { var d = new Date(t * 1000); return d.getFullYear() * 512 + d.getMonth() * 32 + d.getDate(); }
+  return function (t, prev) {
+    var d = new Date(t * 1000);
+    if (tf >= 86400 || (prev == null ? long : day(prev) !== day(t))) return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+    return pad2(d.getHours()) + ':' + pad2(d.getMinutes());
+  };
+}
+function paintTfs(tf) {
+  var s = EVENTS ? span() : null;
+  Array.prototype.forEach.call(document.querySelectorAll('#tfs [data-tf]'), function (b) {
+    var v = +b.getAttribute('data-tf'), too = v > 0 && !!s && countFor(v, s) > MAX_CANDLES;
+    b.disabled = too; b.title = too ? 'Too many candles for this coin\'s life so far' : '';
+    b.setAttribute('aria-pressed', String(v === tf));
   });
-  var now = POOL.price;
-  note.textContent = 'SOL per 1M tokens, one step per trade: ' + fPx(first.p) + (first.kind === 'launch' ? ' at launch, ' : ' then, ') + fPx(now) + ' now' +
-    (q ? '; dotted, after this ' + side + ': ' + fPx(q.p) : '');
 }
+function drawChart() {
+  if (!POOL || !EVENTS) { CANDLES = []; chart.set({ candles: [], marks: [], events: [], lines: [], goal: null }); readEl.textContent = ''; return; }
+  var tf = TF == null ? autoTf() : TF, s = span();
+  if (tf > 0 && s && countFor(tf, s) > MAX_CANDLES) tf = autoTf();
+  paintTfs(tf);
+  var C = buildCandles(tf), M = lam(POOL.graduationMcap), g = SERIES === 'price' ? M / 1000 : M, lines = [];
+  CANDLES = C.list;
+  if (Q && Q.q) { var qv = SERIES === 'price' ? Q.after.price * 1e6 : Q.after.mcap; lines.push({ v: qv, label: 'after this ' + Q.side + ': ' + fmtV(qv), col: HEX[5] }); }
+  $('#keyMine').hidden = !C.marks.length;
+  chart.set({ candles: C.list, marks: C.marks, events: C.events, lines: lines, log: LOG, fmt: fmtV, tfmt: timeLabel(tf, C.list),
+    goal: POOL.graduated ? null : { v: g, label: 'graduation at ' + fmtV(g) } });
+  chart.select(hi >= 0 ? candleOf(hi) : -1);
+  // the canvas's name says what it shows, and changes only with that (the read line above it has the numbers), so a
+  // screen reader on it is not told again at every trade
+  var al = 'Candles of ' + nameOf(POOL) + '\'s ' + (SERIES === 'price' ? 'price, in SOL per 1M tokens' : 'market cap, in SOL') + ', ' + (tf ? 'one per ' + tfName(tf) : 'one per trade') + '. The line above it reads the candle in focus.';
+  if (chartCv.getAttribute('aria-label') !== al) chartCv.setAttribute('aria-label', al);
+  renderRead();
+}
+function tfName(tf) { return tf === 60 ? 'minute' : tf === 900 ? '15 minutes' : tf === 3600 ? 'hour' : tf === 14400 ? '4 hours' : 'day'; }
+function renderRead() {
+  var k = chart.hover >= 0 ? chart.hover : CANDLES.length - 1, c = CANDLES[k];
+  if (!c) { readEl.textContent = EVENTS ? 'No trades yet: the chart starts with the first.' : ''; return; }
+  var ch = c.o > 0 ? c.c / c.o - 1 : 0;
+  readEl.innerHTML = '<b>' + esc(stamp(c.t)) + '</b>' + (chart.hover >= 0 ? '' : ' latest') +
+    ' · O <b>' + fmtV(c.o) + '</b> H <b>' + fmtV(c.h) + '</b> L <b>' + fmtV(c.l) + '</b> C <b>' + fmtV(c.c) + '</b> <b class="' + (ch >= 0 ? 'up' : 'down') + '">' + pctS(ch) + '</b> · ' +
+    (c.n ? fSol(c.v) + ' SOL in ' + c.n + ' trade' + (c.n === 1 ? '' : 's') : 'no trades');
+}
+function press(sel, attr, value) { Array.prototype.forEach.call(document.querySelectorAll(sel + ' [' + attr + ']'), function (b) { b.setAttribute('aria-pressed', String(b.getAttribute(attr) === String(value))); }); }
+$('#tfs').addEventListener('click', function (e) { var b = e.target.closest('[data-tf]'); if (b && !b.disabled) { TF = +b.getAttribute('data-tf'); chart.fit(); drawChart(); } });
+$('#series').addEventListener('click', function (e) { var b = e.target.closest('[data-series]'); if (!b) return; SERIES = b.getAttribute('data-series'); press('#series', 'data-series', SERIES); drawChart(); });
+$('#logBtn').addEventListener('click', function () { LOG = !LOG; this.setAttribute('aria-pressed', String(LOG)); drawChart(); });
+$('#zIn').addEventListener('click', function () { chart.zoom(1); });
+$('#zOut').addEventListener('click', function () { chart.zoom(-1); });
+latestBtn.addEventListener('click', function () { chartCv.focus(); chart.latest(); });   // the button hides itself: focus goes to the chart
+chartCv.addEventListener('keydown', function (e) {
+  var k = e.key;
+  if (k === 'ArrowLeft' || k === 'ArrowRight') { e.preventDefault(); chart.pan(k === 'ArrowLeft' ? 1 : -1); }
+  else if (k === '+' || k === '=') { e.preventDefault(); chart.zoom(1); }
+  else if (k === '-') { e.preventDefault(); chart.zoom(-1); }
+  else if (k === 'End') { e.preventDefault(); chart.latest(); }
+});
 
 /* ================= trading ================= */
 function reservesOf(p) { return { virtualSol: p.virtualSol, realSol: p.realSol, tokens: p.tokens, graduationSol: p.graduationSol, graduated: p.graduated }; }
@@ -570,7 +724,7 @@ function renderQuote() {
   // the quote is a live region: written only when its words change, so a read that changes nothing says nothing
   var key = (Q.bad ? '!' : '') + t;
   if (quoteEl._html !== key) { quoteEl._html = key; quoteEl.classList.toggle('bad', !!Q.bad); quoteEl.innerHTML = t; }
-  drawPath();
+  drawChart();
   paintHold();
 }
 function holdLabel(t) { holdTxt.textContent = t; holdFill.textContent = t; }   // the yellow fill carries the same words, dark
@@ -694,9 +848,9 @@ async function loadHistory() {
     try { ev = await withTimeout(Chain.history(mint), 20000); } catch (e) { ev = null; }
   }
   if (!POOL || String(POOL.mint) !== mint) return false;   // another coin came in meanwhile (a retry)
-  if (!ev) { if (!EVENTS) $('#histNote').textContent = 'Devnet did not send the trades. They will be read again in 20 s.'; return false; }
-  EVENTS = ordered(ev);
-  renderHistory(); renderFacts(); drawPath(); renderTape();
+  if (!ev) { histStale = true; if (!EVENTS) $('#histNote').textContent = 'Devnet did not send the trades. They will be read again in 20 s.'; return false; }
+  EVENTS = ordered(ev); histStale = false;
+  renderHistory(); renderFacts(); drawChart(); renderTape();
   return true;
 }
 async function readWal() {
@@ -722,7 +876,7 @@ async function readAll(force) {
   var moved = false;
   try { var p = await withTimeout(Chain.readPool(POOL.mint), 12000); if (p) { PINNED = false; moved = applyPool(p); } }
   catch (e) { readFail++; paintStatus(); }
-  if (moved || force || !EVENTS) await loadHistory();
+  if (moved || force || !EVENTS || histStale) await loadHistory();   // a history that failed after the pool moved is read again
   if (window.Wallet && Wallet.current) await readWal();
 }
 setInterval(function () { if (!document.hidden && !busy && POOL && !PINNED) refresh(false).catch(report); }, REFRESH_MS);
@@ -741,6 +895,7 @@ async function boot() {
   if (!chainOk()) { fail('The chain code did not load.', '<a href="/coins">See all coins</a>'); return; }
   var p = null, busiest = false;
   POOL = null; EVENTS = null; onTape = null; PINNED = false;   // nothing is read on a pool until this one is in
+  TF = null; hi = -1; allRows = false; histStale = false; chart.fit(); drawChart();   // a new coin: its own interval, the newest candles
   document.body.classList.remove('nocoin'); document.body.classList.add('reading');
   if (holeStill) makeHole();                           // moving again after a failed read and "try again"
   $('#name').className = 'wait'; $('#name').textContent = 'Reading the coin from devnet…'; $('#msg').hidden = true;
@@ -784,7 +939,7 @@ function layout() {
   $('#nums').style.maxWidth = $('#ctl').style.maxWidth = wide;    // under the hole's two edges; a phone gives them the column
   // the sky behind: the hole's own stars, tiled at its pixel, so the canvas has no edge
   heroEl.style.backgroundImage = 'url(' + tileUrl + ')'; heroEl.style.backgroundSize = 128 * BH.devPx(PX) + 'px';
-  renderHero(); drawPath();
+  renderHero(); chart.resize();
 }
 // re-lay out when the width changes (a phone's address bar showing or hiding only changes the height: ignored there)
 var rz = 0;
@@ -830,11 +985,14 @@ window.__coin = {
   },
   boot: boot,
   get hole() { return hole; },
+  get chart() { return chart; },
+  candles: function () { return CANDLES; },
   state: function () {
     var h = hole.hole;
     return { look: LOOK, state: ST, shown: hole.shown, busy: hole.busy, graduated: hole.graduated, jet: h.jet, rOut: h.rOut, theta: h.theta, blobs: h.blobs.length,
       px: PX, canvas: [heroCv.width, heroCv.height, heroCv.style.width, heroCv.style.height], events: EVENTS ? EVENTS.length : null, lastRead: lastRead, pinned: PINNED,
-      busyTrade: busy, tape: tape.children.length, overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth };
+      busyTrade: busy, tape: tape.children.length, candles: CANDLES.length, tf: TF, zoom: chart.z, off: chart.off, chartSize: [chartCv.width, chartCv.height],
+      overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth };
   },
   perf: function () { return hole.perf(); },
   layout: layout,

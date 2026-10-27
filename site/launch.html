@@ -498,7 +498,7 @@ function simHref() {
   var g = SET.good, q = new URLSearchParams(), nm = String(F.name || '').trim(), sy = String(F.symbol || '').trim();
   if (nm) q.set('name', nm); if (sy) q.set('sym', sy);
   q.set('v', String(Number(g.v) / 1e9)); q.set('m', String(Number(g.m) / 1e9)); q.set('fee', String(g.fee / 100));
-  if (F.first > 0 && F.firstOk) q.set('first', String(F.first));
+  q.set('first', String(F.first > 0 && F.firstOk ? Math.min(100, F.first) : 0));   // the simulator's wallet holds 100 play SOL
   return '/sim?' + q.toString();
 }
 ['pointerdown', 'focus', 'click', 'mouseenter'].forEach(function (n) { $('#simLink').addEventListener(n, function () { try { this.href = simHref(); } catch (e) {} }); });
