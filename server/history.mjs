@@ -50,7 +50,8 @@ export function ownLines(logs, program) {
   return lines;
 }
 
-async function call(cluster, body) {
+/** One call (or a batch) to the cluster's node; a 429 comes back as { error: { code: 429 } }. */
+export async function call(cluster, body) {
   const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 15_000);
   try {
     const res = await fetch(cluster.url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal: ctl.signal });
@@ -62,7 +63,7 @@ async function call(cluster, body) {
 }
 const one = (method, params) => ({ jsonrpc: "2.0", id: 1, method, params });
 
-async function isPool(cluster, pool) {
+export async function isPool(cluster, pool) {
   const key = `${cluster.name}|${pool}`, hit = pools.get(key), now = Date.now();
   if (hit && now - hit.at < (hit.ok ? POOL_MS : 60_000)) return hit.ok;
   const r = await call(cluster, one("getAccountInfo", [pool, { encoding: "base64", dataSlice: { offset: 0, length: 0 }, commitment: "confirmed" }]));

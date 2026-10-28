@@ -119,6 +119,14 @@
 .s-key .kg { width: 10px; height: 2px; background: var(--f-cream); box-shadow: 4px 0 0 var(--f-bg); }
 .s-key .kq { width: 10px; height: 2px; background: var(--f-lilac); box-shadow: 4px 0 0 var(--f-bg); }
 .s-key .kf { width: 10px; height: 2px; background: var(--f-violet); box-shadow: 4px 0 0 var(--f-bg); }
+.born-facts { grid-template-rows: repeat(2, auto); }
+.born-list { margin-top: clamp(28px, 4vw, 44px); }
+.born-list td:nth-child(4) { white-space: normal; text-align: left; }
+.born-list td:nth-child(1), .born-list td:nth-child(2), .born-list th { white-space: normal; }   /* a phone: the wallet and its tag, and "in the launch", go on two lines */
+.born-list th:nth-child(4) { text-align: left; }
+.born-list .who { color: var(--f-yellow); font-size: 11px; }
+.born-list .mute { display: block; font-size: 11px; white-space: normal; }
+#born[hidden] { display: none; }
 .s-key .km { width: auto; height: auto; font-style: normal; color: var(--f-cream); font-size: 9px; }
 .trades { width: 100%; margin-top: clamp(28px, 4vw, 44px); border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
 .trades tr.more { display: none; }                  /* the oldest rows, until "show all" */
@@ -300,6 +308,20 @@
     <h2 id="numH">In numbers.</h2>
     <p class="lead">Read from the pool account on <span data-net="place">devnet</span>. <a id="simLink" href="/sim">Run a coin with these settings in the simulator</a>.</p>
     <dl class="facts" id="facts"></dl>
+  </div>
+</section>
+
+<!-- ===== born: the launch, the creator's wallet since, the first buyers and where their SOL came from ===== -->
+<section class="sec" id="born" aria-labelledby="bornH" hidden>
+  <div class="wrap">
+    <h2 id="bornH">Born.</h2>
+    <p class="lead">From the coin's first transactions on <span data-net="place">devnet</span>: who launched it, what they bought, what that wallet did since, and where the first buyers' SOL came from. Facts, each with its transaction.</p>
+    <dl class="facts born-facts" id="bornFacts"></dl>
+    <table class="trades born-list" id="bornList" hidden>
+      <thead><tr><th scope="col">first buyers</th><th scope="col">when</th><th scope="col">SOL</th><th scope="col">its SOL came from</th></tr></thead>
+      <tbody id="bornRows"></tbody>
+    </table>
+    <p class="c-empty" id="bornNote">Reading the coin's first transactions…</p>
   </div>
 </section>
 </main>
@@ -486,6 +508,65 @@ function floorPrice(p) {
 function floorAfterGrad(p) {
   var G = lam(p.graduationSol), V = lam(p.virtualSol), x = V + G, T = units(Chain.SUPPLY) * V / x, B = T * V / x, s = units(Chain.SUPPLY) - B, t = T - B;
   return s > 0 ? G * t / (s * s) : 0;
+}
+/* ================= born: from /api/birth (server/birth.mjs) and the history ================= */
+var BIRTH = null, birthTries = 0, birthT = 0, creatorHold = null;
+async function loadBirth() {
+  var url = window.NET && NET.birthUrl, mint = POOL && String(POOL.mint);
+  if (!url || !POOL) return;
+  try {
+    var res = await withTimeout(fetch(url + '&pool=' + encodeURIComponent(String(POOL.address)), { cache: 'no-store' }), 15000);
+    var j = res.ok ? await res.json() : null;
+    if (!POOL || String(POOL.mint) !== mint) return;
+    if (j && Array.isArray(j.buyers)) { BIRTH = j; renderBorn(); readCreatorHold(); }
+    // the server reads a birth over a few asks on a slow node: ask again in a moment, a few times
+    if (!j || !j.complete) { if (++birthTries <= 10) { clearTimeout(birthT); birthT = setTimeout(loadBirth, 3000); } }
+  } catch (e) { if (++birthTries <= 10) { clearTimeout(birthT); birthT = setTimeout(loadBirth, 5000); } }
+}
+async function readCreatorHold() {
+  if (!BIRTH || !BIRTH.launch || !POOL) return;
+  try { var w = await withTimeout(Chain.readWallet(BIRTH.launch.creator, POOL.mint), 12000); creatorHold = w.tokens; renderBorn(); } catch (e) {}
+}
+function span2(a, b) {
+  var s = Math.max(0, Math.round(b - a));
+  return s < 90 ? s + ' s' : s < 5400 ? Math.round(s / 60) + ' min' : s < 172800 ? Math.round(s / 3600) + ' h' : Math.round(s / 86400) + ' days';
+}
+function renderBorn() {
+  var sec = $('#born');
+  if (!BIRTH || !POOL) return;
+  sec.hidden = false;
+  var note = $('#bornNote');
+  if (BIRTH.tooOld) { $('#bornFacts').innerHTML = ''; $('#bornList').hidden = true; note.hidden = false; note.textContent = 'This coin has over 5,000 transactions: its first ones are further back than this page reads.'; return; }
+  var L = BIRTH.launch;
+  if (!L) { note.hidden = false; note.textContent = BIRTH.complete ? 'The launch transaction was not found.' : 'Reading the coin\'s first transactions…'; return; }
+  var me = L.creator, out = '';
+  out += row('launched', esc(when(L.time)) + mute('slot ' + esc(String(L.slot)) + ' · ' + txLink(L.signature, 'the launch transaction ↗')));
+  out += row('by', link('address', me, esc(shortKey(me))) + mute(String(POOL.creator) === me ? 'its creator' : 'the creator then; it is ' + link('address', POOL.creator, esc(shortKey(POOL.creator))) + ' now'));
+  out += row('in the launch', L.firstBuy
+    ? fSol(L.firstBuy.sol) + ' SOL for ' + fTok(L.firstBuy.tokens) + ' tokens' + mute('bought by the creator in the launch transaction')
+    : 'no buy' + mute('the creator bought nothing in the launch transaction'));
+  // the creator's wallet since, from the trades this page has read
+  var b = 0, bs = 0, s = 0, ss = 0;
+  (EVENTS || []).forEach(function (e) { if (e.kind === 'trade' && String(e.trader) === me) { if (e.buy) { b++; bs += lam(e.sol); } else { s++; ss += lam(e.sol); } } });
+  var whole = HIST && HIST.complete && HIST.whole;
+  var holdTxt = creatorHold == null ? '' : '; it holds ' + fTok(units(creatorHold)) + ' tokens now (' + pct(Number(creatorHold) / Number(Chain.SUPPLY - POOL.burned)) + ' of the supply)';
+  out += row("the creator's wallet", (b ? 'bought ' + fSol(bs) + ' SOL in ' + b + (b === 1 ? ' buy' : ' buys') : 'no buys') + ', ' + (s ? 'sold for ' + fSol(ss) + ' SOL in ' + s + (s === 1 ? ' sell' : ' sells') : 'no sells')
+    + mute((whole ? 'every trade so far' : 'in the ' + (HIST ? HIST.have : 0) + ' latest transactions read') + holdTxt));
+  var fx = $('#bornFacts'); if (fx._h !== out) { fx.innerHTML = out; fx._h = out; }
+  // the first buyers
+  var rows = BIRTH.buyers.map(function (x) {
+    var whenTxt = x.signature === L.signature ? 'in the launch' : (L.time && x.time ? '+' + span2(L.time, x.time) : '');
+    var f = x.funding || {}, from;
+    if (f.by) from = link('address', f.by, esc(shortKey(f.by))) + (f.by === me ? ' <span class="who">the creator</span>' : '') + mute(fSol(f.sol) + ' SOL, ' + (f.time && x.time ? span2(f.time, x.time) + ' before · ' : '') + txLink(f.signature, 'transaction ↗'));
+    else if (f.older) from = 'an older wallet' + mute('over 1,000 transactions before this buy');
+    else if (f.none) from = '—' + mute('no transfer found before this buy');
+    else from = mute('reading…');
+    return '<tr><td>' + link('address', x.wallet, esc(shortKey(x.wallet))) + (x.creator ? ' <span class="who">creator</span>' : '') + '</td><td>' + txLink(x.signature, esc(whenTxt)) + '</td><td>' + fSol(x.sol) + '</td><td>' + from + '</td></tr>';
+  }).join('');
+  var body = $('#bornRows'); if (body._h !== rows) { body.innerHTML = rows; body._h = rows; }
+  $('#bornList').hidden = !BIRTH.buyers.length;
+  note.textContent = !BIRTH.complete ? 'Still reading the first transactions…' : BIRTH.buyers.length < 10 ? 'Every buyer so far: fewer than ten wallets have bought.' : 'The first ten wallets to buy.';
+  note.hidden = false;
 }
 function renderFacts() {
   var p = POOL, st = ST, V = lam(p.virtualSol), G = lam(p.graduationSol), M = lam(p.graduationMcap), out = '';
@@ -1103,7 +1184,7 @@ function takeHistory(r) {
   EVENTS = ordered(r.events);
   hi = -1;                                                // the row under the pointer, found again by its transaction
   if (key) EVENTS.forEach(function (e, i) { if (evKey(e) === key) hi = i; });
-  renderHistory(); renderFacts(); drawChart(view); renderTape();
+  renderHistory(); renderFacts(); drawChart(view); renderTape(); renderBorn();
   if (chart.hover >= 0 && CANDLES[chart.hover]) rowsOn(CANDLES[chart.hover].ev);   // a candle under the pointer lights its rows again
 }
 // fresh: the pool has moved, so the round must start after now (a running one is cut short and a new one follows it)
@@ -1248,6 +1329,8 @@ async function boot() {
   applyPool(p); renderHead(busiest); layout();          // the name's height moves the hole down
   paintHoldings(); readWal();
   loadHistory();
+  BIRTH = null; birthTries = 0; creatorHold = null; clearTimeout(birthT); $('#born').hidden = true;
+  loadBirth();
 }
 
 /* ================= sizes: one pixel for the hole and the price path, in whole device pixels ================= */

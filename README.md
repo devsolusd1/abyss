@@ -35,7 +35,10 @@ as a pixel black hole whose disk is the real SOL in its pool.
     is shared between visitors for 3 s.
   - `/api/history?cluster=…&pool=…` answers a pool's latest 100 transactions with their event lines in one call, for
     every visitor at once (kept in memory, cached at the edge for a moment).
-  - `node server/check.mjs` checks both against a fake node.
+  - `/api/price` gives SOL in dollars for the charts (Jupiter, CoinGecko when that fails), kept 30 s.
+  - `/api/birth?cluster=…&pool=…` gives a coin's launch, its first ten buyers and, for each, the wallet that sent it
+    its first SOL before the buy, one hop, with the transaction (facts only; kept an hour once there are ten).
+  - `node server/check.mjs` checks them all against fake nodes.
 
 ## The node's address
 

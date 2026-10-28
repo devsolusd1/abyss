@@ -56,6 +56,7 @@
   net.fallbackRpc = viaServer && net.publicRpc ? net.publicRpc : "";
   net.historyUrl = viaServer ? `${origin}/api/history?cluster=${net.cluster}` : "";
   net.priceUrl = viaServer ? `${origin}/api/price` : "";           // SOL in dollars, for the charts
+  net.birthUrl = viaServer ? `${origin}/api/birth?cluster=${net.cluster}` : "";   // a coin's launch and first buyers
   net.ready = Boolean(net.rpcUrl && net.program);
   net.say = (onTest, onMain) => (net.test ? onTest : onMain);
   window.NET = net;

@@ -278,6 +278,76 @@ function makeSigs(n, tag) {
   src.close();
 }
 
+/* ---------- a coin's birth ---------- */
+{
+  const { handleBirth, events, funder } = await import("./birth.mjs");
+  const { createHash } = await import("node:crypto");
+  const { base58 } = await import("./config.mjs");
+  const tagOf = (name) => createHash("sha256").update(`event:${name}`).digest().subarray(0, 8);
+  const keyOf = (n) => Buffer.alloc(32, n);
+  const u64 = (n) => { const b = Buffer.alloc(8); b.writeBigUInt64LE(BigInt(n)); return b; };
+  const trade = (mint, trader, buy, sol) => Buffer.concat([tagOf("TradeEvent"), mint, trader, trader, Buffer.from([buy ? 1 : 0]), u64(sol), u64(sol * 30), u64(1), u64(1), u64(1), Buffer.from([0])]).toString("base64");
+  const launched = (mint, creator) => Buffer.concat([tagOf("Launched"), mint, creator, keyOf(0), u64(30e9), u64(52e9), Buffer.from([100, 0])]).toString("base64");
+  const MINT = keyOf(5), CREATOR = keyOf(7), A = keyOf(8), B = keyOf(9), C = keyOf(10), FUNDER = keyOf(11);
+  const [creator, a, b, c, funderKey] = [CREATOR, A, B, C, FUNDER].map(base58);
+
+  // the decoders
+  const ev = events([launched(MINT, CREATOR), trade(MINT, CREATOR, true, 2.5e8)]);
+  line(ev.length === 2 && ev[0].kind === "launch" && ev[0].creator === creator && ev[1].trader === creator && ev[1].buy && ev[1].sol === 250000000n, "the launch and trade events decode");
+  const f = funder({ transaction: { message: { accountKeys: [funderKey, a, "11111111111111111111111111111111"] } }, meta: { preBalances: [5e9, 0, 1], postBalances: [3.99e9, 1e9, 1] } }, a);
+  line(f && f.by === funderKey && f.sol === 1, `the funder is the account whose balance fell most (${f && f.by.slice(0, 4)}, ${f && f.sol} SOL)`);
+  line(funder({ transaction: { message: { accountKeys: [a] } }, meta: { preBalances: [5], postBalances: [4] } }, a) === null, "a transaction where the wallet only spent gives no funder");
+
+  // a small chain: the launch with the creator's buy, then buys by A (funded by the creator), B (an older wallet),
+  // C (no earlier transaction), and A again (not a new buyer)
+  const tx = (sig, slot, lines) => ({ signature: sig, slot, blockTime: 1_800_000_000 + slot, lines });
+  const chainTxs = [
+    tx("launchsig".padEnd(88, "x"), 100, [launched(MINT, CREATOR), trade(MINT, CREATOR, true, 2.5e8)]),
+    tx("buyA".padEnd(88, "x"), 101, [trade(MINT, A, true, 1e8)]),
+    tx("buyB".padEnd(88, "x"), 102, [trade(MINT, B, true, 2e8)]),
+    tx("buyC".padEnd(88, "x"), 103, [trade(MINT, C, true, 3e8)]),
+    tx("buyA2".padEnd(88, "x"), 104, [trade(MINT, A, true, 4e8)]),
+  ];
+  const fundA = { signature: "fundA".padEnd(88, "x"), slot: 90, blockTime: 1_800_000_090 };
+  const node2 = createServer((req, res) => {
+    let body = ""; req.on("data", (d) => { body += d; });
+    req.on("end", () => {
+      const parsed = JSON.parse(body), list = Array.isArray(parsed) ? parsed : [parsed];
+      const answer = list.map((cl) => {
+        const p = cl.params ?? [];
+        if (cl.method === "getAccountInfo") return { jsonrpc: "2.0", id: cl.id, result: { context: { slot: 1 }, value: { owner: PROGRAM, lamports: 1, data: ["", "base64"], executable: false, rentEpoch: 0 } } };
+        if (cl.method === "getSignaturesForAddress") {
+          if (p[0] === POOL3) return { jsonrpc: "2.0", id: cl.id, result: [...chainTxs].reverse().map((t) => ({ signature: t.signature, slot: t.slot, blockTime: t.blockTime, err: null, memo: null, confirmationStatus: "finalized" })) };
+          if (p[0] === a) return { jsonrpc: "2.0", id: cl.id, result: [fundA] };
+          if (p[0] === b) return { jsonrpc: "2.0", id: cl.id, result: Array.from({ length: 1000 }, (_, i) => ({ signature: `old${i}`.padEnd(88, "x"), slot: i, blockTime: 1, err: null })) };
+          return { jsonrpc: "2.0", id: cl.id, result: [] };
+        }
+        if (cl.method === "getTransaction") {
+          if (p[0] === fundA.signature) return { jsonrpc: "2.0", id: cl.id, result: { blockTime: fundA.blockTime, slot: fundA.slot, transaction: { message: { accountKeys: [creator, a] } }, meta: { err: null, preBalances: [9e9, 0], postBalances: [7.99e9, 2e9], logMessages: [] } } };
+          const t = chainTxs.find((x) => x.signature === p[0]);
+          return { jsonrpc: "2.0", id: cl.id, result: t ? { blockTime: t.blockTime, slot: t.slot, transaction: { message: { accountKeys: [] } }, meta: { err: null, logMessages: [`Program ${PROGRAM} invoke [1]`, ...t.lines.map((d) => `Program data: ${d}`), `Program ${PROGRAM} success`] } } : null };
+        }
+        return { jsonrpc: "2.0", id: cl.id, error: { code: -32601, message: "no" } };
+      });
+      res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify(Array.isArray(parsed) ? answer : answer[0]));
+    });
+  });
+  const POOL3 = "QSj33hfaVGjppx8hxK1Ms6weBSvKdNZCD7Xv3dU8rhf";
+  await new Promise((ok) => node2.listen(0, "127.0.0.1", ok));
+  const env = { RPC_URL_DEVNET: `http://127.0.0.1:${node2.address().port}` };
+  const r = await handleBirth(new Request(`${SITE}/api/birth?cluster=devnet&pool=${POOL3}`, { headers: { "x-forwarded-for": "10.9.9.9" } }), env);
+  const j = await r.json();
+  line(r.status === 200 && j.complete && j.launch?.creator === creator && j.launch.slot === 100, `the launch: slot ${j.launch?.slot}, by ${j.launch?.creator.slice(0, 4)}`);
+  line(j.launch?.firstBuy?.sol === 0.25, `the creator's buy in the launch: ${j.launch?.firstBuy?.sol} SOL`);
+  const byW = Object.fromEntries((j.buyers ?? []).map((x) => [x.wallet, x]));
+  line(j.buyers?.length === 4 && byW[creator]?.creator && !byW[a]?.creator, `four first buyers, each once, the creator marked (${j.buyers?.length})`);
+  line(byW[a]?.funding?.by === creator && byW[a].funding.sol === 2 && byW[a].funding.signature === fundA.signature, "A's SOL came from the creator's wallet, 2 SOL, with its transaction");
+  line(byW[b]?.funding?.older === true, "B is an older wallet (over 1,000 transactions before)");
+  line(byW[c]?.funding?.none === true, "C has no transfer before its buy");
+  line(/s-maxage=60/.test(r.headers.get("cache-control")), "fewer than ten buyers: kept a minute, then read again");
+  node2.close();
+}
+
 fake.close();
 console.log(failed ? `\n${failed} check(s) failed` : "\nall server checks passed");
 process.exit(failed ? 1 : 0);

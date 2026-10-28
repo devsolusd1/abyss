@@ -1,5 +1,5 @@
 // Serves this folder for local previews: `node dex/site/serve.mjs [port]`, on this machine only (HOST=0.0.0.0 to open
-// it to the network). `/x` falls back to `/x.html`, and folders to their index.html. /api/rpc, /api/history and /api/price run the
+// it to the network). `/x` falls back to `/x.html`, and folders to their index.html. /api/rpc, /api/history, /api/price and /api/birth run the
 // same code as on Vercel (../server), with the node's address from the environment or from ../.env.local
 // (RPC_URL_DEVNET=…; git ignores it), never sent to the page.
 
@@ -11,6 +11,7 @@ import { readFileSync } from "node:fs";
 import { handleRpc } from "../server/rpc.mjs";
 import { handleHistory } from "../server/history.mjs";
 import { handlePrice } from "../server/price.mjs";
+import { handleBirth } from "../server/birth.mjs";
 
 const root = fileURLToPath(new URL(".", import.meta.url));
 const port = Number(process.argv[2] ?? 4900);
@@ -22,7 +23,7 @@ try {
     if (m && !(m[1] in process.env)) env[m[1]] = m[2].replace(/^(["'])(.*)\1$/, "$2");   // quotes around a value are not part of it
   }
 } catch { /* no local settings: devnet uses the public node */ }
-const API = { "/api/rpc": handleRpc, "/api/history": handleHistory, "/api/price": handlePrice };
+const API = { "/api/rpc": handleRpc, "/api/history": handleHistory, "/api/price": handlePrice, "/api/birth": handleBirth };
 const MAX_BODY = 64 * 1024;
 
 /** A Node request as a web Request, through one of the API handlers, and back. */
