@@ -59,7 +59,7 @@
 .code b { color: var(--f-yellow); font-weight: 500; }
 .code s { text-decoration: none; color: var(--f-lilac); }
 
-/* ----- real devnet coins ----- */
+/* ----- real coins, from the cluster net.js picks ----- */
 #coins { padding-bottom: 0; }
 .head { display: flex; justify-content: space-between; align-items: flex-end; gap: 24px; flex-wrap: wrap; }
 .note { font-size: 11px; color: var(--f-mute); }
@@ -178,15 +178,15 @@ a.coin:hover .card, a.coin:focus-visible .card { background: var(--f-line2); }
   </div>
 </section>
 
-<!-- ===== real devnet coins ===== -->
+<!-- ===== real coins, from the cluster net.js picks ===== -->
 <section class="sec" id="coins">
   <div class="wrap">
     <div class="head">
       <div>
-        <h2>On devnet.</h2>
-        <p class="lead" id="coinLead">Real coins, read from devnet. Only the team launches for now; a launchpad for creators comes later.</p>
+        <h2>On <span data-net="place">devnet</span>.</h2>
+        <p class="lead" id="coinLead">Real coins, read from <span data-net="place">devnet</span>. Only the team launches for now; a launchpad for creators comes later.</p>
       </div>
-      <p class="note" id="coinNote">reading devnet</p>
+      <p class="note" id="coinNote">reading <span data-net="place">devnet</span></p>
     </div>
     <div class="coins" id="coinGrid"></div>
   </div>
@@ -195,7 +195,7 @@ a.coin:hover .card, a.coin:focus-visible .card { background: var(--f-line2); }
 
 <footer class="wrap foot">
   <a class="brand" href="#top" aria-label="Nox, top of the page"><canvas id="sym1" aria-hidden="true"></canvas><b>nox</b></a>
-  <p>devnet only · the black hole at the top is a simulation · <a id="progLink" href="#" target="_blank" rel="noopener">program</a></p>
+  <p><span id="footNet">devnet only · </span>the black hole at the top is a simulation<span id="progBit"> · <a id="progLink" href="#" target="_blank" rel="noopener">program</a></span></p>
 </footer>
 
 <script>
@@ -204,6 +204,9 @@ document.addEventListener('DOMContentLoaded', function () {
 var $ = function (s) { return document.querySelector(s); };
 var BH = window.BH, reduced = BH.reduced;
 var Q; try { Q = new URLSearchParams(location.search); } catch (e) { Q = { get: function () { return null; } }; }
+// a cluster where Nox has no program yet (mainnet today): the page says so and reads nothing from it
+var absent = !!(window.NET && !NET.test && !NET.program);
+if (window.NET && !NET.test) document.querySelector('meta[name=description]').content = 'Nox: a Solana DEX where every coin keeps one pool for life.' + (absent ? ' Not on mainnet yet.' : '');
 
 function num(n, d) { return Number(n).toLocaleString('en-US', { maximumFractionDigits: d, minimumFractionDigits: d }); }
 function fSol(v) { return v >= 100 ? num(v, 1) : v >= 1 || v <= 0 ? num(v, 2) : num(v, 3); }
@@ -316,7 +319,7 @@ SETUPS.forEach(function (lk, i) {
   b.addEventListener('click', function () { pick(i); $('#top').scrollIntoView({ behavior: reduced ? 'auto' : 'smooth' }); });
 });
 
-/* ---------- real devnet coins: a still hole each, its disk as far as its real SOL reaches ---------- */
+/* ---------- real coins: a still hole each, its disk as far as its real SOL reaches ---------- */
 var coinEls = [];
 function coinName(p) { var n = String(p.name || '').trim(); if (/^DESKTOP-/i.test(n)) return 'Test coin'; return n || 'Unnamed coin'; }
 function showCoins(list) {
@@ -345,22 +348,24 @@ function withTimeout(p, ms) { return Promise.race([p, new Promise(function (_, n
 (function loadCoins() {
   var prog = window.NET && NET.program, link = $('#progLink');
   if (prog && NET.explorer) link.href = NET.explorer('address', prog); else link.removeAttribute('href');
+  if (window.NET && !NET.test) { setText('#footNet', (absent ? 'not on mainnet yet · ' : '') + 'not audited · '); if (!prog) $('#progBit').hidden = true; }
   function fail(why) {
     setText('#coinLead', why + ' These are examples, not real coins. Only the team launches for now; a launchpad for creators comes later.');
     setText('#coinNote', '');
     showCoins(examples());
   }
   if (Q.get('offline') === '1') { fail('Offline view.'); return; }
-  if (!window.Chain || !window.NET || !NET.ready) { fail('Devnet is not reachable from here.'); return; }
+  if (absent) { fail('Nox is not on Solana mainnet yet.'); return; }
+  if (!window.Chain || !window.NET || !NET.ready) { fail((window.NET ? NET.Place : 'Devnet') + ' is not reachable from here.'); return; }
   withTimeout(Promise.resolve().then(function () { return Chain.listPools(); }), 8000).then(function (pools) {
-    if (!pools || !pools.length) { fail('No coins on devnet yet.'); return; }
+    if (!pools || !pools.length) { fail(NET.say('No coins on devnet yet.', 'No Nox coins on Solana yet.')); return; }
     var list = pools.slice(0, 12).map(function (p) {
       var f = BH.fromPool(p);                           // lamports to SOL, and the look of its launch settings
       return { name: coinName(p), symbol: String(p.symbol || '').trim() || '—', price: Number(p.price) || 0, state: f.state, look: f.look, href: '/coin?mint=' + encodeURIComponent(String(p.mint)) };
     });
     setText('#coinNote', list.length + ' coin' + (list.length === 1 ? '' : 's') + ', read when this page opened');
     showCoins(list);
-  }).catch(function (e) { fail(e && e.message === 'timeout' ? 'Devnet did not answer in 8 s.' : 'Devnet did not answer.'); });
+  }).catch(function (e) { fail(NET.Place + (e && e.message === 'timeout' ? ' did not answer in 8 s.' : ' did not answer.')); });
 })();
 
 /* ---------- sizes: whole device pixels; the hero as large as the first screen allows ---------- */
@@ -373,7 +378,7 @@ function heroPx() {
 }
 function sizeStills() {
   var vw = document.documentElement.clientWidth, sp = vw < 560 ? 2 : 3;
-  // the devnet coins stay two to a row on the narrowest phones: there their stills go under 2 px, in whole device pixels
+  // the real coins stay two to a row on the narrowest phones: there their stills go under 2 px, in whole device pixels
   var cp = vw < 360 ? BH.fitPx((vw - 42) / 2 - 24, 64) : sp;
   stills.forEach(function (x) { BH.fit(x.cv, sp); });
   coinEls.forEach(function (x) { BH.fit(x.cv, cp); });

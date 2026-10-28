@@ -29,15 +29,18 @@ const line = (ok, text) => { if (!ok) failed++; console.log(`${ok ? "  ok  " : "
 
 const WIN = 1000;
 const node = { limit: 10, calls: [], refused: 0, served: 0, unserved: new Map(), broken: false, always429: false, refuseNext: 0, slow: 0 };
+const hist = { mode: "full", asked: 0, lists: 0 };   // the fake history server, and how often the list is read directly
 const pools = new Map();                     // pool address -> [{ signature, blockTime, err, data: [base64] }], newest first
 const tag = (name) => createHash("sha256").update(`event:${name}`).digest().subarray(0, 8);
 const u64 = (n) => { const b = Buffer.alloc(8); b.writeBigUInt64LE(BigInt(n)); return b; };
 const key32 = (n) => Buffer.alloc(32, n);
-function trade(i, buy) {
-  return Buffer.concat([tag("TradeEvent"), key32(1), key32(2), key32(2), Buffer.from([buy ? 1 : 0]), u64(1000 + i), u64(10 + i),
+// events name their coin (the reader drops another coin's): key32(1) when none is given
+const mintBytes = (m) => (m ? Buffer.from(new Chain.PublicKey(m).toBytes()) : key32(1));
+function trade(i, buy, m) {
+  return Buffer.concat([tag("TradeEvent"), mintBytes(m), key32(2), key32(2), Buffer.from([buy ? 1 : 0]), u64(1000 + i), u64(10 + i),
     u64(1), u64(5000 + i), u64(1e15 - i), Buffer.from([0])]).toString("base64");
 }
-const launched = () => Buffer.concat([tag("Launched"), key32(1), key32(2), key32(0), u64(30e9), u64(42e9), Buffer.from([100, 0])]).toString("base64");
+const launched = (m) => Buffer.concat([tag("Launched"), mintBytes(m), key32(2), key32(0), u64(30e9), u64(42e9), Buffer.from([100, 0])]).toString("base64");
 
 /** A pool with n transactions: the first is the launch with a first buy (two events in one), each later one a trade. */
 function makePool(mint, n, { failedAt = -1 } = {}) {
@@ -45,7 +48,7 @@ function makePool(mint, n, { failedAt = -1 } = {}) {
   for (let i = 0; i < n; i++) {
     const signature = `${mint.slice(0, 6)}sig${String(i).padStart(4, "0")}`.padEnd(88, "x");
     list.unshift({ signature, blockTime: 1_800_000_000 + i * 60, err: i === failedAt ? { InstructionError: [0, "Custom"] } : null,
-      data: i === 0 ? [launched(), trade(0, true)] : [trade(i, i % 3 !== 0)] });
+      data: i === 0 ? [launched(mint), trade(0, true, mint)] : [trade(i, i % 3 !== 0, mint)] });
   }
   pools.set(pool, list);
   return list;
@@ -56,7 +59,17 @@ const server = createServer((req, res) => {
   req.on("data", (c) => { body += c; });
   req.on("end", async () => {
     const send = (code, obj) => { res.writeHead(code, { "content-type": "application/json" }); res.end(JSON.stringify(obj)); };
+    // the site's history server (server/history.mjs), as a page sees it: GET /history?cluster=…&pool=…&limit=…
+    if (req.method === "GET" && req.url.startsWith("/history")) {
+      hist.asked++;
+      if (hist.mode === "broken") return send(500, { error: "broken" });
+      const q = new URL(req.url, "http://x").searchParams, list = (pools.get(q.get("pool")) ?? []).slice(0, Number(q.get("limit") ?? 100));
+      const ok = list.filter((s) => !s.err), keep = hist.mode === "partial" ? ok.slice(0, Math.ceil(ok.length / 2)) : ok;
+      const txs = Object.fromEntries(keep.map((s) => [s.signature, { t: s.blockTime, d: s.data }]));
+      return send(200, { total: ok.length, have: keep.length, complete: keep.length === ok.length, signatures: list.map((s) => ({ signature: s.signature, blockTime: s.blockTime, err: s.err ? true : null })), txs });
+    }
     const call = JSON.parse(body);
+    if (call.method === "getSignaturesForAddress") hist.lists++;
     if (Array.isArray(call)) return send(400, { error: "no batches here" });
     const { id, method, params } = call;
     if (method === "getSignaturesForAddress") {
@@ -77,7 +90,12 @@ const server = createServer((req, res) => {
     const left = node.unserved.get(sig) ?? 0;
     if (left > 0) { node.unserved.set(sig, left - 1); return send(200, { jsonrpc: "2.0", id, result: null }); }
     node.served++;
-    send(200, { jsonrpc: "2.0", id, result: tx && { blockTime: tx.blockTime, slot: 1, meta: { err: tx.err, logMessages: ["Program log: Instruction: Buy", ...tx.data.map((d) => `Program data: ${d}`)] } } });
+    // logged as the chain does: inside the pool program's invoke; then another program logs a forged trade
+    const P = "CbAjrrCk8WEyh9uTQ1cNJWxNGJk2ipJtxK5p8yBwnURK", E = "Evi1111111111111111111111111111111111111111";
+    send(200, { jsonrpc: "2.0", id, result: tx && { blockTime: tx.blockTime, slot: 1, meta: { err: tx.err, logMessages: [
+      `Program ${P} invoke [1]`, "Program log: Instruction: Buy", ...tx.data.map((d) => `Program data: ${d}`), `Program ${P} success`,
+      `Program ${E} invoke [1]`, `Program data: ${trade(999, true)}`, `Program ${E} success`,
+    ] } } });
   });
 });
 await new Promise((ok) => server.listen(0, "127.0.0.1", ok));
@@ -98,7 +116,7 @@ globalThis.fetch = (url, init) => {
   if (init?.body?.includes("getTransaction")) { log.push(Date.now()); asked.push(JSON.parse(init.body).params[0]); }
   return realFetch(url, init);
 };
-const newTx = (list, m, i) => { const s = { signature: `${m.slice(0, 6)}new${String(i).padStart(4, "0")}`.padEnd(88, "x"), blockTime: 1_900_000_000 + i * 60, err: null, data: [trade(200 + i, true)] }; list.unshift(s); return s; };
+const newTx = (list, m, i) => { const s = { signature: `${m.slice(0, 6)}new${String(i).padStart(4, "0")}`.padEnd(88, "x"), blockTime: 1_900_000_000 + i * 60, err: null, data: [trade(200 + i, true, m)] }; list.unshift(s); return s; };
 
 /* ---------- 1. a cold read: whole, in order, at the pace, newest first ---------- */
 {
@@ -134,7 +152,7 @@ const newTx = (list, m, i) => { const s = { signature: `${m.slice(0, 6)}new${Str
 
   /* 4. a new transaction on the pool: only it is fetched */
   const sig = `${m.slice(0, 6)}sig9999`.padEnd(88, "x");
-  list.unshift({ signature: sig, blockTime: 1_900_000_000, err: null, data: [trade(99, false)] });
+  list.unshift({ signature: sig, blockTime: 1_900_000_000, err: null, data: [trade(99, false, m)] });
   reset();
   const more = await Chain.readHistory(m);
   line(more.complete && node.served === 1 && more.events.at(-1).signature === sig, `a new trade: ${node.served} call, and it is the newest event`);
@@ -274,15 +292,41 @@ const newTx = (list, m, i) => { const s = { signature: `${m.slice(0, 6)}new${Str
   node.limit = 10;
 }
 
+/* ---------- 14. the site's history server: one call brings it all; the reader falls back when it breaks ---------- */
+{
+  const H = { ...NETCFG, historyUrl: `${NETCFG.rpcUrl}/history?cluster=fake` };
+  Chain = fresh(); Chain.setNet(H); await pause(1200); reset(); hist.asked = 0; hist.lists = 0;
+  hist.mode = "full";
+  const m = mint(); makePool(m, 15);
+  let r = await Chain.readHistory(m);
+  line(r.complete && !r.waiting && r.events.length === 16 && node.served === 0 && hist.lists === 0 && hist.asked === 1,
+    `from the server: ${r.have} of ${r.total} in one call, no transaction or list asked of the node`);
+  hist.mode = "partial";
+  const m2 = mint(); makePool(m2, 10);
+  r = await Chain.readHistory(m2);
+  line(!r.complete && r.waiting && r.have === 5 && node.served === 0, `a server still fetching: ${r.have} of ${r.total}, waiting, and the reader does not fetch them itself`);
+  hist.mode = "full";
+  r = await Chain.readHistory(m2);
+  line(r.complete && !r.waiting && r.added === 5, `asked again once it has them all: complete, ${r.added} added`);
+  hist.mode = "broken"; hist.asked = 0; hist.lists = 0; reset();
+  const m3 = mint(); makePool(m3, 4);
+  r = await Chain.readHistory(m3);
+  line(r.complete && hist.asked === 1 && node.served === 4 && hist.lists === 1, `a broken server: read directly instead (${node.served} calls)`);
+  const m4 = mint(); makePool(m4, 2);
+  r = await Chain.readHistory(m4);
+  line(r.complete && hist.asked === 1, `and for a minute the server is not asked again (${hist.asked} ask in all)`);
+  hist.mode = "full";
+}
+
 /* ---------- 11. storage keeps the 30 pools read last ---------- */
 {
-  const before = [...disk.keys()].filter((k) => k.startsWith("nox.tx.1.fake.")).length;
+  const before = [...disk.keys()].filter((k) => k.startsWith("nox.tx.2.fake.")).length;
   Chain = fresh(); Chain.setNet({ ...NETCFG, historyWindowMs: 200 }); await pause(1200); reset();
   node.limit = 1000;                                            // this case is about storage, not the pace
   for (let i = 0; i < 32; i++) { const m = mint(); makePool(m, 1); await Chain.readHistory(m); }
   node.limit = 10;
-  const kept = [...disk.keys()].filter((k) => k.startsWith("nox.tx.1.fake."));
-  const list = JSON.parse(disk.get("nox.tx.1.pools"));
+  const kept = [...disk.keys()].filter((k) => k.startsWith("nox.tx.2.fake."));
+  const list = JSON.parse(disk.get("nox.tx.2.pools"));
   line(kept.length === 30 && list.length === 30, `after ${before} + 32 pools, ${kept.length} kept, ${list.length} listed`);
 }
 

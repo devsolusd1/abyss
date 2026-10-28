@@ -27,8 +27,26 @@ export function net() {
 
 function conn() {
   if (!NET || !NET.rpcUrl) throw new Error("No cluster configured");
-  if (!connection) connection = new Connection(NET.rpcUrl, "confirmed");
+  if (!connection) connection = new Connection(NET.rpcUrl, { commitment: "confirmed", fetch: netFetch });
   return connection;
+}
+
+// A page calls the site's own server (NET.rpcUrl, /api/rpc), which holds the node's address and key. When that server
+// is missing or failing (404, 5xx, no answer) and the cluster has a public node (NET.fallbackRpc: devnet), the call
+// goes there instead, and so do the calls of the next minute. A 403 or 429 from the site's server is its answer.
+let rpcDownUntil = 0;
+async function netFetch(url, init) {
+  const fallback = NET?.fallbackRpc;
+  if (!fallback || String(url) !== NET.rpcUrl) return fetch(url, init);
+  if (Date.now() < rpcDownUntil) return fetch(fallback, init);
+  try {
+    const res = await fetch(url, init);
+    if (![404, 500, 502, 503, 504].includes(res.status)) return res;
+  } catch (err) {
+    if (init?.signal?.aborted) throw err;
+  }
+  rpcDownUntil = Date.now() + 60_000;
+  return fetch(fallback, init);
 }
 
 const program = () => new PublicKey(NET.program);
@@ -205,7 +223,8 @@ function parseMintMetadata(data) {
 }
 
 async function withMetadata(pools) {
-  const infos = await conn().getMultipleAccountsInfo(pools.map((p) => p.mint));
+  const infos = [];
+  for (let i = 0; i < pools.length; i += 100) infos.push(...await conn().getMultipleAccountsInfo(pools.slice(i, i + 100).map((p) => p.mint)));
   pools.forEach((p, i) => Object.assign(p, infos[i] ? parseMintMetadata(infos[i].data) : { name: "", symbol: "", uri: "" }));
   return pools;
 }
@@ -326,7 +345,7 @@ async function rpc(method, params, signal) {
   const timer = setTimeout(stop, 15_000);
   signal?.addEventListener("abort", stop, { once: true });
   try {
-    const res = await fetch(NET.rpcUrl, {
+    const res = await netFetch(NET.rpcUrl, {
       method: "POST", headers: { "content-type": "application/json" }, signal: ctl.signal,
       body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
     });
@@ -368,19 +387,45 @@ async function fetchOne(want, until, signal, missed) {
   if (reply.error) throw new Error(String(reply.error.message ?? `The node refused (${reply.error.code})`));
   const tx = reply.result;
   if (!tx || !tx.meta) { missed.add(s.signature); return true; }   // not served (yet): the next read asks again
-  const data = (tx.meta.logMessages ?? []).filter((l) => l.startsWith(PREFIX)).map((l) => l.slice(PREFIX.length));
+  const data = ownLines(tx.meta.logMessages, NET.program);
   txCache.set(s.signature, { time: tx.blockTime ?? s.blockTime ?? null, data });
   return true;
 }
 
-/* the kept transactions, per pool in localStorage: { signature: { t, d } }, for the 30 pools read last */
-const STORE = "nox.tx.1";
+/**
+ * The "Program data:" lines that `program` itself logged, read off the call stack the logs describe ("Program X
+ * invoke [n]" in, "Program X success" or "failed" out). Another program can name a pool in its own transaction and log
+ * lines that look like the pool's events; those are not kept. (server/history.mjs does the same.)
+ */
+function ownLines(logs, program) {
+  const ID = "[1-9A-HJ-NP-Za-km-z]{32,44}", inv = new RegExp(`^Program (${ID}) invoke \\[\\d+\\]$`), out = new RegExp(`^Program (${ID}) (success|failed)`);
+  const stack = [], lines = [];
+  for (const l of Array.isArray(logs) ? logs : []) {
+    if (typeof l !== "string") continue;
+    if (l.startsWith("Log truncated")) break;
+    let m = inv.exec(l);
+    if (m) { stack.push(m[1]); continue; }
+    m = out.exec(l);
+    if (m) { if (stack[stack.length - 1] === m[1]) stack.pop(); continue; }
+    if (l.startsWith(PREFIX) && stack[stack.length - 1] === program) lines.push(l.slice(PREFIX.length));
+  }
+  return lines;
+}
+
+/* the kept transactions, per pool in localStorage: { signature: { t, d } }, for the 30 pools read last (version 2:
+   only the pool program's own lines; version 1 kept every program's) */
+const STORE = "nox.tx.2";
 const storeKey = (pool) => `${STORE}.${NET.cluster ?? ""}.${NET.program}.${pool}`;
 const loaded = new Set();
 function storage() { try { return typeof window !== "undefined" && window.localStorage ? window.localStorage : null; } catch { return null; } }
+let swept = false;
 function loadStore(pool) {
   if (loaded.has(pool)) return;
   loaded.add(pool);
+  if (!swept) {                                          // what version 1 kept is not trusted any more: it goes, once
+    swept = true;
+    try { const ls = storage(); if (ls) for (const k of Object.keys(ls)) if (k.startsWith("nox.tx.1.")) ls.removeItem(k); } catch { /* blocked */ }
+  }
   try {
     const raw = storage()?.getItem(storeKey(pool));
     if (!raw) return;
@@ -432,8 +477,33 @@ function bounded(p, ms, signal) {
   });
 }
 
+/* the site's history server (/api/history): the pool's latest transactions with their event lines, in one call */
+let historyDownUntil = 0;
+async function fromServer(pool, limit, signal, at) {
+  const mark = at ? `&at=${encodeURIComponent(String(at).slice(0, 120))}` : "";
+  const res = await bounded(fetch(`${NET.historyUrl}&pool=${encodeURIComponent(pool)}&limit=${limit}${mark}`, { signal, cache: "no-store" }), 15_000, signal);
+  if (!res.ok) throw new Error(`The history server answered ${res.status}`);
+  const body = await res.json();
+  if (!body || !Array.isArray(body.signatures) || !body.txs || typeof body.txs !== "object") throw new Error("Not a history");
+  const signatures = body.signatures
+    .filter((s) => s && typeof s.signature === "string")
+    .map((s) => ({ signature: s.signature, blockTime: typeof s.blockTime === "number" ? s.blockTime : null, err: s.err ? true : null }));
+  let added = 0;
+  for (const s of signatures) {
+    const v = body.txs[s.signature];
+    if (!txCache.has(s.signature) && v && Array.isArray(v.d) && v.d.every((x) => typeof x === "string")) {
+      txCache.set(s.signature, { time: typeof v.t === "number" ? v.t : s.blockTime, data: v.d });
+      added++;
+    }
+  }
+  return { signatures, added };
+}
+
 /**
  * The pool's recent history, read from the program's own logs (it needs nothing but an RPC), at the pace above.
+ * With the site's server (NET.historyUrl) it is one call that brings the signatures and every transaction the server
+ * has; without it, or when it fails (then for a minute), the signatures and transactions are read here. `at` marks the
+ * pool's state as the page last read it (its volume and paid fees, say): the server reads the list again for a new mark.
  * Looks back over the last `limit` transactions on the pool and fetches the ones not kept yet, until all are in,
  * `budgetMs` has passed, or `signal` aborts; `onProgress(result)` hears whenever what it would return changes.
  * The order: a few new transactions above kept ones (up to GAP) from the kept ones up, so the run grows without a
@@ -449,13 +519,19 @@ function bounded(p, ms, signal) {
  *   whole     the look back reached the pool's first transaction (fewer than `limit` on it)
  *   complete  have === total
  *   error     why it stopped early, when the node failed (it is then partial)
+ *   waiting   the site's server (NET.historyUrl) gave what it has and is still fetching the rest: ask again shortly
  * Throws when the list of transactions itself cannot be read (in 20 s), or `signal` aborts before it is.
  */
-export async function readHistory(mint, { limit = 100, budgetMs = Infinity, signal, onProgress } = {}) {
+export async function readHistory(mint, { limit = 100, budgetMs = Infinity, signal, onProgress, at } = {}) {
   if (signal?.aborted) throw new Error("Stopped");
-  const pool = poolAddress(mint).toBase58();
+  const mintKey = new PublicKey(mint).toBase58(), pool = poolAddress(mint).toBase58();
   loadStore(pool);
-  const sigs = await bounded(conn().getSignaturesForAddress(new PublicKey(pool), { limit }), 20_000, signal);
+  let sigs = null, served = null;
+  if (NET.historyUrl && Date.now() >= historyDownUntil) {
+    try { served = await fromServer(pool, limit, signal, at); sigs = served.signatures; }
+    catch (err) { if (signal?.aborted) throw err; historyDownUntil = Date.now() + 60_000; }
+  }
+  if (!sigs) sigs = await bounded(conn().getSignaturesForAddress(new PublicKey(pool), { limit }), 20_000, signal);
   const ok = sigs.filter((s) => !s.err);
   const whole = sigs.length < limit;
   const until = clock() + budgetMs;
@@ -496,9 +572,11 @@ export async function readHistory(mint, { limit = 100, budgetMs = Infinity, sign
     const events = [];
     for (let i = txs.length - 1; i >= 0; i--) {
       const { s, list } = txs[i], time = s.blockTime ?? txCache.get(s.signature).time;
-      list.forEach((e, n) => events.push({ ...e, time, signature: s.signature, n }));
+      list.forEach((e, n) => { if (String(e.mint) === mintKey) events.push({ ...e, time, signature: s.signature, n }); });
     }
-    return { events, have: txs.length, total: ok.length, pending: at, added: kept() - keptBefore, whole, complete: txs.length === ok.length, error };
+    const complete = txs.length === ok.length;
+    return { events, have: txs.length, total: ok.length, pending: at, added: (served ? served.added : 0) + kept() - keptBefore, whole, complete, error,
+      waiting: Boolean(served) && !complete };       // the site's server is still fetching the rest
   }
 
   if (onProgress) {
@@ -507,7 +585,7 @@ export async function readHistory(mint, { limit = 100, budgetMs = Infinity, sign
     if (r.have) { shown = `${r.pending}:${r.have}`; try { onProgress(r); } catch { /* the page's own problem */ } }
   }
   for (;;) {
-    if (signal?.aborted) break;
+    if (served || signal?.aborted) break;              // the site's server fetches them: they are asked of it again later
     const want = order();
     if (!want.length) break;
     const free = want.filter((s) => !txFetching.has(s.signature));
@@ -539,7 +617,9 @@ export async function readHistory(mint, { limit = 100, budgetMs = Infinity, sign
  */
 export async function history(mint, { limit = 100 } = {}) {
   let r = null;
-  for (let i = 0; i < 3 && !(r && r.complete); i++) {
+  for (let i = 0; i < 10 && !(r && r.complete); i++) {
+    if (r && r.waiting) await sleep(2000);             // the site's server is still fetching
+    else if (i >= 3) break;
     r = await readHistory(mint, { limit });
     if (r.error) throw new Error(r.error);
   }
@@ -740,10 +820,47 @@ export async function simulate(built, feePayer) {
 export async function send(built, wallet) {
   const height = await prepare(built, wallet.publicKey);
   const signed = await wallet.signTransaction(built.tx);
-  const signature = await conn().sendRawTransaction(signed.serialize(), { skipPreflight: false });
-  const result = await conn().confirmTransaction({ signature, blockhash: built.tx.recentBlockhash, lastValidBlockHeight: height }, "confirmed");
-  if (result.value.err) throw Object.assign(new Error("The transaction failed on chain"), { signature });
+  const raw = signed.serialize();
+  const signature = base58(signed.signature);
+  try {
+    await conn().sendRawTransaction(raw, { skipPreflight: false });
+  } catch (err) {
+    const m = String(err?.message ?? err);
+    // it was there already (a resend through the public node, say), or the answer was lost on the way and it may well
+    // have gone through: either way, wait for it. Anything else is a refusal before it was sent: a failed simulation
+    // (the page explains the program's error), a 4xx from the site's server
+    if (!/already been processed/i.test(m) && !/^5\d\d\b|fetch|network|timed? ?out|ECONN|socket|aborted/i.test(m)) throw err;
+  }
+  await confirm(signature, height, raw);
   return signature;
+}
+
+/**
+ * Waits for a sent transaction by asking for its status once a second (no websocket: the site's server is plain HTTP).
+ * It is sent again, up to three times, while it has not landed, and given up once its blockhash has expired.
+ */
+async function confirm(signature, lastValidBlockHeight, raw) {
+  const failed = () => Object.assign(new Error("The transaction failed on chain"), { signature });
+  const landed = (st) => st && (st.confirmationStatus === "confirmed" || st.confirmationStatus === "finalized");
+  let resent = 0;
+  for (let i = 1; ; i++) {
+    await sleep(1000);
+    let st = null;
+    try { st = (await conn().getSignatureStatuses([signature])).value[0]; } catch { /* asked again in a second */ }
+    if (st?.err) throw failed();
+    if (landed(st)) return;
+    if (i % 4 !== 0) continue;
+    let height = 0;
+    try { height = await conn().getBlockHeight("confirmed"); } catch { /* asked again later */ }
+    if (height > lastValidBlockHeight) {
+      // one last look, in the node's history too, before calling it lost
+      try { st = (await conn().getSignatureStatuses([signature], { searchTransactionHistory: true })).value[0]; } catch { st = null; }
+      if (st?.err) throw failed();
+      if (landed(st)) return;
+      throw Object.assign(new Error("The transaction expired before it landed"), { signature });
+    }
+    if (resent < 3) { resent++; try { await conn().sendRawTransaction(raw, { skipPreflight: true, maxRetries: 0 }); } catch { /* it may have landed */ } }
+  }
 }
 
 /* ---------------- Errors in plain words ---------------- */

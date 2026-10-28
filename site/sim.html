@@ -188,6 +188,7 @@ dialog.dlg::backdrop { background: rgba(7, 4, 13, .84); }
 @media (max-width: 560px) { .tick .tag { padding-left: 16px; } }
 </style>
 <script defer src="/assets/bh.js"></script>
+<script defer src="/net.js"></script>
 <script defer src="/assets/pool-math.js"></script>
 <script defer src="/assets/sim.js"></script>
 <script defer src="/assets/chart.js"></script>
@@ -327,15 +328,15 @@ dialog.dlg::backdrop { background: rgba(7, 4, 13, .84); }
 
 <!-- ===== what is real here ===== -->
 <section class="wrap s-real" aria-label="What is real in the simulator">
-  <div><h3>Real: the math.</h3><p>Every quote and every trade runs on the pool program's own integers: the same fee, rounded the same way, the same graduation, the same burn. A trade here gets what it would get on devnet from the same pool.</p></div>
+  <div><h3>Real: the math.</h3><p>Every quote and every trade runs on the pool program's own integers: the same fee, rounded the same way, the same graduation, the same burn. A trade here gets what it would get on <span data-net="place">devnet</span> from the same pool.</p></div>
   <div><h3>Made up: the crowd.</h3><p>About sixty traders with random wallets, a few whales, newcomers now and then. They buy, take profit and panic on a roll of the dice, more or less often by mood.</p></div>
-  <div><h3>Not here: a chain.</h3><p>No wallet, no signatures, no network fees, and play SOL is worth nothing. To trade a real coin, go to <a href="/coins">the devnet coins</a>.</p></div>
+  <div><h3>Not here: a chain.</h3><p>No wallet, no signatures, no network fees, and play SOL is worth nothing. <span id="goReal">To trade a real coin, go to <a href="/coins">the <span data-net="label">devnet</span> coins</a>.</span></p></div>
 </section>
 </main>
 
 <footer class="wrap foot">
   <a class="brand" href="#top" aria-label="Nox, top of the page"><canvas id="sym1" aria-hidden="true"></canvas><b>nox</b></a>
-  <p>simulation · play SOL has no value · the devnet program's math</p>
+  <p>simulation · play SOL has no value · the <span data-net-only="devnet">devnet </span>program's math</p>
 </footer>
 
 <!-- ===== a new coin ===== -->
@@ -366,6 +367,8 @@ document.addEventListener('DOMContentLoaded', function () {
 'use strict';
 var $ = function (s) { return document.querySelector(s); };
 function report(e) { try { window.__errors.push(String(e && e.stack || e)); } catch (_) {} }
+// the simulator is the same on every cluster; where Nox has no program yet (mainnet today) there is no real coin to send people to
+if (window.NET && !NET.test && !NET.program) $('#goReal').textContent = 'Nox is not on Solana mainnet yet.';
 function esc(s) { return String(s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
 if (!window.BH || !window.PoolMath || !window.NoxSim || !window.NoxChart) { $('#name').textContent = 'The page did not load all its parts.'; return; }
 try { main(); } catch (e) { report(e); $('#name').textContent = 'Something broke in the simulator.'; }

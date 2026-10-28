@@ -192,7 +192,7 @@
 
 <!-- the strip: this coin's latest trades, read with its history; the table below has the same with its links in reach of a keyboard -->
 <div class="tick none" id="tick" aria-hidden="true">
-  <span class="tag"><i></i>devnet</span>
+  <span class="tag"><i></i><span data-net="label">devnet</span></span>
   <div class="tape" id="tape"></div>
 </div>
 
@@ -211,8 +211,8 @@
 <section class="hero" id="top">
   <div class="wrap c-grid">
     <div class="c-main" id="main">
-      <p class="kick" id="kicker">a coin on devnet</p>
-      <h1 class="wait" id="name">Reading the coin from devnet…</h1>
+      <p class="kick" id="kicker">a coin on <span data-net="place">devnet</span></p>
+      <h1 class="wait" id="name">Reading the coin from <span data-net="place">devnet</span>…</h1>
       <p class="c-msg" id="msg" hidden></p>
       <div class="stage" id="stage"><canvas id="heroCv" aria-hidden="true"></canvas></div>
       <div class="nums" id="nums">
@@ -227,7 +227,7 @@
 
     <aside class="c-trade card" id="trade" aria-labelledby="tradeH">
       <div class="c-row">
-        <p class="kick" id="tradeH">trade on devnet</p>
+        <p class="kick" id="tradeH">trade on <span data-net="place">devnet</span></p>
         <button class="q c-wal" type="button" data-wallet>Connect wallet</button>
       </div>
       <p class="c-wnote" data-wallet-note aria-live="polite"></p>
@@ -258,7 +258,7 @@
 <section class="sec" id="trades" aria-labelledby="tradesH">
   <div class="wrap">
     <h2 id="tradesH">Every trade.</h2>
-    <p class="lead">Read from devnet: the price after each trade, as candles, then the trades themselves.</p>
+    <p class="lead">Read from <span data-net="place">devnet</span>: the price after each trade, as candles, then the trades themselves.</p>
     <figure class="card s-chart">
       <div class="s-bar">
         <div class="chips" role="group" aria-label="One candle per" id="tfs">
@@ -293,7 +293,7 @@
 <section class="sec" id="numbers" aria-labelledby="numH">
   <div class="wrap">
     <h2 id="numH">In numbers.</h2>
-    <p class="lead">Read from the pool account on devnet. <a id="simLink" href="/sim">Run a coin with these settings in the simulator</a>.</p>
+    <p class="lead">Read from the pool account on <span data-net="place">devnet</span>. <a id="simLink" href="/sim">Run a coin with these settings in the simulator</a>.</p>
     <dl class="facts" id="facts"></dl>
   </div>
 </section>
@@ -301,7 +301,7 @@
 
 <footer class="wrap foot">
   <a class="brand" href="#top" aria-label="Nox, top of the page"><canvas id="sym1" aria-hidden="true"></canvas><b>nox</b></a>
-  <p>devnet only · devnet SOL has no value · <a id="progLink" href="#" target="_blank" rel="noopener">program</a></p>
+  <p><span id="netFoot">devnet only · devnet SOL has no value · </span><a id="progLink" href="#" target="_blank" rel="noopener">program</a></p>
 </footer>
 
 <script>
@@ -310,13 +310,22 @@ document.addEventListener('DOMContentLoaded', function () {
 var $ = function (s) { return document.querySelector(s); };
 function report(e) { try { window.__errors.push(String(e && e.stack || e)); } catch (_) {} }
 function esc(s) { return String(s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+// the cluster's words (net.js): "devnet" / "Devnet" on devnet, "Solana" on mainnet
+var N = window.NET || null, place = (N && N.place) || 'devnet', Place = (N && N.Place) || 'Devnet';
+function say(onTest, onMain) { return N && N.say ? N.say(onTest, onMain) : onTest; }
+if (N && N.cluster === 'mainnet') {
+  var md = document.querySelector('meta[name=description]');
+  if (md) md.content = 'One coin on Nox: its pool as a black hole, its numbers, its trades, and a way to buy or sell it on ' + place + '.' + (N.program ? '' : ' Nox is not on Solana mainnet yet.');
+}
+// devnet: "devnet only · devnet SOL has no value · program"; with no program on the cluster yet, no dead "program" word
+if (N && !N.test) { var nf = $('#netFoot'); if (nf) nf.textContent = N.program ? 'not audited · ' : 'not audited'; if (!N.program) $('#progLink').hidden = true; }
 var hush = null;                                       // once the hole is up: an empty hole, held still
 function fail(title, html) {
   if (hush) hush();
   document.body.classList.remove('reading');
   document.body.classList.add('nocoin');
   document.title = 'coin · Nox';
-  $('#kicker').textContent = 'devnet';
+  $('#kicker').textContent = (N && N.label) || 'devnet';
   var h = $('#name'); h.className = 'wait'; h.textContent = title;
   var m = $('#msg'); m.innerHTML = html || ''; m.hidden = !html;
   var qe = $('#quote'); qe.textContent = 'Trading needs the pool, and it could not be read.'; qe._html = null;
@@ -424,7 +433,7 @@ function renderHead(busiest) {
   document.title = nm + ' · Nox';
   var h = $('#name'); h.className = '';
   h.innerHTML = esc(nm) + (sym ? '<span class="sym">$' + esc(sym) + '</span>' : '');
-  $('#kicker').innerHTML = busiest ? 'the busiest coin on devnet · <a href="/coins">all coins</a>' : isTest(p) ? 'a test coin on devnet' : 'a coin on devnet';
+  $('#kicker').innerHTML = busiest ? 'the busiest coin on ' + place + ' · <a href="/coins">all coins</a>' : isTest(p) ? 'a test coin on ' + place : 'a coin on ' + place;
   $('#msg').hidden = true;
 }
 
@@ -558,11 +567,11 @@ function renderHistory() {
 function histText(trades) {
   if (HIST && !HIST.complete && (HIST.pending || HIST.newer)) {
     var n = HIST.pending;
-    return (n ? 'Reading ' + n + ' newer transaction' + (n === 1 ? '' : 's') : 'Reading newer transactions') + ' from devnet, about one a second'
+    return (n ? 'Reading ' + n + ' newer transaction' + (n === 1 ? '' : 's') : 'Reading newer transactions') + ' from ' + place + ', about one a second'
       + (HIST.error ? '; it stopped answering, so they are read again in 20 s.' : '.');
   }
   if (HIST && !HIST.complete) {
-    return HIST.have + ' of the latest ' + HIST.total + ' transactions read, newest first. Devnet\'s public node gives a page about one a second'
+    return HIST.have + ' of the latest ' + HIST.total + ' transactions read, newest first. ' + say('Devnet\'s public node', 'The node') + ' gives a page about one a second'
       + (HIST.error ? ', and it stopped answering: the rest are read again in 20 s.' : ', so older ones are still coming in.');
   }
   if (!trades) return 'No trades yet.';
@@ -857,7 +866,7 @@ function connectWallet() {
 function sendError(e) {
   var m = String(e && e.message || e || '');
   if ((e && e.code === 4001) || /reject|denied|declin|cancel/i.test(m)) return 'You did not sign. Nothing was sent.';
-  if (m === 'timeout') return 'Devnet did not answer in time. Check your wallet\'s activity before trying again.';
+  if (m === 'timeout') return Place + ' did not answer in time. Check your wallet\'s activity before trying again.';
   var hex = m.match(/custom program error: 0x([0-9a-f]+)/i);
   if (hex) return 'It did not go through: ' + Chain.explain({ err: { InstructionError: [0, { Custom: parseInt(hex[1], 16) }] } }) + '.';
   if (/insufficient/i.test(m)) return 'Not enough SOL for it and its network fee.';
@@ -877,10 +886,10 @@ async function execute() {
     var built = side === 'buy'
       ? await Chain.buildBuy({ pool: POOL, owner: w.publicKey, sol: q.sol, slippageBps: Number(SLIP) })
       : await Chain.buildSell({ pool: POOL, owner: w.publicKey, tokens: q.units, slippageBps: Number(SLIP) });
-    note('Asking devnet whether it would go through…');
+    note('Asking ' + place + ' whether it would go through…');
     var sim = await withTimeout(Chain.simulate(built, w.publicKey), 15000);
-    if (!sim.ok) { note('Devnet says it would fail: ' + sim.error + '. Nothing was sent.', true); return; }
-    note('Devnet says it goes through. Confirm in ' + (w.name || 'your wallet') + '.');
+    if (!sim.ok) { note(Place + ' says it would fail: ' + sim.error + '. Nothing was sent.', true); return; }
+    note(Place + ' says it goes through. Confirm in ' + (w.name || 'your wallet') + '.');
     sig = await Chain.send(built, w);
     noteHTML('Done: ' + link('tx', sig, 'the signature ' + esc(shortKey(sig))) + '. Reading the new pool…');
     await refresh(true);
@@ -934,10 +943,10 @@ async function claim(asCreator) {
     if (!r || !(asCreator ? r.creator : r.treasury)) { cnote(asCreator ? 'This wallet is no longer the coin\'s creator.' : 'This wallet is not the coin\'s treasury.', true); return; }
     if ((asCreator ? POOL.creatorFees : POOL.treasuryFees) <= 0n) { cnote('Nothing is owed now.', true); return; }
     var built = await Chain.buildClaim({ pool: POOL, owner: w.publicKey, creator: asCreator });
-    cnote('Asking devnet whether it would go through…');
+    cnote('Asking ' + place + ' whether it would go through…');
     var sim = await withTimeout(Chain.simulate(built, w.publicKey), 15000);
-    if (!sim.ok) { cnote('Devnet says it would fail: ' + sim.error + '. Nothing was sent.', true); return; }
-    cnote('Devnet says it goes through. Confirm in ' + (w.name || 'your wallet') + '.');
+    if (!sim.ok) { cnote(Place + ' says it would fail: ' + sim.error + '. Nothing was sent.', true); return; }
+    cnote(Place + ' says it goes through. Confirm in ' + (w.name || 'your wallet') + '.');
     paidBefore = asCreator ? POOL.creatorFeesPaid : POOL.treasuryFeesPaid;   // the pool the claim was built on
     var sig = await Chain.send(built, w);
     cnoteHTML(done + ': ' + link('tx', sig, 'the signature ' + esc(shortKey(sig))) + '. Reading the pool…');
@@ -953,7 +962,7 @@ async function claim(asCreator) {
 $('#claimCBtn').addEventListener('click', function () { claim(true); });
 $('#claimTBtn').addEventListener('click', function () { claim(false); });
 
-/* ================= reading devnet ================= */
+/* ================= reading the chain ================= */
 function changed(a, b) { return !b || a.realSol !== b.realSol || a.tokens !== b.tokens || a.graduated !== b.graduated || a.volume !== b.volume || a.creatorFees !== b.creatorFees || a.treasuryFees !== b.treasuryFees || a.creatorFeesPaid !== b.creatorFeesPaid || a.treasuryFeesPaid !== b.treasuryFeesPaid || String(a.creator) !== String(b.creator); }
 function applyPool(p) {
   var first = !POOL || String(POOL.mint) !== String(p.mint), diff = first || changed(p, POOL);
@@ -1008,6 +1017,21 @@ function takeHistory(r) {
   if (chart.hover >= 0 && CANDLES[chart.hover]) rowsOn(CANDLES[chart.hover].ev);   // a candle under the pointer lights its rows again
 }
 // fresh: the pool has moved, so the round must start after now (a running one is cut short and a new one follows it)
+// the pool's state as last read: it changes with every trade and claim, so the history server reads its list again
+// for a new one (and an answer from before a trade is never taken for one after it)
+function stateMark() {
+  var p = POOL;
+  return p ? [p.volume, p.realSol, p.creatorFeesPaid, p.treasuryFeesPaid, String(p.creator).slice(0, 8)].join('-') : '';
+}
+// a history that does not reach the pool as read: its newest trade (or graduation) left another token reserve, so a
+// newer transaction is not in it yet (the node's list can be a moment behind the account)
+function lagging() {
+  if (!POOL || !EVENTS) return false;
+  var last = null;
+  EVENTS.forEach(function (e) { if (e.kind === 'trade' || e.kind === 'graduation') last = e; });
+  return !!last && last.tokenReserve !== POOL.tokens;
+}
+var waitRounds = 0, behindRounds = 0;
 function loadHistory(fresh) {
   var mint = POOL && String(POOL.mint);
   if (!mint) return Promise.resolve(false);
@@ -1022,19 +1046,24 @@ function loadHistory(fresh) {
     try {
       var r = null;
       try {
-        r = await Chain.readHistory(mint, { budgetMs: fresh ? HIST_FRESH : HIST_ROUND, signal: ctl ? ctl.signal : undefined,
+        r = await Chain.readHistory(mint, { budgetMs: fresh ? HIST_FRESH : HIST_ROUND, signal: ctl ? ctl.signal : undefined, at: stateMark(),
           onProgress: function (x) { if (POOL && String(POOL.mint) === mint) takeHistory(x); } });
       } catch (e) {
         if (ctl && ctl.signal.aborted) return false;          // cut short on purpose: the round after it reads on
         r = null;
       }
       if (!POOL || String(POOL.mint) !== mint) return false;   // another coin came in meanwhile (a retry)
-      if (!r) { histStale = true; if (!EVENTS) setHistNote('Devnet did not send the trades. They will be read again in 20 s.'); return false; }
+      if (!r) { histStale = true; if (!EVENTS) setHistNote(Place + ' did not send the trades. They will be read again in 20 s.'); return false; }
       takeHistory(r);
-      histStale = !r.complete;
+      var behind = r.complete && lagging();
+      histStale = !r.complete || behind;
+      waitRounds = r.waiting && !r.added ? waitRounds + 1 : 0;
+      behindRounds = behind ? behindRounds + 1 : 0;
       // the next round in a moment while this one got further (or followed a trade); one that got nowhere (a failure,
-      // a pause the node asked for, a transaction it does not serve yet) leaves the rest to the 20 s reads
-      if (!r.complete && !r.error && (fresh || r.added > 0)) backfill();
+      // a pause the node asked for, a transaction it does not serve yet) leaves the rest to the 20 s reads. The site's
+      // history server still fetching, or a history a trade behind the pool, is asked again in 2 s, a few times
+      if (behind) { if (behindRounds <= 5) backfill(2000); }
+      else if (!r.complete && !r.error && (fresh || r.added > 0 || (r.waiting && waitRounds <= 3))) backfill(r.waiting ? 2000 : 400);
       return true;
     } catch (e) { report(e); return false; }
     finally { if (histRun === run) histRun = null; if (histCtl === ctl) histCtl = null; }
@@ -1042,13 +1071,13 @@ function loadHistory(fresh) {
   histRun = run; histCtl = ctl;
   return run.p;
 }
-function backfill() {
+function backfill(wait) {
   clearTimeout(backfillT);
   backfillT = setTimeout(function () {
     if (document.hidden || !POOL || PINNED || !histStale) return;
-    if (busy || inflight) { backfill(); return; }         // a trade, a claim or a read under way: again in a moment
+    if (busy || inflight) { backfill(wait); return; }         // a trade, a claim or a read under way: again in a moment
     refresh(false).catch(report);
-  }, 400);
+  }, wait || 400);
 }
 function setHistNote(t) { var n = $('#histNote'); n.textContent = t; n.hidden = !t; }
 async function readWal() {
@@ -1056,7 +1085,7 @@ async function readWal() {
   if (!w || !POOL) { WAL = null; paintHoldings(); return; }
   var was = WAL;
   try { var r = await withTimeout(Chain.readWallet(w.publicKey, POOL.mint), 12000); if (Wallet.current === w) WAL = r; }
-  catch (e) { if (!WAL) $('#holdings').textContent = 'Could not read your wallet from devnet. Trying again in 20 s.'; return; }
+  catch (e) { if (!WAL) $('#holdings').textContent = 'Could not read your wallet from ' + place + '. Trying again in 20 s.'; return; }
   paintHoldings();
   // the quote depends on the wallet only through its SOL and its tokens
   if (!was || !WAL || was.sol !== WAL.sol || was.tokens !== WAL.tokens) renderQuote();
@@ -1098,28 +1127,30 @@ again.addEventListener('click', function () {
 async function boot() {
   var prog = window.NET && NET.program, pl = $('#progLink');
   if (prog && window.NET && NET.explorer) pl.href = NET.explorer('address', prog); else pl.removeAttribute('href');
+  // a cluster the program is not on yet (mainnet today): say so, and read nothing
+  if (N && !N.ready && !N.test) { fail(N.program ? 'Solana mainnet is not reachable from here.' : 'Nox is not on Solana mainnet yet.'); return; }
   if (!chainOk()) { fail('The chain code did not load.', '<a href="/coins">See all coins</a>'); return; }
   var p = null, busiest = false;
   POOL = null; EVENTS = null; tapeTop = null; PINNED = false;   // nothing is read on a pool until this one is in
-  HIST = null; clearTimeout(backfillT); if (histCtl) histCtl.abort();
+  HIST = null; clearTimeout(backfillT); if (histCtl) histCtl.abort(); waitRounds = 0; behindRounds = 0;
   TF = null; hi = -1; allRows = false; histStale = false; chart.fit(); drawChart();   // a new coin: its own interval, the newest candles
   document.body.classList.remove('nocoin'); document.body.classList.add('reading');
   if (holeStill) makeHole();                           // moving again after a failed read and "try again"
-  $('#name').className = 'wait'; $('#name').textContent = 'Reading the coin from devnet…'; $('#msg').hidden = true;
+  $('#name').className = 'wait'; $('#name').textContent = 'Reading the coin from ' + place + '…'; $('#msg').hidden = true;
   try {
     if (mintParam) {
       try { new Chain.PublicKey(mintParam); } catch (e) { fail('That is not a coin address.', 'The link has <code>' + esc(mintParam.slice(0, 60)) + '</code>. <a href="/coins">See all coins</a>'); return; }
       p = await withTimeout(Chain.readPool(mintParam), 15000);
-      if (!p) { fail('No coin at this address on devnet.', '<a href="/coins">See all coins</a> · <a href="/coin">the busiest one</a>'); return; }
+      if (!p) { fail('No coin at this address on ' + place + '.', '<a href="/coins">See all coins</a> · <a href="/coin">the busiest one</a>'); return; }
     } else {
       var pools = await withTimeout(Chain.listPools(), 15000);
-      if (!pools.length) { fail('No coins on devnet yet.', 'Only the team launches for now. <a href="/coins">The coin board</a>'); return; }
+      if (!pools.length) { fail(say('No coins on devnet yet.', 'No Nox coins on Solana yet.'), 'Only the team launches for now. <a href="/coins">The coin board</a>'); return; }
       pools.sort(function (a, b) { return Number(b.volume) - Number(a.volume); });
       p = pools[0]; busiest = true;
     }
   } catch (e) {
     report(e);
-    fail('Devnet did not answer.', 'It can be slow.<br><button type="button" class="q" id="retry">try again</button>');
+    fail(Place + ' did not answer.', 'It can be slow.<br><button type="button" class="q" id="retry">try again</button>');
     var rb = $('#retry'); if (rb) rb.addEventListener('click', boot);
     return;
   }

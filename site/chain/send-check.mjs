@@ -2,8 +2,9 @@
 // number against the pool: a buy, a sell of exactly what it bought, the creator's claim and the platform's.
 // The wallet must be the coin's creator and its treasury, as the devnet wallet is for every devnet coin.
 //
-//   KEYPAIR=~/.config/solana/devnet.json node --experimental-websocket send-check.mjs              (simulates only)
-//   SEND=1 KEYPAIR=~/.config/solana/devnet.json node --experimental-websocket send-check.mjs       (sends)
+//   KEYPAIR=~/.config/solana/devnet.json node send-check.mjs              (simulates only)
+//   SEND=1 KEYPAIR=~/.config/solana/devnet.json node send-check.mjs       (sends)
+//   RPC_URL=http://localhost:4900/api/rpc?cluster=devnet   (through the site's own server, as the pages go)
 //   COIN=<mint or symbol>  BUY=<SOL, default 0.01>
 
 import { createRequire } from "node:module";
@@ -11,9 +12,6 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { Connection } from "@solana/web3.js";
 
-// the bundle is built for browsers and confirms over window.WebSocket (node 20 has one behind --experimental-websocket)
-if (typeof window === "undefined") globalThis.window = globalThis;
-if (typeof WebSocket === "undefined") { console.log("run with node --experimental-websocket (node 22 has it built in)"); process.exit(1); }
 const require = createRequire(import.meta.url);
 const Chain = require("../vendor/chain.js");
 const RPC = process.env.RPC_URL ?? "https://api.devnet.solana.com";
@@ -64,8 +62,9 @@ if (!pool) { console.log("no coin to test on"); process.exit(1); }
 line(pool.creator.equals(me) && pool.treasury.equals(me), `${pool.name} (${pool.symbol}): this wallet is its creator and its treasury`);
 console.log(`         before: ${s(pool.realSol)} SOL in, ${t(pool.tokens)} tokens left, fees owed ${s(pool.creatorFees)} creator + ${s(pool.treasuryFees)} treasury`);
 line((await solvent(pool)).ok, "the pool holds its rent, its reserve and every fee it owes");
-const histBefore = await Chain.history(pool.mint, { limit: 5 });
 const claimSigs = [];
+
+let sellSig = null;
 
 /* ---------- buy ---------- */
 let bal = await balance();
@@ -97,7 +96,7 @@ if (SEND ? bought > 0n : held > 0n) {
   held = (await Chain.readWallet(me, pool.mint)).tokens;
   const sell = await Chain.buildSell({ pool: before, owner: me, tokens: units });
   const sq = sell.quote;
-  const sellSig = await run(`sell ${t(units)} tokens`, sell);
+  sellSig = await run(`sell ${t(units)} tokens`, sell);
   if (sellSig) {
     after = await Chain.readPool(pool.mint);
     const got = await balance() - bal, net = await feeOf(sellSig);
@@ -135,7 +134,7 @@ for (const creator of [true, false]) {
 if (SEND && buySig) {
   const events = await Chain.history(pool.mint, { limit: 10 });
   const trades = events.filter((e) => e.kind === "trade");
-  const mine = trades.filter((e) => !histBefore.some((h) => h.signature === e.signature)).slice(0, 2);
+  const mine = trades.filter((e) => e.signature === buySig || e.signature === sellSig);
   line(mine.length === 2 && mine.some((e) => e.buy) && mine.some((e) => !e.buy), `the history shows the new buy and sell (${mine.map((e) => e.buy ? "buy" : "sell").join(", ")})`);
   const claims = events.filter((e) => e.kind === "claim" && claimSigs.includes(e.signature));
   line(claims.length === claimSigs.length, `the history shows the ${claims.length} claim(s), paid to ${[...new Set(claims.map((e) => Chain.short(e.to)))].join(", ")}`);

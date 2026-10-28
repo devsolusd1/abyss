@@ -182,10 +182,10 @@ form > .blk:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
 </head>
 <body>
 
-<!-- the strip: the latest launches on devnet, newest first, with the settings each one picked -->
+<!-- the strip: the latest launches on the cluster (net.js), newest first, with the settings each one picked -->
 <div class="tick" role="region" aria-label="The latest launches on devnet, newest first">
-  <span class="tag"><i></i>devnet</span>
-  <div class="tape" id="tape"><span>reading devnet…</span></div>
+  <span class="tag"><i></i><span data-net="label">devnet</span></span>
+  <div class="tape" id="tape"><span data-net-only="devnet">reading devnet…</span></div>
 </div>
 
 <header class="top">
@@ -276,9 +276,9 @@ form > .blk:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
       </section>
 
       <section class="blk" id="act" aria-labelledby="act-h">
-        <div class="row"><p class="kick" id="act-h">05 · launch on devnet</p><button class="q" type="button" data-wallet>Connect wallet</button></div>
+        <div class="row"><p class="kick" id="act-h">05 · launch on <span data-net="place">devnet</span></p><button class="q" type="button" data-wallet>Connect wallet</button></div>
         <p class="wnote" data-wallet-note aria-live="polite"></p>
-        <p class="gate" id="gate">Reading who may launch from devnet…</p>
+        <p class="gate" id="gate">Reading who may launch from <span data-net="place">devnet</span>…</p>
         <button type="button" class="hold" id="holdBtn" disabled><span id="holdLabel">Hold to launch</span><i id="holdFill" aria-hidden="true">Hold to launch</i></button>
         <button type="button" class="q" id="gateKey" hidden></button>
         <p class="status" id="status" aria-live="polite"></p>
@@ -286,7 +286,7 @@ form > .blk:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
 
       <section class="blk done" id="done" hidden aria-labelledby="done-h">
         <h2 id="done-h" tabindex="-1">Launched.</h2>
-        <p class="say" id="doneText">The coin and its pool are on devnet now, for good.</p>
+        <p class="say" id="doneText">The coin and its pool are on <span data-net="place">devnet</span> now, for good.</p>
         <div class="addr" id="doneAddr"></div>
         <div class="keys"><a class="btn" id="doneOpen" href="/coins">Open its page <span aria-hidden="true">→</span></a><button type="button" class="q" id="again">Launch another</button></div>
       </section>
@@ -306,7 +306,7 @@ form > .blk:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
 
 <footer class="wrap foot">
   <a class="brand" href="#top" aria-label="Nox, top of the page"><canvas id="sym1" aria-hidden="true"></canvas><b>nox</b></a>
-  <p>devnet only · the team launches the coins for now · <a id="progLink" href="#" target="_blank" rel="noopener">program</a></p>
+  <p><span data-net-only="devnet">devnet only · </span><span data-net-only="mainnet" hidden>not audited · </span>the team launches the coins for now<span id="progPart"> · <a id="progLink" href="#" target="_blank" rel="noopener">program</a></span></p>
 </footer>
 
 <script>
@@ -317,6 +317,12 @@ function fail(where, e) {
   try { window.__errors.push(where + ': ' + (e && e.message || e)); } catch (_) {}
   var st = $('#status'); if (st) st.textContent = 'Part of this page did not load (' + where + '). Reload to try again.';
 }
+// the cluster's words (net.js); without it, the devnet words this page was written with
+var N = window.NET || { cluster: 'devnet', label: 'devnet', place: 'devnet', Place: 'Devnet', test: true, ready: false, say: function (a) { return a; } };
+var NOT_YET = !!(window.NET && !NET.ready);           // no program on this cluster yet (mainnet today): nothing is read from it
+var NOT_YET_TEXT = 'Nox is not on ' + N.say('devnet', 'Solana mainnet') + ' yet';
+if (N.cluster === 'mainnet') { try { document.querySelector('meta[name=description]').content = 'Launch a coin on Nox: pick its settings, name it, one pool for life. Team-only for now' + (NOT_YET ? '; ' + NOT_YET_TEXT + '.' : ', on Solana.'); } catch (e) {} }
+try { $('.tick').setAttribute('aria-label', 'The latest launches on ' + N.place + ', newest first'); } catch (e) {}
 if (!window.BH) { fail('the black hole', 'missing'); return; }
 
 var BH = window.BH, reduce = BH.reduced;             // reduced motion: the visitor's setting, or ?motion=reduce for a screenshot
@@ -365,7 +371,7 @@ var F = { name: '', symbol: '', uri: '', firstRaw: '', first: 0, firstOk: true, 
 var CFG = { state: 'loading', cfg: null };      // loading | ok | error | none
 var WAL = { key: null, sol: null, check: false, reading: false };
 var busy = false, launched = null, pre = { seq: 0, text: '', ok: null };
-var pool = null;                                      // the launched coin's pool, once read back from devnet
+var pool = null;                                      // the launched coin's pool, once read back from the chain
 // the landing's four settings (?setup=1..4; the old triangle names still work)
 var PRESETS = [
   { V: 30, M: 420, fee: 100, alias: 'house' }, { V: 20, M: 180, fee: 200, alias: 'curve' },
@@ -488,7 +494,7 @@ function renderSettings() {
   setText('#bFee', CFG.cfg ? minFee() / 100 + '% to ' + MAXFEE / 100 + '%' : 'up to ' + MAXFEE / 100 + '%');
   setMsg('#mV', ms.virtualSol || 'Sets the start: the price and market cap at open.', !!ms.virtualSol);
   setMsg('#mM', ms.graduationMcap || (vOk ? MULT_LO + '× to ' + MULT_HI + '× the virtual SOL. The coin graduates there.' : 'Checked once the virtual SOL is within its bounds.'), !!ms.graduationMcap);
-  setMsg('#mFee', ms.feeBps || (sp ? 'Of each trade, in SOL: <b>' + sp.creator + '%</b> of it to the creator, ' + sp.treasury + '% to the platform.' : CFG.state === 'loading' ? 'Of each trade, in SOL. The lowest fee and the split are read from devnet…' : 'Of each trade, in SOL.'), !!ms.feeBps);
+  setMsg('#mFee', ms.feeBps || (sp ? 'Of each trade, in SOL: <b>' + sp.creator + '%</b> of it to the creator, ' + sp.treasury + '% to the platform.' : CFG.state === 'loading' ? 'Of each trade, in SOL. The lowest fee and the split are read from ' + N.place + '…' : 'Of each trade, in SOL.'), !!ms.feeBps);
   $('#iV').classList.toggle('bad', !!ms.virtualSol); $('#iM').classList.toggle('bad', !!ms.graduationMcap); $('#iFee').classList.toggle('bad', !!ms.feeBps);
   steppers.forEach(function (b) { b.disabled = !!launched || stepOf(b.getAttribute('data-f'), +b.getAttribute('data-d')) == null; });
 }
@@ -536,7 +542,7 @@ else { iV.value = lamText(DEF.v).replace(/,/g, ''); iM.value = lamText(DEF.m).re
 readSettings();
 function lookOf(g) { return BH.look({ virtualSol: g.v, graduationMcap: g.m, feeBps: g.fee }); }   // lamports in, SOL out
 function openState(g) { return { virtualSol: solNum(g.v), realSol: 0, graduationSol: solNum(gradSol(g)), graduated: false }; }
-// what the hole shows, in SOL: the pool as devnet has it once launched, else the opening pool after the first buy
+// what the hole shows, in SOL: the pool as the chain has it once launched, else the opening pool after the first buy
 function previewState() {
   if (pool) return BH.fromPool(pool).state;
   var g = SET.good, q = F.quote;
@@ -591,7 +597,7 @@ function renderPreview(now) {
 function renderLegend() {
   var st = previewState(), el = $('#legend'), off = !SET.ok && !launched, t;
   if (off) t = 'out of bounds: showing the last valid settings';
-  else if (pool) t = pool.graduated ? 'jets: graduated · disk: its real SOL on devnet' : 'disk: its real SOL, read back from devnet';
+  else if (pool) t = pool.graduated ? 'jets: graduated · disk: its real SOL on ' + N.place : 'disk: its real SOL, read back from ' + N.place;
   else if (hole.busy) t = 'the first buy is falling in…';
   else if (hole.graduated) t = SHORT ? 'jets lit: the first buy graduates it' : 'jets lit: the first buy graduates it inside the launch';
   else if (st.realSol > 0) t = 'disk: first buy, ' + fSol(st.realSol) + ' of ' + fBig(st.graduationSol) + ' SOL to graduate';
@@ -747,7 +753,7 @@ function renderGets() {
     ['supply', '1,000,000,000 tokens'],
     ['mint and freeze', 'none: nobody can mint more or freeze a wallet'],
     ['name, symbol, link', 'written into the coin, fixed'],
-    off ? ['fee', '—', OUT] : ['fee', g.fee / 100 + '% of each trade, in SOL', sp ? sp.creator + '% of it to the creator, ' + sp.treasury + '% to the platform, read from devnet' : CFG.state === 'loading' ? 'its split is being read from devnet' : 'its split could not be read from devnet'],
+    off ? ['fee', '—', OUT] : ['fee', g.fee / 100 + '% of each trade, in SOL', sp ? sp.creator + '% of it to the creator, ' + sp.treasury + '% to the platform, read from ' + N.place : CFG.state === 'loading' ? 'its split is being read from ' + N.place : NOT_YET ? NOT_YET_TEXT : 'its split could not be read from ' + N.place],
     ['pool', 'one, for life', 'no migration, no LP token, and no instruction takes the liquidity out'],
     off ? ['opens at', '—', OUT] : ['opens at', 'a ' + lamText(g.v) + ' SOL market cap', fPx(solNum(g.v) / SUPPLY_TOK) + ' SOL per 1M tokens'],
     off ? ['graduates at', '—', OUT] : ['graduates at', 'a ' + lamText(g.m) + ' SOL market cap', 'inside the buy that gets there: the virtual SOL drops away and ' + fTok(lk.burn) + ' tokens burn, so the price holds, in the same pool'],
@@ -774,12 +780,12 @@ function renderNeed() {
   $('#needParts').innerHTML = (n.first ? '<b>' + fSol(n.first / LAMP) + '</b> first buy · ' : '') + 'about <b>' + (n.rent / LAMP).toFixed(4) + '</b> rent, kept by the coin’s accounts · ' + feeTxt + ' · <b>0.00001</b> network fee';
   var el = $('#needWallet');
   if (!WAL.key) { el.textContent = 'Connect a wallet to see its balance.'; return; }
-  if (WAL.sol == null) { el.textContent = WAL.reading ? 'Reading the wallet’s balance…' : 'Could not read the wallet’s balance.'; return; }
+  if (WAL.sol == null) { el.textContent = WAL.reading ? 'Reading the wallet’s balance…' : NOT_YET ? NOT_YET_TEXT + '.' : 'Could not read the wallet’s balance.'; return; }
   var has = Number(WAL.sol), need = simmed ? pre.spent : n.total;
-  var who = WAL.check ? 'The checked address' : 'Your wallet';
+  var who = WAL.check ? 'The checked address' : 'Your wallet', sol = N.say(' SOL on devnet', ' SOL');
   el.innerHTML = has >= need + 5000
-    ? who + ' has <b>' + fSol(has / LAMP) + '</b> SOL on devnet. Enough.'
-    : who + ' has <b>' + fSol(has / LAMP) + '</b> SOL on devnet: <span class="sh">short by ' + fSol(Math.max(0, need - has) / LAMP) + '</span>.';
+    ? who + ' has <b>' + fSol(has / LAMP) + '</b>' + sol + '. Enough.'
+    : who + ' has <b>' + fSol(has / LAMP) + '</b>' + sol + ': <span class="sh">short by ' + fSol(Math.max(0, need - has) / LAMP) + '</span>.';
 }
 
 /* ================= who may launch ================= */
@@ -799,10 +805,10 @@ function renderGate(res) {
   res = res || v();
   var g = $('#gate'); gateKey.hidden = true;
   if (launched) return;
-  if (!HAVE_CHAIN) { g.textContent = 'The chain layer did not load, so this page cannot launch. The preview still works.'; setHold('Launch unavailable', false); return; }
-  if (CFG.state === 'loading') { g.textContent = 'Reading who may launch from devnet…'; setHold('Hold to launch', false); return; }
+  if (!HAVE_CHAIN) { g.textContent = NOT_YET ? NOT_YET_TEXT + '. The preview still works.' : 'The chain layer did not load, so this page cannot launch. The preview still works.'; setHold('Launch unavailable', false); return; }
+  if (CFG.state === 'loading') { g.textContent = 'Reading who may launch from ' + N.place + '…'; setHold('Hold to launch', false); return; }
   if (CFG.state === 'error' || CFG.state === 'none') {
-    g.textContent = CFG.state === 'none' ? 'The program on devnet has no launch config yet, so nothing can launch.' : 'Devnet did not answer, so this page cannot tell who may launch. The preview works anyway.';
+    g.textContent = CFG.state === 'none' ? 'The program on ' + N.place + ' has no launch config yet, so nothing can launch.' : N.Place + ' did not answer, so this page cannot tell who may launch. The preview works anyway.';
     setHold('Hold to launch', false);
     if (CFG.state === 'error') { gateKey.hidden = false; gateKey.textContent = 'Try again'; gateKey.onclick = loadConfig; }
     return;
@@ -823,7 +829,7 @@ function renderGate(res) {
   var n = needLamports(), need = pre.ok && pre.spent != null ? pre.spent : n.total;
   if (WAL.sol != null && Number(WAL.sol) < need) { g.innerHTML = who + ' It needs more SOL first.'; setHold(WAL.check ? 'Hold to simulate' : 'Hold to launch', false); return; }
   g.innerHTML = who + (WAL.check ? '' : ' Holding signs one transaction: the coin, its pool' + (F.first > 0 ? ' and your first buy' : '') + '.');
-  setHold(busy ? 'Working…' : (WAL.check ? 'Hold to simulate the launch' : 'Hold to launch on devnet'), !busy);
+  setHold(busy ? 'Working…' : (WAL.check ? 'Hold to simulate the launch' : 'Hold to launch on ' + N.place), !busy);
 }
 
 async function loadConfig() {
@@ -874,7 +880,7 @@ async function rawSpent(built, payer) {
 }
 async function runPre(seq) {
   if (seq !== pre.seq) return;
-  status('Checking the launch against devnet…');
+  status('Checking the launch against ' + N.place + '…');
   try {
     var built = await withTimeout(Chain.buildLaunch(args(WAL.key)), 15000);
     var sim = await withTimeout(Chain.simulate(built, WAL.key), 15000);
@@ -887,7 +893,7 @@ async function runPre(seq) {
   } catch (e) {
     if (seq !== pre.seq) return;
     pre.ok = null;
-    status(e && e.problems ? 'Stopped before building: <b>' + esc(e.message) + '</b>.' : 'Could not check it against devnet just now (' + esc(e && e.message === 'timeout' ? 'no answer' : (e && e.message) || 'error') + ').');
+    status(e && e.problems ? 'Stopped before building: <b>' + esc(e.message) + '</b>.' : 'Could not check it against ' + N.place + ' just now (' + esc(e && e.message === 'timeout' ? 'no answer' : (e && e.message) || 'error') + ').');
   }
   renderNeed(); renderGate();
 }
@@ -935,7 +941,7 @@ async function go() {
     status('Building the transaction…');
     built = await withTimeout(Chain.buildLaunch(args(key)), 15000);
     if (!built.canLaunch) { status('<b>Launches are team-only for now</b>, and this wallet is not on the team.'); return; }
-    status('Simulating it on devnet…');
+    status('Simulating it on ' + N.place + '…');
     var sim = await withTimeout(Chain.simulate(built, key), 20000);
     if (!sim.ok) { status('It would fail, so nothing was sent: <b>' + esc(sim.error || Chain.explain(sim)) + '</b>.'); if (check) window.__lastCheck = { ok: false, error: sim.error, settings: settingsOut(SET) }; return; }
     if (check) {
@@ -956,7 +962,7 @@ async function go() {
     var link = e && e.signature ? explorer('tx', e.signature) : null;
     if (e && e.problems) status('Stopped before building: <b>' + esc(m) + '</b>.');
     else if (/reject|denied|declin|cancel/i.test(m)) status('You declined in the wallet. Nothing was sent.');
-    else if (m === 'timeout') status('Devnet did not answer in time. Nothing was sent; try again.');
+    else if (m === 'timeout') status(N.Place + ' did not answer in time. Nothing was sent; try again.');
     else status('It did not go through: <b>' + esc(ex && ex !== 'The transaction would fail' ? ex : m.slice(0, 160)) + '</b>.' + (link ? ' <a href="' + link + '" target="_blank" rel="noopener">The transaction ↗</a>' : ''));
     if (check) window.__lastCheck = { ok: false, error: m.slice(0, 200) };
   } finally {
@@ -978,15 +984,15 @@ function success(built, sig) {
     '<div><p>its pool, for life</p><code>' + poolKey + '</code>' + (px ? '<a href="' + px + '" target="_blank" rel="noopener">on the explorer ↗</a>' : '') + '</div>' +
     '<div><p>the launch transaction</p><code>' + sig + '</code>' + (tx ? '<a href="' + tx + '" target="_blank" rel="noopener">on the explorer ↗</a>' : '') + '</div>';
   $('#doneOpen').href = '/coin?mint=' + encodeURIComponent(mint);
-  var k = $('#kick'); k.textContent = 'live on devnet'; k.classList.add('live');
+  var k = $('#kick'); k.textContent = 'live on ' + N.place; k.classList.add('live');
   try { $('#done-h').focus({ preventScroll: false }); } catch (e) {}
   (async function readBack() {
     for (var i = 0; i < 4; i++) {
       try {
         var p = await withTimeout(Chain.readPool(mint), 12000);
         if (p) {
-          $('#doneText').innerHTML = esc(displayName(p.name)) + ' (' + esc(p.symbol) + ') and its pool are on devnet now, for life. Read back from the chain: <b>' + fSol(Number(p.realSol) / LAMP) + '</b> real SOL in, <b>' + fTok(Number(p.tokens) / 1e6) + '</b> tokens in the pool, market cap ' + fSol(p.marketCap) + ' SOL.';
-          // only now does the hole show the pool as devnet has it
+          $('#doneText').innerHTML = esc(displayName(p.name)) + ' (' + esc(p.symbol) + ') and its pool are on ' + N.place + ' now, for life. Read back from the chain: <b>' + fSol(Number(p.realSol) / LAMP) + '</b> real SOL in, <b>' + fTok(Number(p.tokens) / 1e6) + '</b> tokens in the pool, market cap ' + fSol(p.marketCap) + ' SOL.';
+          // only now does the hole show the pool as the chain has it
           if (launched && launched.mint === mint) { pool = p; renderPreview(true); }
           return;
         }
@@ -1005,17 +1011,18 @@ $('#again').addEventListener('click', function () {
   try { window.scrollTo({ top: 0, behavior: reduce ? 'auto' : 'smooth' }); } catch (e) {}
 });
 
-/* ================= the strip: the latest launches on devnet, with their settings ================= */
+/* ================= the strip: the latest launches on the cluster, with their settings ================= */
 function loadTape() {
   var tape = $('#tape');
-  if (!HAVE_CHAIN) { tape.innerHTML = '<span>devnet is not reachable from here</span>'; return; }
+  if (!HAVE_CHAIN) { tape.innerHTML = '<span>' + (NOT_YET ? NOT_YET_TEXT : esc(N.place) + ' is not reachable from here') + '</span>'; return; }
+  tape.innerHTML = '<span>reading ' + esc(N.place) + '…</span>';
   withTimeout(Promise.resolve().then(function () { return Chain.listPools(); }), 10000).then(function (pools) {
     if (!pools || !pools.length) { tape.innerHTML = '<span>nothing launched yet</span>'; return; }
     tape.innerHTML = pools.slice(0, 12).map(function (p) {
       var lk = BH.fromPool(p).look, nm = String(p.symbol || '').trim() || displayName(String(p.name || '').trim()) || 'a coin';
       return '<span class="' + (p.graduated ? 'grad' : '') + '"><i></i><b>' + esc(nm) + '</b> launched · ' + fBig(lk.V) + ' SOL virtual, graduates at ' + fBig(lk.M) + ', fee ' + lk.fee / 100 + '%' + (p.graduated ? ' · graduated' : '') + ' · ' + esc(ago(Number(p.openedAt))) + '</span>';
     }).join('');
-  }).catch(function (e) { tape.innerHTML = '<span>' + (e && e.message === 'timeout' ? 'devnet did not answer in 10 s' : 'devnet did not answer') + '</span>'; });
+  }).catch(function (e) { tape.innerHTML = '<span>' + esc(N.place) + (e && e.message === 'timeout' ? ' did not answer in 10 s' : ' did not answer') + '</span>'; });
 }
 
 /* ================= sizes: whole device pixels for the hole, the tiles and the marks ================= */
@@ -1070,7 +1077,8 @@ try { if (document.fonts && document.fonts.ready) document.fonts.ready.then(func
 [['name', iName], ['symbol', iSym], ['uri', iUri], ['first', iBuy]].forEach(function (p) { var x = params.get(p[0]); if (x != null) p[1].value = x.slice(0, 220); });
 (function () {
   var prog = window.NET && NET.program, link = $('#progLink');
-  if (prog && NET.explorer) link.href = NET.explorer('address', prog); else link.removeAttribute('href');
+  if (prog && NET.explorer) link.href = NET.explorer('address', prog);
+  else { link.removeAttribute('href'); if (NOT_YET) $('#progPart').hidden = true; }   // no program on this cluster yet: no link to one
 })();
 BH.favicon();
 layout();

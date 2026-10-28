@@ -110,7 +110,7 @@ a.coin:hover .card, a.coin:focus-visible .card { background: var(--f-line2); }
 <body>
 
 <div class="tick none" id="tick" role="region" aria-label="News on devnet, newest first: SOL moving in or out of the pools since this page opened, and the last day's launches and graduations">
-  <span class="tag"><i></i>devnet</span>
+  <span class="tag"><i></i><span data-net="label">devnet</span></span>
   <div class="tape" id="tape"></div>
 </div>
 
@@ -128,8 +128,8 @@ a.coin:hover .card, a.coin:focus-visible .card { background: var(--f-line2); }
 <section class="sky" id="top" aria-labelledby="h">
   <div class="wrap head">
     <p class="kick">one pool per coin, for life</p>
-    <h1 id="h">Coins on devnet.</h1>
-    <p class="totals" id="totals" aria-live="polite">reading devnet…</p>
+    <h1 id="h">Coins on <span data-net="place">devnet</span>.</h1>
+    <p class="totals" id="totals" aria-live="polite">reading <span data-net="place">devnet</span>…</p>
     <p class="key">Each coin is a black hole. Its disk is the real SOL in its pool, and reaches its full width at graduation. Jets mean the coin has graduated.</p>
   </div>
 </section>
@@ -153,7 +153,7 @@ a.coin:hover .card, a.coin:focus-visible .card { background: var(--f-line2); }
       </div>
       <label class="find"><span class="vh">Search coins</span><input type="search" id="q" placeholder="name, symbol or mint" autocomplete="off" spellcheck="false"></label>
     </div>
-    <p class="status" id="status" aria-live="polite"><span class="dot" id="dot"></span><span id="statusText">reading devnet…</span></p>
+    <p class="status" id="status" aria-live="polite"><span class="dot" id="dot"></span><span id="statusText">reading <span data-net="place">devnet</span>…</span></p>
 
     <div class="state" id="state" hidden></div>
     <div class="board" id="board" role="group" aria-label="Coins"></div>
@@ -163,7 +163,7 @@ a.coin:hover .card, a.coin:focus-visible .card { background: var(--f-line2); }
 
 <footer class="wrap foot">
   <a class="brand" href="/" aria-label="Nox, home"><canvas id="sym1" aria-hidden="true"></canvas><b>nox</b></a>
-  <p>devnet only · the team launches the coins for now · <a id="progLink" href="#" target="_blank" rel="noopener">program</a></p>
+  <p><span data-net-only="devnet">devnet only · </span><span data-net-only="mainnet" hidden>not audited · </span>the team launches the coins for now<span id="progPart"> · <a id="progLink" href="#" target="_blank" rel="noopener">program</a></span></p>
 </footer>
 
 <script>
@@ -181,6 +181,16 @@ function showState(html) { stateEl.innerHTML = html; stateEl.hidden = !html; }
 // the strip: news only, and out of sight when there is none
 function setTape(html) { if (tapeEl._html !== html) { tapeEl._html = html; tapeEl.innerHTML = html; } tickEl.classList.toggle('none', !html); }
 
+// the cluster's words (net.js); devnet's when net.js did not load. On a cluster the program is not on yet (mainnet
+// today) the page says so and reads nothing
+var N = window.NET || { cluster: 'devnet', label: 'devnet', place: 'devnet', Place: 'Devnet', test: true };
+var notThere = !!(window.NET && !NET.ready && !NET.test);
+if (N.cluster === 'mainnet') {
+  var md = $('meta[name=description]');
+  if (md) md.content = "Every coin on Nox's Solana pool program, each drawn as a black hole whose disk is the real SOL in its pool." + (N.program ? '' : ' Nox is not on Solana mainnet yet.');
+}
+tickEl.setAttribute('aria-label', 'News on ' + N.place + ", newest first: SOL moving in or out of the pools since this page opened, and the last day's launches and graduations");
+
 if (!BH) {
   setTotals('');
   setStatus('part of this page did not load.', false);
@@ -195,6 +205,7 @@ BH.favicon();
 
 var prog = window.NET && NET.program, progLink = $('#progLink');
 if (prog && NET.explorer) progLink.href = NET.explorer('address', prog); else progLink.removeAttribute('href');
+if (window.NET && !NET.test && !prog) $('#progPart').hidden = true;   // no program on this cluster yet: no dead "program" word
 
 /* ================= numbers ================= */
 function num(v) { var n = Number(v); return isFinite(n) ? n : 0; }
@@ -371,12 +382,12 @@ function applyView() {
 }
 
 /* ================= loading, empty, error ================= */
-// stand-ins while devnet answers: empty holes drawn dim, and bars; with no coins at all, one empty hole and the way to launch
+// stand-ins while the chain answers: empty holes drawn dim, and bars; with no coins at all, one empty hole and the way to launch
 function ghostSlots(n, empty) {
   var html = '';
   for (var i = 0; i < n; i++) {
     html += '<div class="coin ghost' + (empty ? ' empty' : '') + '"' + (empty ? '' : ' aria-hidden="true"') + '><div class="card"><canvas aria-hidden="true"></canvas><div class="txt">' +
-      (empty ? '<b class="nm">No coins on devnet yet.</b><span class="sy">The team launches the coins for now.</span><a class="q" href="/launch">the launch page</a>'
+      (empty ? '<b class="nm">' + (N.test ? 'No coins on ' : 'No Nox coins on ') + esc(N.place) + ' yet.</b><span class="sy">The team launches the coins for now.</span><a class="q" href="/launch">the launch page</a>'
         : '<span class="bar" style="width:' + (48 + (i * 17) % 30) + '%"></span><span class="bar" style="width:70%"></span><span class="bar" style="width:' + (36 + (i * 11) % 24) + '%"></span>') +
       '</div></div></div>';
   }
@@ -398,7 +409,7 @@ function totals() {
     vol += solOf(p.volume); toCreators += cr; fees += cr + solOf(p.treasuryFees) + solOf(p.treasuryFeesPaid);
     if (num(p.treasuryShareBps) !== 5000) half = false;
   });
-  var h = n ? n + (n === 1 ? ' coin' : ' coins') + ' on devnet.' : 'Coins on devnet.';
+  var h = n ? n + (n === 1 ? ' coin' : ' coins') + ' on ' + N.place + '.' : 'Coins on ' + N.place + '.';
   if ($('#h').textContent !== h) $('#h').textContent = h;
   setTotals(n
     ? '<b>' + g + '</b> graduated · <b>' + fSol(vol) + '</b> SOL traded · <b>' + fSol(fees) + '</b> SOL in fees, ' + (half ? 'half to the creators' : '<b>' + fSol(toCreators) + '</b> to the creators')
@@ -410,18 +421,29 @@ function readAgo() {
   return s < 20 ? 'just now' : s < 90 ? s + ' s ago' : Math.round(s / 60) + ' min ago';
 }
 
+// no program on this cluster yet: an empty board that says so, and no call to the chain
+function notYet() {
+  var line = 'Nox is not on ' + N.place + ' ' + N.label + ' yet.';
+  setTotals('');
+  boardEl.innerHTML = ''; ghostCvs = [];
+  setStatus(line, false);
+  setTape('');
+  showState('<p>' + esc(line) + '</p>');
+}
+
 var loading = false, firstDone = false, slowTimer = 0;
 async function load() {
   if (loading) return;
+  if (notThere) { notYet(); return; }
   loading = true;
   var first = !firstDone;
   if (first) {
     showState('');
     if (!boardEl.querySelector('.coin.ghost:not(.empty)')) ghostSlots(4, false);
-    setStatus('reading devnet…', false, true);
+    setStatus('reading ' + N.place + '…', false, true);
     setTape('');
     clearTimeout(slowTimer);
-    slowTimer = setTimeout(function () { if (loading && !firstDone) setStatus('devnet is slow to answer, still reading…', false, true); }, 6000);
+    slowTimer = setTimeout(function () { if (loading && !firstDone) setStatus(N.place + ' is slow to answer, still reading…', false, true); }, 6000);
   }
   try {
     if (Q.get('offline') === '1') throw new Error('offline');   // a check can see the failed board without cutting the network
@@ -447,18 +469,18 @@ async function load() {
     if (!coins.length) { if (!boardEl.querySelector('.coin.empty')) ghostSlots(1, true); }
     else coins.forEach(function (c) { if (c.dirty) paint(c); renderText(c); if (!c.el.isConnected) boardEl.appendChild(c.el); });
     applyView();   // the counts too, so they go back to 0 if every coin is gone
-    setStatus('read from devnet just now, again every 30 s', true);
+    setStatus('read from ' + N.place + ' just now, again every 30 s', true);
   } catch (err) {
     if (!firstDone) {
       setTotals('');
       boardEl.innerHTML = ''; ghostCvs = [];
-      setStatus('devnet did not answer.', false);
+      setStatus(N.place + ' did not answer.', false);
       setTape('');
       var why = err && err.message === 'timeout' ? 'It took longer than 20 seconds.' : err && err.message === 'offline' ? 'Offline view.' : 'The request failed.';
-      showState('<p>Devnet did not answer.<small>' + why + ' Nothing on this board is made up, so it stays empty until devnet answers.</small></p><button type="button" class="btn sm ghost" id="retry">try again</button>');
+      showState('<p>' + N.Place + ' did not answer.<small>' + why + ' Nothing on this board is made up, so it stays empty until ' + N.place + ' answers.</small></p><button type="button" class="btn sm ghost" id="retry">try again</button>');
       $('#retry').addEventListener('click', function () { this.disabled = true; load(); });
     } else {
-      setStatus('last read ' + readAgo() + ', and devnet did not answer the latest check; trying again in 30 s', false);
+      setStatus('last read ' + readAgo() + ', and ' + N.place + ' did not answer the latest check; trying again in 30 s', false);
     }
   } finally {
     loading = false; clearTimeout(slowTimer);
