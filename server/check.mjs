@@ -1,17 +1,21 @@
-// Checks the site's server (rpc.mjs, history.mjs) against a fake node on this machine. Nothing touches a real cluster.
+// Checks the site's server (rpc.mjs, history.mjs, price.mjs, birth.mjs) against fake nodes on this machine. Nothing
+// touches a real cluster.
 //
 //   node server/check.mjs        (from the repo root; site/chain must have its node_modules, for a real transaction)
 
 import { createServer } from "node:http";
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
+import { createHash } from "node:crypto";
 import { handleRpc, programsOf } from "./rpc.mjs";
 import { handleHistory } from "./history.mjs";
-import { CLUSTERS, addressBytes } from "./config.mjs";
+import { CLUSTERS, addressBytes, publicPace, PUBLIC_GAP } from "./config.mjs";
 
 let failed = 0;
 const line = (ok, text) => { if (!ok) failed++; console.log(`${ok ? "  ok  " : "  FAIL"} ${text}`); };
 const PROGRAM = CLUSTERS.devnet.program;
+/** The first bytes of one of the program's accounts: Anchor's mark of its kind, then its first field (a pool's mint). */
+const accountData = (kind, first = Buffer.alloc(32, 1)) => Buffer.concat([createHash("sha256").update(`account:${kind}`).digest().subarray(0, 8), first]).toString("base64");
 
 /* ---------- the program ids here and in site/net.js agree ---------- */
 const netJs = readFileSync(new URL("../site/net.js", import.meta.url), "utf8");
@@ -19,7 +23,7 @@ line(netJs.includes(`program: "${PROGRAM}"`), "site/net.js names the same devnet
 line(/mainnet:[\s\S]*?program: "([^"]*)"/.exec(netJs)?.[1] === CLUSTERS.mainnet.program, "and the same (still empty) mainnet program");
 
 /* ---------- a fake node ---------- */
-const node = { calls: [], batches: 0, sigs: [], txs: new Map(), owner: PROGRAM, limit: Infinity, window: [], null: new Set() };
+const node = { calls: [], times: [], batches: 0, sigs: [], txs: new Map(), owner: PROGRAM, data: accountData("Pool"), limit: Infinity, window: [], null: new Set() };
 const fake = createServer((req, res) => {
   let body = "";
   req.on("data", (c) => { body += c; });
@@ -28,7 +32,7 @@ const fake = createServer((req, res) => {
     if (Array.isArray(parsed)) node.batches++;
     const now = Date.now();
     const answer = list.map((c) => {
-      node.calls.push(c.method);
+      node.calls.push(c.method); node.times.push(now);
       if (c.method === "getTransaction") {
         node.window = node.window.filter((t) => t > now - 1000); node.window.push(now);
         if (node.window.length > node.limit) return { jsonrpc: "2.0", id: c.id, error: { code: 429, message: "slow" } };
@@ -42,7 +46,7 @@ const fake = createServer((req, res) => {
         ] } } : null };
       }
       if (c.method === "getSignaturesForAddress") return { jsonrpc: "2.0", id: c.id, result: node.sigs.slice(0, c.params[1]?.limit ?? 1000) };
-      if (c.method === "getAccountInfo") return { jsonrpc: "2.0", id: c.id, result: { context: { slot: 1 }, value: { owner: node.owner, lamports: 1, data: ["", "base64"], executable: false, rentEpoch: 0 } } };
+      if (c.method === "getAccountInfo") return { jsonrpc: "2.0", id: c.id, result: { context: { slot: 1 }, value: { owner: node.owner, lamports: 1, data: [node.data, "base64"], executable: false, rentEpoch: 0 } } };
       return { jsonrpc: "2.0", id: c.id, result: `${c.method} answered` };
     });
     res.writeHead(200, { "content-type": "application/json" });
@@ -174,6 +178,14 @@ function makeSigs(n, tag) {
   r = await hist("7f2MiAuyJ1Aaiheo9ctLgJmzGDWoDceyHEEuVB2mhPAA");
   line(r.status === 404, "an address that is not a pool of the program gets nothing");
   node.owner = PROGRAM;
+  const { base58 } = await import("./config.mjs");
+  node.data = accountData("Seat", Buffer.alloc(32, 2));
+  r = await hist(base58(Buffer.alloc(32, 41)));
+  line(r.status === 404, "nor a seat of an opening batch, though the program owns it");
+  node.data = accountData("Config", Buffer.alloc(32, 2));
+  r = await hist(base58(Buffer.alloc(32, 42)));
+  line(r.status === 404, "nor the program's config");
+  node.data = accountData("Pool");
   r = await hist("xyz");
   line(r.status === 400, "nor does something that is not an address");
   r = await hist(POOL, { origin: "https://elsewhere.example" });
@@ -181,18 +193,23 @@ function makeSigs(n, tag) {
 }
 {
   // the public node: one call every 1.3 s, so a long history comes over a few answers
-  makeSigs(12, "free"); node.calls = [];
+  makeSigs(12, "free"); node.calls = []; node.times = [];
   const env = { RPC_URL_DEVNET: "" };
   const POOL2 = "FHfQPN22769p2qFcF6r2YooGnp2SRXmnMEH5cUN1Dny2";
   // the public node is the real one by default: point it at the fake one for this check
   const real = CLUSTERS.devnet.publicRpc;
   CLUSTERS.devnet.publicRpc = UP;
-  const t0 = Date.now();
+  const t0 = Date.now(), mark = t0 + 1500;
+  publicPace.devnet = mark;                              // as if the birth had just taken the node's turn
   let r = await hist(POOL2, { env });
   let b = await r.json();
   const took = Date.now() - t0;
   line(r.status === 200 && !b.complete && b.have >= 4 && b.have <= 7, `the public node, first answer: ${b.have} of ${b.total} in ${(took / 1000).toFixed(1)} s, not complete`);
+  const gaps = node.times.slice(1).map((t, i) => t - node.times[i]);
+  line(node.calls[0] === "getAccountInfo" && node.calls[1] === "getSignaturesForAddress" && node.times[0] >= mark - 5 && gaps.every((g) => g >= PUBLIC_GAP - 5),
+    `every call takes its turn, the pool check and the listing too: the first at the mark, then ${Math.min(...gaps)} ms apart at least`);
   line(/s-maxage=1/.test(r.headers.get("cache-control")), "an answer still filling is kept only 1 s at the edge");
+  line(publicPace.devnet > t0, "and its calls set the public node's one mark, which the birth keeps too");
   const newest = node.sigs.filter((s) => !s.err).slice(0, b.have).map((s) => s.signature);
   line(newest.every((s) => b.txs[s]), "and what it has is the newest");
   r = await hist(POOL2, { env }); b = await r.json();
@@ -281,71 +298,299 @@ function makeSigs(n, tag) {
 /* ---------- a coin's birth ---------- */
 {
   const { handleBirth, events, funder } = await import("./birth.mjs");
-  const { createHash } = await import("node:crypto");
   const { base58 } = await import("./config.mjs");
   const tagOf = (name) => createHash("sha256").update(`event:${name}`).digest().subarray(0, 8);
   const keyOf = (n) => Buffer.alloc(32, n);
   const u64 = (n) => { const b = Buffer.alloc(8); b.writeBigUInt64LE(BigInt(n)); return b; };
-  const trade = (mint, trader, buy, sol) => Buffer.concat([tagOf("TradeEvent"), mint, trader, trader, Buffer.from([buy ? 1 : 0]), u64(sol), u64(sol * 30), u64(1), u64(1), u64(1), Buffer.from([0])]).toString("base64");
-  const launched = (mint, creator) => Buffer.concat([tagOf("Launched"), mint, creator, keyOf(0), u64(30e9), u64(52e9), Buffer.from([100, 0])]).toString("base64");
+  const trade = (mint, trader, buy, sol) => Buffer.concat([tagOf("TradeEvent"), mint, trader, trader, Buffer.from([buy ? 1 : 0]), u64(sol), u64(sol * 30), u64(1), u64(1), u64(1), Buffer.from([0, 0])]).toString("base64");
+  const launched = (mint, creator) => Buffer.concat([tagOf("Launched"), mint, creator, keyOf(0), u64(30e9), u64(52e9), Buffer.from([100, 0]), u64(0)]).toString("base64");
+  const seatEvent = (name, mint, owner, sol, seatSol, total = 0) => Buffer.concat([tagOf(name), mint, owner, u64(sol), u64(seatSol), u64(total)]).toString("base64");
+  const settled = (mint, sol, tokens, seats) => { const n = Buffer.alloc(4); n.writeUInt32LE(seats); return Buffer.concat([tagOf("Settled"), mint, u64(sol), u64(tokens), n, Buffer.from([0])]).toString("base64"); };
   const MINT = keyOf(5), CREATOR = keyOf(7), A = keyOf(8), B = keyOf(9), C = keyOf(10), FUNDER = keyOf(11);
   const [creator, a, b, c, funderKey] = [CREATOR, A, B, C, FUNDER].map(base58);
 
   // the decoders
   const ev = events([launched(MINT, CREATOR), trade(MINT, CREATOR, true, 2.5e8)]);
   line(ev.length === 2 && ev[0].kind === "launch" && ev[0].creator === creator && ev[1].trader === creator && ev[1].buy && ev[1].sol === 250000000n, "the launch and trade events decode");
+  const cv = events([seatEvent("Committed", MINT, A, 5e8, 5e8, 7e8)]);
+  line(cv.length === 1 && cv[0].kind === "commit" && cv[0].owner === a && cv[0].sol === 500000000n && cv[0].seatSol === 500000000n, "a seat taken in an opening batch decodes");
+  const wv = events([seatEvent("Withdrawn", MINT, A, 2e8, 3e8, 4e8), settled(MINT, 9e8, 123, 4)]);
+  line(wv[0]?.kind === "withdraw" && wv[0].seatSol === 300000000n && wv[0].total === 400000000n && wv[1]?.kind === "settled" && wv[1].sol === 900000000n && wv[1].tokens === 123n && wv[1].seats === 4 && !wv[1].refund,
+    "a withdrawal and the batch's settle decode");
   const f = funder({ transaction: { message: { accountKeys: [funderKey, a, "11111111111111111111111111111111"] } }, meta: { preBalances: [5e9, 0, 1], postBalances: [3.99e9, 1e9, 1] } }, a);
   line(f && f.by === funderKey && f.sol === 1, `the funder is the account whose balance fell most (${f && f.by.slice(0, 4)}, ${f && f.sol} SOL)`);
   line(funder({ transaction: { message: { accountKeys: [a] } }, meta: { preBalances: [5], postBalances: [4] } }, a) === null, "a transaction where the wallet only spent gives no funder");
 
-  // a small chain: the launch with the creator's buy, then buys by A (funded by the creator), B (an older wallet),
-  // C (no earlier transaction), and A again (not a new buyer)
-  const tx = (sig, slot, lines) => ({ signature: sig, slot, blockTime: 1_800_000_000 + slot, lines });
-  const chainTxs = [
-    tx("launchsig".padEnd(88, "x"), 100, [launched(MINT, CREATOR), trade(MINT, CREATOR, true, 2.5e8)]),
-    tx("buyA".padEnd(88, "x"), 101, [trade(MINT, A, true, 1e8)]),
-    tx("buyB".padEnd(88, "x"), 102, [trade(MINT, B, true, 2e8)]),
-    tx("buyC".padEnd(88, "x"), 103, [trade(MINT, C, true, 3e8)]),
-    tx("buyA2".padEnd(88, "x"), 104, [trade(MINT, A, true, 4e8)]),
-  ];
-  const fundA = { signature: "fundA".padEnd(88, "x"), slot: 90, blockTime: 1_800_000_090 };
-  const node2 = createServer((req, res) => {
+  // a fake chain: each address's signatures (newest first, with before/until/limit as the node reads them), the
+  // transactions, the program's accounts, node errors still to give for a transaction, and every call made (with when)
+  const chain = { sigs: new Map(), txs: new Map(), accounts: new Map(), errs: new Map(), calls: [] };
+  const sigOf = (name) => name.padEnd(88, "x");
+  let slot = 100;
+  const listed = (who, signature, s, err) => {
+    if (!chain.sigs.has(who)) chain.sigs.set(who, []);
+    chain.sigs.get(who).unshift({ signature, slot: s, blockTime: 1_800_000_000 + s, err, memo: null, confirmationStatus: "finalized" });
+  };
+  /** A pool's next transaction, with these event lines logged by the program. */
+  const poolTx = (pool, name, lines, err = null) => {
+    const signature = sigOf(name), s = slot++;
+    listed(pool, signature, s, err);
+    chain.txs.set(signature, { blockTime: 1_800_000_000 + s, slot: s, transaction: { message: { accountKeys: [] } }, meta: { err, logMessages: [`Program ${PROGRAM} invoke [1]`, ...lines.map((d) => `Program data: ${d}`), `Program ${PROGRAM} success`] } });
+    return signature;
+  };
+  /** A wallet's own transaction before its buys: `from` sent it `gain` lamports (no `from`: it only spent). */
+  const walletTx = (wallet, name, { from, gain = 1e9, err = null } = {}) => {
+    const signature = sigOf(name), s = slot++;
+    listed(wallet, signature, s, err);
+    chain.txs.set(signature, from
+      ? { blockTime: 1_800_000_000 + s, slot: s, transaction: { message: { accountKeys: [from, wallet] } }, meta: { err, preBalances: [9e9, 0], postBalances: [9e9 - gain - 5000, gain], logMessages: [] } }
+      : { blockTime: 1_800_000_000 + s, slot: s, transaction: { message: { accountKeys: [wallet, base58(keyOf(99))] } }, meta: { err, preBalances: [1e9, 0], postBalances: [5e8, 4.99e8], logMessages: [] } });
+    return signature;
+  };
+  const spam = (pool, n) => { for (let i = 0; i < n; i++) listed(pool, sigOf(`spam${pool.slice(0, 6)}${i}`), slot++, null); };
+  const isPoolOf = (mint) => ({ owner: PROGRAM, data: accountData("Pool", mint) });
+  const chainNode = createServer((req, res) => {
     let body = ""; req.on("data", (d) => { body += d; });
     req.on("end", () => {
       const parsed = JSON.parse(body), list = Array.isArray(parsed) ? parsed : [parsed];
       const answer = list.map((cl) => {
-        const p = cl.params ?? [];
-        if (cl.method === "getAccountInfo") return { jsonrpc: "2.0", id: cl.id, result: { context: { slot: 1 }, value: { owner: PROGRAM, lamports: 1, data: ["", "base64"], executable: false, rentEpoch: 0 } } };
+        const p = cl.params ?? [], ok = (result) => ({ jsonrpc: "2.0", id: cl.id, result });
+        chain.calls.push({ method: cl.method, params: p, t: Date.now() });
+        if (cl.method === "getAccountInfo") {
+          const acc = chain.accounts.get(p[0]);
+          return ok({ context: { slot: 1 }, value: acc ? { owner: acc.owner, lamports: 1, data: [acc.data, "base64"], executable: false, rentEpoch: 0 } : null });
+        }
         if (cl.method === "getSignaturesForAddress") {
-          if (p[0] === POOL3) return { jsonrpc: "2.0", id: cl.id, result: [...chainTxs].reverse().map((t) => ({ signature: t.signature, slot: t.slot, blockTime: t.blockTime, err: null, memo: null, confirmationStatus: "finalized" })) };
-          if (p[0] === a) return { jsonrpc: "2.0", id: cl.id, result: [fundA] };
-          if (p[0] === b) return { jsonrpc: "2.0", id: cl.id, result: Array.from({ length: 1000 }, (_, i) => ({ signature: `old${i}`.padEnd(88, "x"), slot: i, blockTime: 1, err: null })) };
-          return { jsonrpc: "2.0", id: cl.id, result: [] };
+          const all = chain.sigs.get(p[0]) ?? [], o = p[1] ?? {};
+          const from = (o.before ? all.findIndex((s) => s.signature === o.before) : -1) + 1;   // a signature it does not list: from the newest
+          const u = o.until ? all.findIndex((s) => s.signature === o.until) : -1;
+          return ok(all.slice(from, Math.min(u < 0 ? all.length : u, from + (o.limit ?? 1000))));
         }
         if (cl.method === "getTransaction") {
-          if (p[0] === fundA.signature) return { jsonrpc: "2.0", id: cl.id, result: { blockTime: fundA.blockTime, slot: fundA.slot, transaction: { message: { accountKeys: [creator, a] } }, meta: { err: null, preBalances: [9e9, 0], postBalances: [7.99e9, 2e9], logMessages: [] } } };
-          const t = chainTxs.find((x) => x.signature === p[0]);
-          return { jsonrpc: "2.0", id: cl.id, result: t ? { blockTime: t.blockTime, slot: t.slot, transaction: { message: { accountKeys: [] } }, meta: { err: null, logMessages: [`Program ${PROGRAM} invoke [1]`, ...t.lines.map((d) => `Program data: ${d}`), `Program ${PROGRAM} success`] } } : null };
+          const errs = chain.errs.get(p[0]) ?? 0;
+          if (errs > 0) { chain.errs.set(p[0], errs - 1); return { jsonrpc: "2.0", id: cl.id, error: { code: -32005, message: "Node is behind" } }; }
+          return ok(chain.txs.get(p[0]) ?? (p[0].startsWith("spam") ? { blockTime: 1, slot: 1, transaction: { message: { accountKeys: [] } }, meta: { err: null, logMessages: [] } } : null));
         }
         return { jsonrpc: "2.0", id: cl.id, error: { code: -32601, message: "no" } };
       });
       res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify(Array.isArray(parsed) ? answer : answer[0]));
     });
   });
-  const POOL3 = "QSj33hfaVGjppx8hxK1Ms6weBSvKdNZCD7Xv3dU8rhf";
-  await new Promise((ok) => node2.listen(0, "127.0.0.1", ok));
-  const env = { RPC_URL_DEVNET: `http://127.0.0.1:${node2.address().port}` };
-  const r = await handleBirth(new Request(`${SITE}/api/birth?cluster=devnet&pool=${POOL3}`, { headers: { "x-forwarded-for": "10.9.9.9" } }), env);
-  const j = await r.json();
-  line(r.status === 200 && j.complete && j.launch?.creator === creator && j.launch.slot === 100, `the launch: slot ${j.launch?.slot}, by ${j.launch?.creator.slice(0, 4)}`);
-  line(j.launch?.firstBuy?.sol === 0.25, `the creator's buy in the launch: ${j.launch?.firstBuy?.sol} SOL`);
-  const byW = Object.fromEntries((j.buyers ?? []).map((x) => [x.wallet, x]));
-  line(j.buyers?.length === 4 && byW[creator]?.creator && !byW[a]?.creator, `four first buyers, each once, the creator marked (${j.buyers?.length})`);
-  line(byW[a]?.funding?.by === creator && byW[a].funding.sol === 2 && byW[a].funding.signature === fundA.signature, "A's SOL came from the creator's wallet, 2 SOL, with its transaction");
-  line(byW[b]?.funding?.older === true, "B is an older wallet (over 1,000 transactions before)");
-  line(byW[c]?.funding?.none === true, "C has no transfer before its buy");
-  line(/s-maxage=60/.test(r.headers.get("cache-control")), "fewer than ten buyers: kept a minute, then read again");
-  node2.close();
+  await new Promise((ok) => chainNode.listen(0, "127.0.0.1", ok));
+  const CHAIN = `http://127.0.0.1:${chainNode.address().port}`, env = { RPC_URL_DEVNET: CHAIN };
+  let asker = 0;
+  const birth = async (pool, e = env) => {
+    const r = await handleBirth(new Request(`${SITE}/api/birth?cluster=devnet&pool=${pool}`, { headers: { "x-forwarded-for": `10.9.${++asker % 250}.9` } }), e);
+    const text = await r.text();
+    let j = null;
+    try { j = JSON.parse(text); } catch { /* not JSON: j stays null */ }
+    return { r, j, text };
+  };
+  const calls = (method, who) => chain.calls.filter((x) => x.method === method && (!who || x.params[0] === who));
+  const realNow = Date.now;
+  let shift = 0;
+  Date.now = () => realNow() + shift;                    // later asks, a minute or hours on
+
+  // a small chain: the launch with the creator's buy, then buys by A (funded by the creator), B (an older wallet),
+  // C (no earlier transaction), and A again (not a new buyer); between them a transaction that names the pool and
+  // carries another pool's launch and buy, and a failed one
+  const POOL3 = base58(keyOf(30));
+  chain.accounts.set(POOL3, isPoolOf(MINT));
+  const D = keyOf(12), OTHER = keyOf(6);
+  const fundA = walletTx(a, "fundA", { from: creator, gain: 2e9 });
+  for (let i = 0; i < 1000; i++) listed(b, sigOf(`old${i}`), i, null);
+  const launchSlot = slot;
+  poolTx(POOL3, "launchsig", [launched(MINT, CREATOR), trade(MINT, CREATOR, true, 2.5e8)]);
+  poolTx(POOL3, "buyA", [trade(MINT, A, true, 1e8)]);
+  poolTx(POOL3, "elsewhere", [launched(OTHER, D), trade(OTHER, D, true, 5e8)]);
+  poolTx(POOL3, "buyB", [trade(MINT, B, true, 2e8)]);
+  const failedSig = poolTx(POOL3, "failed", [trade(MINT, D, true, 1e8)], { InstructionError: [0, "x"] });
+  poolTx(POOL3, "buyC", [trade(MINT, C, true, 3e8)]);
+  poolTx(POOL3, "buyA2", [trade(MINT, A, true, 4e8)]);
+  {
+    const { r, j } = await birth(POOL3);
+    line(r.status === 200 && j.complete && j.launch?.creator === creator && j.launch.slot === launchSlot, `the launch: slot ${j.launch?.slot}, by ${j.launch?.creator.slice(0, 4)}`);
+    line(j.launch?.firstBuy?.sol === 0.25 && j.launch.firstBuy.tokens === 7.5e3, `the creator's buy in the launch: ${j.launch?.firstBuy?.sol} SOL`);
+    const byW = Object.fromEntries((j.buyers ?? []).map((x) => [x.wallet, x]));
+    line(j.buyers?.length === 4 && byW[creator]?.creator && !byW[a]?.creator, `four first buyers, each once, the creator marked (${j.buyers?.length})`);
+    line(!byW[base58(D)], "a buy in another pool, in a transaction that names this one, is not this pool's");
+    line(!calls("getTransaction").some((x) => x.params[0] === failedSig), "a failed transaction is not fetched");
+    line(j.read === 5 && j.more === false, `read: the 5 transactions with this pool's events, nothing after them (${j.read}, more: ${j.more})`);
+    line(byW[a]?.funding?.by === creator && byW[a].funding.sol === 2 && byW[a].funding.signature === fundA, "A's SOL came from the creator's wallet, 2 SOL, with its transaction");
+    line(byW[b]?.funding?.older === true, "B is an older wallet (1,000 transactions before)");
+    line(byW[c]?.funding?.none === true, "C has no transfer before its buy");
+    line(/s-maxage=60/.test(r.headers.get("cache-control")), "fewer than ten buyers: cached a minute at the edge");
+  }
+
+  // read on, not again: a young coin gets only its new transactions read a minute later; and a buyer's funding skips
+  // its failed transactions and tries its oldest three
+  const POOL5 = base58(keyOf(32)), MINT5 = keyOf(13), E1 = base58(keyOf(14)), E2 = base58(keyOf(15)), E3 = keyOf(17), E4 = keyOf(18);
+  chain.accounts.set(POOL5, isPoolOf(MINT5));
+  const e1Fail = walletTx(E1, "e1Fail", { from: base58(keyOf(16)), err: { InstructionError: [0, "x"] } });
+  walletTx(E1, "e1Spend");
+  const e1Fund = walletTx(E1, "e1Fund", { from: funderKey });
+  const e2Spends = [walletTx(E2, "e2Spend1"), walletTx(E2, "e2Spend2"), walletTx(E2, "e2Spend3")];
+  walletTx(E2, "e2Fund", { from: funderKey });
+  poolTx(POOL5, "launch5", [launched(MINT5, CREATOR), trade(MINT5, CREATOR, true, 1e8)]);
+  poolTx(POOL5, "buyE1", [trade(MINT5, keyOf(14), true, 1e8)]);
+  const lastSeen = poolTx(POOL5, "buyE2", [trade(MINT5, keyOf(15), true, 1e8)]);
+  {
+    chain.calls = [];
+    let { j } = await birth(POOL5);
+    const byW = Object.fromEntries((j.buyers ?? []).map((x) => [x.wallet, x]));
+    line(j.complete && j.buyers.length === 3, `a young coin: ${j.buyers?.length} buyers, complete`);
+    line(byW[E1]?.funding?.by === funderKey && byW[E1].funding.signature === e1Fund && !calls("getTransaction").some((x) => x.params[0] === e1Fail),
+      "a buyer's failed oldest transaction is skipped, one that only spent is passed, the next one funded it");
+    const e2Read = calls("getTransaction").filter((x) => x.params[0].startsWith("e2")).map((x) => x.params[0]);
+    line(byW[E2]?.funding?.none === true && e2Read.length === 3 && e2Spends.every((s) => e2Read.includes(s)), `none of a buyer's oldest three gave it SOL: none (${e2Read.length} read)`);
+    chain.calls = [];
+    ({ j } = await birth(POOL5));
+    line(j.complete && chain.calls.length === 0, "asked again within the minute: nothing goes to the node");
+    const newSigs = [poolTx(POOL5, "buyE3", [trade(MINT5, E3, true, 1e8)]), poolTx(POOL5, "buyE4", [trade(MINT5, E4, true, 1e8)])];
+    shift += 61_000;
+    chain.calls = [];
+    ({ j } = await birth(POOL5));
+    const listedPool = calls("getSignaturesForAddress", POOL5), fetched = calls("getTransaction").map((x) => x.params[0]);
+    line(listedPool.length === 1 && listedPool[0].params[1].until === lastSeen, "a minute later: one listing, of the signatures after the newest seen");
+    line(fetched.length === 2 && newSigs.every((s) => fetched.includes(s)) && !calls("getAccountInfo").length, `and only the two new transactions are fetched (${fetched.length})`);
+    line(j.buyers.length === 5 && j.read === 5 && j.buyers[3].wallet === base58(E3) && j.buyers[1].funding?.by === funderKey, `five buyers now, the first three as they were (${j.buyers.length}, read ${j.read})`);
+  }
+
+  // an opening batch: the creator's seat taken in the launch, seats in and out, and more than ten wallets; after the
+  // tenth the reading goes on to the settle, for the seats' last SOL
+  const POOL4 = base58(keyOf(31)), MINT4 = keyOf(20), W = Array.from({ length: 11 }, (_, i) => keyOf(50 + i)), w = W.map(base58);
+  chain.accounts.set(POOL4, isPoolOf(MINT4));
+  poolTx(POOL4, "launch4", [launched(MINT4, CREATOR), seatEvent("Committed", MINT4, CREATOR, 5e8, 5e8)]);
+  poolTx(POOL4, "w0in", [seatEvent("Committed", MINT4, W[0], 2e8, 2e8)]);
+  poolTx(POOL4, "w0more", [seatEvent("Committed", MINT4, W[0], 1e8, 3e8)]);
+  poolTx(POOL4, "w1in", [seatEvent("Committed", MINT4, W[1], 4e8, 4e8)]);
+  poolTx(POOL4, "w1out", [seatEvent("Withdrawn", MINT4, W[1], 4e8, 0)]);
+  for (let i = 2; i < 10; i++) poolTx(POOL4, `w${i}in`, [seatEvent("Committed", MINT4, W[i], 1e8, 1e8)]);
+  poolTx(POOL4, "w0less", [seatEvent("Withdrawn", MINT4, W[0], 1e8, 2e8)]);
+  poolTx(POOL4, "settle4", [settled(MINT4, 1.5e9, 4e13, 10), trade(MINT4, keyOf(31), true, 1.5e9)]);
+  poolTx(POOL4, "w10buy", [trade(MINT4, W[10], true, 1e8)]);
+  let finalText;
+  {
+    chain.calls = [];
+    const { r, j, text } = await birth(POOL4);
+    finalText = text;
+    const byW = Object.fromEntries((j.buyers ?? []).map((x) => [x.wallet, x]));
+    line(j.launch?.firstBuy?.batch === true && j.launch.firstBuy.sol === 0.5 && !("tokens" in j.launch.firstBuy), "the creator's seat in the launch is its first buy, batch: true");
+    line(j.buyers?.length === 10 && !byW[w[9]] && !byW[POOL4] && !byW[w[10]], "ten first wallets: the eleventh seat, the batch's own buy and a later buyer are not among them");
+    line(byW[creator]?.creator && byW[creator].batch && byW[creator].seat?.sol === 0.5 && byW[creator].seat.settled, "the creator's seat: 0.5 SOL, settled");
+    line(byW[w[0]]?.sol === 0.2 && byW[w[0]].seat?.sol === 0.2 && byW[w[0]].seat.settled && !byW[w[0]].seat.out,
+      `a seat followed past the tenth wallet to the settle: first 0.2, then 0.3, at the settle ${byW[w[0]]?.seat?.sol} SOL`);
+    line(byW[w[1]]?.seat?.sol === 0 && byW[w[1]].seat.out === true && byW[w[1]].seat.settled, "a seat emptied before the settle: 0 SOL, out");
+    line(j.read === 15 && j.more === true, `the reading stops at the settle, with a transaction after it (read ${j.read}, more: ${j.more})`);
+    line(j.complete && /s-maxage=3600/.test(r.headers.get("cache-control")), "final: cached at the edge for an hour");
+  }
+  {
+    shift += 2 * 60 * 60 * 1000;
+    chain.calls = [];
+    const { r, text } = await birth(POOL4);
+    line(r.status === 200 && text === finalText && chain.calls.length === 0, `two hours later: the same answer, from memory, no call to the node (${chain.calls.length})`);
+    const { j } = await birth(POOL5);
+    line(j.complete && calls("getSignaturesForAddress").length === 1 && !calls("getTransaction").length && !calls("getAccountInfo").length,
+      "a coin that is not final is still kept: only a listing of what is new");
+  }
+
+  // a batch of fewer than ten seats: the settle's buy, by the pool itself, is not a buyer; a buy after the settle is
+  const POOL9 = base58(keyOf(39)), MINT9 = keyOf(24), S1 = keyOf(25), L1 = keyOf(26);
+  chain.accounts.set(POOL9, isPoolOf(MINT9));
+  poolTx(POOL9, "launch9", [launched(MINT9, CREATOR), seatEvent("Committed", MINT9, CREATOR, 3e8, 3e8)]);
+  poolTx(POOL9, "s1in", [seatEvent("Committed", MINT9, S1, 2e8, 2e8)]);
+  poolTx(POOL9, "settle9", [settled(MINT9, 5e8, 1e13, 2), trade(MINT9, keyOf(39), true, 5e8)]);
+  poolTx(POOL9, "l1buy", [trade(MINT9, L1, true, 1e8)]);
+  {
+    const { j } = await birth(POOL9);
+    const order = (j.buyers ?? []).map((x) => x.wallet), last = j.buyers?.[2];
+    line(j.complete && order.join() === [creator, base58(S1), base58(L1)].join() && !order.includes(POOL9),
+      `two seats and the settle: the pool's own buy in it is not a buyer (${order.length} wallets)`);
+    line(j.buyers?.[1]?.seat?.sol === 0.2 && j.buyers[1].seat.settled && last && !last.batch && !("seat" in last) && last.sol === 0.1,
+      "and a buy after the settle is one, without a seat");
+  }
+
+  // a node error on a buyer's funding transaction: it is not read, so no later sender and no "none" stand for it; the
+  // other buyers go on, the answer stays incomplete, and the next ask tries the same transaction again
+  const POOL10 = base58(keyOf(40)), MINT10 = keyOf(27), [X, Y, Z, F1, F2] = [41, 42, 43, 44, 45].map((n) => base58(keyOf(n)));
+  chain.accounts.set(POOL10, isPoolOf(MINT10));
+  const xFund = walletTx(X, "xFund", { from: F1 });
+  walletTx(X, "xLater", { from: F2 });
+  walletTx(Y, "yFund", { from: F2 });
+  const zSpends = [walletTx(Z, "zSpend1"), walletTx(Z, "zSpend2"), walletTx(Z, "zSpend3")];
+  poolTx(POOL10, "launch10", [launched(MINT10, CREATOR)]);
+  poolTx(POOL10, "buyX", [trade(MINT10, keyOf(41), true, 1e8)]);
+  poolTx(POOL10, "buyZ", [trade(MINT10, keyOf(43), true, 1e8)]);
+  poolTx(POOL10, "buyY", [trade(MINT10, keyOf(42), true, 1e8)]);
+  chain.errs.set(xFund, 1); chain.errs.set(zSpends[0], 2);
+  {
+    chain.calls = [];
+    let { r, j } = await birth(POOL10);
+    let byW = Object.fromEntries((j.buyers ?? []).map((x) => [x.wallet, x]));
+    line(!j.complete && byW[X]?.funding === null && byW[Y]?.funding?.by === F2 && calls("getTransaction", xFund).length === 1 && /s-maxage=1\b/.test(r.headers.get("cache-control")),
+      "a node error on a buyer's oldest transaction: no later sender for it, the next buyers go on, not complete");
+    line(byW[Z]?.funding === null && calls("getTransaction", zSpends[0]).length === 1 && !calls("getTransaction", zSpends[1]).length, "and no \"none\" for one whose oldest was not read");
+    ({ j } = await birth(POOL10));
+    byW = Object.fromEntries((j.buyers ?? []).map((x) => [x.wallet, x]));
+    line(!j.complete && byW[X]?.funding?.by === F1 && byW[X].funding.signature === xFund && byW[Z]?.funding === null,
+      "asked again: the same transaction is read and its sender is the funder; one still failing stays unread");
+    ({ j } = await birth(POOL10));
+    byW = Object.fromEntries((j.buyers ?? []).map((x) => [x.wallet, x]));
+    const zAsked = zSpends.map((s) => calls("getTransaction", s).length);
+    line(j.complete && byW[Z]?.funding?.none === true && zAsked.join() === "3,1,1", `none once its oldest three were all served (asked ${zAsked.join(", ")} times)`);
+  }
+
+  // 5,000 transactions exactly: the start is in them (not tooOld); spam that only names the pool stops at 200 fetched.
+  // 5,001: its start is further back than this pages.
+  const POOL6 = base58(keyOf(33)), MINT6 = keyOf(21), POOL7 = base58(keyOf(34));
+  chain.accounts.set(POOL6, isPoolOf(MINT6)); chain.accounts.set(POOL7, isPoolOf(keyOf(22)));
+  poolTx(POOL6, "launch6", [launched(MINT6, CREATOR)]);
+  spam(POOL6, 4999);
+  poolTx(POOL7, "launch7", [launched(keyOf(22), CREATOR)]);
+  spam(POOL7, 5000);
+  {
+    chain.calls = [];
+    let { r, j } = await birth(POOL6);
+    line(!j.tooOld && j.launch?.signature === sigOf("launch6") && calls("getSignaturesForAddress", POOL6).length === 6, `exactly 5,000: five pages and one more look, the start found (tooOld: ${j.tooOld})`);
+    line(j.complete && j.read === 1 && j.more === true && calls("getTransaction").length === 200 && /s-maxage=3600/.test(r.headers.get("cache-control")),
+      `spam after the launch: ${calls("getTransaction").length} fetched, read ${j.read}, more: ${j.more}, final`);
+    chain.calls = [];
+    ({ r, j } = await birth(POOL7));
+    line(j.tooOld && j.complete && j.more && !j.buyers.length && !calls("getTransaction").length, `5,001: tooOld, nothing fetched (${calls("getSignaturesForAddress").length} listings)`);
+  }
+
+  // what the program owns and is not a pool: a seat, the config
+  {
+    const SEAT = base58(keyOf(35)), CONF = base58(keyOf(36)), ELSE = base58(keyOf(37));
+    chain.accounts.set(SEAT, { owner: PROGRAM, data: accountData("Seat", keyOf(9)) });
+    chain.accounts.set(CONF, { owner: PROGRAM, data: accountData("Config", keyOf(9)) });
+    chain.accounts.set(ELSE, { owner: "11111111111111111111111111111111", data: accountData("Pool", MINT) });
+    const seat = await birth(SEAT), conf = await birth(CONF), other = await birth(ELSE);
+    line(seat.r.status === 404 && conf.r.status === 404 && other.r.status === 404, `a seat, the config, a Pool-like account of another program: not pools (${seat.r.status} ${conf.r.status} ${other.r.status})`);
+  }
+
+  // the public node: the birth waits on the mark the history sets
+  {
+    const real = CLUSTERS.devnet.publicRpc;
+    CLUSTERS.devnet.publicRpc = CHAIN;
+    const POOL8 = base58(keyOf(38));
+    chain.accounts.set(POOL8, isPoolOf(keyOf(23)));
+    poolTx(POOL8, "launch8", [launched(keyOf(23), CREATOR)]);
+    publicPace.devnet = Date.now() + 30_000;             // as if the history had just taken the node's turns
+    chain.calls = [];
+    const t0 = realNow();
+    let { j } = await birth(POOL8, { RPC_URL_DEVNET: "" });
+    line(j && !j.complete && !j.buyers.length && !chain.calls.length && realNow() - t0 < 3000, "on the public node a birth keeps the history's pace: no call before the mark, the pool check included");
+    const mark = Date.now() + 500;
+    publicPace.devnet = mark;
+    ({ j } = await birth(POOL8, { RPC_URL_DEVNET: "" }));
+    const gaps = chain.calls.slice(1).map((x, i) => x.t - chain.calls[i].t);
+    line(j.complete && chain.calls[0]?.method === "getAccountInfo" && chain.calls[0].t >= mark - 5 && chain.calls.length === 3 && gaps.every((g) => g >= PUBLIC_GAP - 5),
+      `and with the mark near: its ${chain.calls.length} calls, the first at the mark, then ${Math.min(...gaps)} ms apart at least`);
+    publicPace.devnet = 0;
+    CLUSTERS.devnet.publicRpc = real;
+  }
+  Date.now = realNow;
+  chainNode.close();
 }
 
 fake.close();

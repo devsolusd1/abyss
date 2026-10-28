@@ -24,6 +24,34 @@ export function clusterOf(name, env = {}) {
   return { name, url: own || c.publicRpc, paid: Boolean(own), program: String(env[c.programEnv] ?? "").trim().replace(/^(["'])(.*)\1$/, "$2") || c.program };
 }
 
+/**
+ * The public node's pace: about one call every 1.3 s per address (measured; 8 per 10.5 s), and when each cluster's
+ * public node may be called next. Every call the history and the birth make to it (the pool check, the listings, the
+ * transactions) takes a turn on this one mark, so in one instance together they keep it. The door (rpc.mjs) passes a
+ * page's own calls on as they come. On Vercel each function runs in its own instances, with their own memory: there
+ * /api/history and /api/birth each keep the pace alone and together can pass it, and a 429 makes the one that got it
+ * wait a while.
+ */
+export const PUBLIC_GAP = 1312;
+export const publicPace = {};                            // cluster name -> when the public node may be called next
+const sleep = (ms) => new Promise((ok) => setTimeout(ok, Math.max(0, ms)));
+
+/** Thrown when the public node's next turn comes after the answer's time is spent. */
+export class OutOfTime extends Error {}
+
+/** Waits for the public node's next turn and takes it (a paid node has no pace); false when it comes after `until`. */
+export async function publicTurn(cluster, until = Infinity) {
+  if (cluster.paid) return true;
+  for (let wait; (wait = (publicPace[cluster.name] ?? 0) - Date.now()) > 0;) {
+    if (Date.now() + wait > until) return false;
+    await sleep(wait);                                   // and look again: another answer may have taken the turn
+  }
+  publicPace[cluster.name] = Date.now() + PUBLIC_GAP;
+  return true;
+}
+/** The public node answered 429: nothing in this instance calls it for a while. */
+export function backOff(cluster) { if (!cluster.paid) publicPace[cluster.name] = Date.now() + 12_000; }
+
 export const COMPUTE_BUDGET = "ComputeBudget111111111111111111111111111111";
 export const ATA_PROGRAM = "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL";
 

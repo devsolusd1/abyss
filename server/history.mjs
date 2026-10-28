@@ -1,31 +1,33 @@
 // One read of a pool's recent history for every visitor: /api/history?cluster=…&pool=<pool address>[&limit=1..100][&at=…].
 // It answers the pool's latest transactions with each one's event lines, so a coin page needs one call instead of one
-// per transaction (site/chain/src readHistory decodes them). Only pools of the pool program, and only the lines the
-// pool program itself logged: another program can name the pool in its own transaction and log whatever it likes.
+// per transaction (site/chain/src readHistory decodes them). Only pools of the pool program (its Pool accounts, not
+// its seats or config), and only the lines the pool program itself logged: another program can name the pool in its
+// own transaction and log whatever it likes.
 //
 // Transactions never change once they are in, so each is fetched once and kept in this instance's memory; the list of
 // signatures is read again at most every LIST_MS, or at once when `at` (the page's mark of the pool's state, which
 // changes with every trade or claim) is new. The answer is cached at the edge for a moment, per `at`. With a paid node
-// it fetches BATCH at a time; on the public node it keeps to that node's pace (about one call every 1.3 s), so a long
-// history comes in over a few answers (complete: false until it is all in).
+// it fetches BATCH at a time; on the public node each of its calls keeps to that node's pace (about one call every
+// 1.3 s, on the mark it shares with the birth: config.mjs), so a long history comes in over a few answers (complete:
+// false until it is all in).
 //
 // Answer: { total, have, complete, signatures: [{ signature, blockTime, err }], txs: { signature: { t, d: [base64] } } }
 
-import { clusterOf, addressBytes, callerOf, foreign, Limiter, json } from "./config.mjs";
+import { createHash } from "node:crypto";
+import { clusterOf, addressBytes, callerOf, foreign, Limiter, json, base58, OutOfTime, publicTurn, backOff } from "./config.mjs";
 
 const LIST_MS = 2000;
 const BUDGET_MS = 7000;                                  // how long one answer may spend fetching
 const BATCH = 10;
-const PUBLIC_GAP = 1312;                                 // ms between calls on the public node (8 per 10.5 s)
 const POOL_MS = 10 * 60 * 1000;                          // how long "this is one of the program's pools" is believed
 const MAX_ANSWER = 4 * 1024 * 1024;
 const PREFIX = "Program data: ";
+const POOL_TAG = createHash("sha256").update("account:Pool").digest().subarray(0, 8);   // Anchor's mark of a Pool account
 const asks = new Limiter(60, 10_000);
 const lists = new Map();                                 // cluster|pool|limit -> { at, mark, list }
-const pools = new Map();                                 // cluster|pool -> { at, ok }
+const pools = new Map();                                 // cluster|address -> { at, mint }
 const kept = new Map();                                  // signature -> { t, d }
 const fetching = new Map();                              // signature -> promise
-const nextAt = {};                                       // cluster -> when the public node may be called next
 
 function keep(map, key, value, max) { map.delete(key); map.set(key, value); if (map.size > max) map.delete(map.keys().next().value); }
 const sleep = (ms) => new Promise((ok) => setTimeout(ok, Math.max(0, ms)));
@@ -63,24 +65,35 @@ export async function call(cluster, body) {
 }
 const one = (method, params) => ({ jsonrpc: "2.0", id: 1, method, params });
 
-export async function isPool(cluster, pool) {
-  const key = `${cluster.name}|${pool}`, hit = pools.get(key), now = Date.now();
-  if (hit && now - hit.at < (hit.ok ? POOL_MS : 60_000)) return hit.ok;
-  const r = await call(cluster, one("getAccountInfo", [pool, { encoding: "base64", dataSlice: { offset: 0, length: 0 }, commitment: "confirmed" }]));
-  if (r?.error) throw new Error("node");
-  const ok = r?.result?.value?.owner === cluster.program;
-  keep(pools, key, { at: now, ok }, 2000);
-  return ok;
+/**
+ * The mint of a pool of the program, or null for any other address: the account is the program's and starts with the
+ * Pool account's mark (a seat or the config is the program's too, and is not a pool). Only its first 40 bytes are read.
+ * On the public node it waits for its turn; OutOfTime when that comes after `until`.
+ */
+export async function poolMint(cluster, address, until = Infinity) {
+  const key = `${cluster.name}|${address}`, hit = pools.get(key), now = Date.now();
+  if (hit && now - hit.at < (hit.mint ? POOL_MS : 60_000)) return hit.mint;
+  if (!(await publicTurn(cluster, until))) throw new OutOfTime();
+  const r = await call(cluster, one("getAccountInfo", [address, { encoding: "base64", dataSlice: { offset: 0, length: 40 }, commitment: "confirmed" }]));
+  if (r?.error) { if (r.error.code === 429) backOff(cluster); throw new Error("node"); }
+  const v = r?.result?.value, data = Array.isArray(v?.data) ? Buffer.from(String(v.data[0] ?? ""), "base64") : null;
+  const mint = v?.owner === cluster.program && data?.length >= 40 && data.subarray(0, 8).equals(POOL_TAG) ? base58(data.subarray(8, 40)) : null;
+  keep(pools, key, { at: now, mint }, 2000);
+  return mint;
 }
+export const isPool = async (cluster, address) => (await poolMint(cluster, address)) !== null;
 
-async function signatures(cluster, pool, limit, mark) {
-  const key = `${cluster.name}|${pool}|${limit}`, hit = lists.get(key), now = Date.now();
-  if (hit && now - hit.at < LIST_MS && hit.mark === mark) return hit.list;
+/** The pool's latest signatures; on the public node at its turn, or the list last read when that comes after `until`. */
+async function signatures(cluster, pool, limit, mark, until) {
+  const key = `${cluster.name}|${pool}|${limit}`, hit = lists.get(key);
+  if (hit && Date.now() - hit.at < LIST_MS && hit.mark === mark) return hit.list;
+  if (!(await publicTurn(cluster, hit ? until : Infinity))) return hit.list;
   const r = await call(cluster, one("getSignaturesForAddress", [pool, { limit, commitment: "confirmed" }]));
+  if (r?.error?.code === 429) backOff(cluster);
   if (!Array.isArray(r?.result)) throw new Error("node");
   const list = r.result.filter((s) => s && typeof s.signature === "string" && s.signature.length <= 90)
     .map((s) => ({ signature: s.signature, blockTime: typeof s.blockTime === "number" ? s.blockTime : null, err: s.err ? true : null }));
-  keep(lists, key, { at: now, mark, list }, 2000);
+  keep(lists, key, { at: Date.now(), mark, list }, 2000);
   return list;
 }
 
@@ -114,16 +127,14 @@ async function fill(cluster, list, until) {
       part.forEach((s, i) => { if (take(cluster, s.signature, byId.get(i), s.blockTime)) got++; });
       if (!got) return;                                  // the node refused or served none: the next answer tries again
     } else {
-      const wait = (nextAt[cluster.name] ?? 0) - Date.now();
-      if (Date.now() + Math.max(0, wait) > until) return;
-      if (wait > 0) { await sleep(wait); continue; }
-      nextAt[cluster.name] = Date.now() + PUBLIC_GAP;
-      const s = want[0];
+      if (!(await publicTurn(cluster, until))) return;
+      const s = missing()[0];
+      if (!s) continue;                                  // another answer fetched them while this one waited
       const job = call(cluster, one("getTransaction", params(s.signature)));
       fetching.set(s.signature, job);
       let reply;
       try { reply = await job; } catch { reply = null; } finally { if (fetching.get(s.signature) === job) fetching.delete(s.signature); }
-      if (reply?.error?.code === 429) { nextAt[cluster.name] = Date.now() + 12_000; return; }
+      if (reply?.error?.code === 429) { backOff(cluster); return; }
       if (!take(cluster, s.signature, reply, s.blockTime)) return;
     }
   }
@@ -144,7 +155,7 @@ export async function handleHistory(request, env = {}) {
     if (!asks.take(callerOf(request))) return json({ error: "Too many asks from here; slow down" }, 429, { "retry-after": "5" });
 
     if (!(await isPool(cluster, pool))) return json({ error: "Not a pool of this program" }, 404, { "cache-control": "public, s-maxage=60" });
-    const list = await signatures(cluster, pool, limit, mark);
+    const list = await signatures(cluster, pool, limit, mark, Date.now() + BUDGET_MS);
     await fill(cluster, list, Date.now() + BUDGET_MS);
     const txs = {};
     let have = 0, total = 0;
