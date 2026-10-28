@@ -6,7 +6,7 @@
  *
  *   var ch = new NoxChart(canvas, { height: css px or a function, onHover(i), onView() })
  *   ch.set({ candles: [{ t, o, h, l, c, v, n }], fmt(value), tfmt(t, t of the label before), log, goal: { v, label }, events: [{ i, label }],
- *            marks: [{ i, buy }], lines: [{ v, label, col }] })   draws on the next frame; the view stays put while new
+ *            marks: [{ i, buy }], lines: [{ v, label, col, word, soft }] })   draws on the next frame; the view stays put while new
  *            candles come in if it was dragged back, and follows the newest otherwise. goal is the graduation level
  *            (cream); lines are other levels, dashed in their colour
  *   ch.zoom(+1 | -1), ch.fit(), ch.latest(), ch.pan(n candles back), ch.following, ch.resize(), ch.draw()
@@ -182,7 +182,8 @@ NoxChart.prototype.paintAll = function (cv, ctx, d, cs, dpr, U, plot, timeR, vol
   // the range: the visible candles, padded
   var lo = Infinity, hi = -Infinity, vmax = 0, k;
   for (k = first; k <= last; k++) { var c0 = cs[k]; if (c0.l < lo) lo = c0.l; if (c0.h > hi) hi = c0.h; if (c0.v > vmax) vmax = c0.v; }
-  (d.lines || []).forEach(function (ln) { if (ln.v > 0) { if (ln.v < lo) lo = ln.v; if (ln.v > hi) hi = ln.v; } });   // a level the page asks for is kept in view (the graduation's is not)
+  // a level the page asks for is kept in view (the graduation's is not, nor a soft one: it shows at the edge instead)
+  (d.lines || []).forEach(function (ln) { if (ln.v > 0 && !ln.soft) { if (ln.v < lo) lo = ln.v; if (ln.v > hi) hi = ln.v; } });
   var log = !!d.log && lo > 0;
   var f = log ? Math.log : function (v) { return v; };
   var flo = f(lo), fhi = f(hi);
@@ -235,13 +236,18 @@ NoxChart.prototype.paintAll = function (cv, ctx, d, cs, dpr, U, plot, timeR, vol
     } else if (gr < top) words.push(['↑ ' + d.goal.label, 9 * dpr, HEX[7]]);
   }
 
-  // other levels the page asks for (where a trade being typed would leave the price): dashed in their colour, the
-  // words under the line; the range takes them in, so they are always in view
+  // other levels the page asks for (where a trade being typed would leave the price, the pool's floor): dashed in
+  // their colour, the words under the line (in ln.word's colour when given). The range takes them in, so they are in
+  // view, except a soft one: out of the range, its word sits at the top or bottom edge with an arrow
   (d.lines || []).forEach(function (ln) {
-    var r = row(ln.v), col = ln.col || HEX[5];
-    if (!(ln.v > 0) || r < top || r >= top + priceR) return;
+    var r = row(ln.v), col = ln.col || HEX[5], wc = ln.word || col;
+    if (!(ln.v > 0)) return;
+    if (r < top || r >= top + priceR) {
+      if (ln.soft) words.push([(r < top ? '↑ ' : '↓ ') + ln.label, r < top ? 9 * dpr : (top + priceR - 3) * U, wc]);
+      return;
+    }
     for (var c5 = 2; c5 < plot; c5 += 4) cell(c5, r, 2, 1, col);
-    words.push([ln.label, (r + 2) * U + 6 * dpr, col]);
+    words.push([ln.label, (r + 2) * U + 6 * dpr, wc]);
   });
 
   // the moment it graduated: a cream dotted column

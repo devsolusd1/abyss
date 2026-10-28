@@ -660,11 +660,20 @@ function openAccount(payer, owner, mint) {
   });
 }
 
+/**
+ * Jito's "don't front" mark: a bundle holding a transaction that names an account starting with "jitodontfront" is
+ * refused by Jito's block engine unless that transaction comes first in it, so nobody can bundle a trade ahead of
+ * yours through Jito. It covers Jito's engine only, not every way to order a block: never call it "anti-MEV". The
+ * account needn't exist; read-only. The pool ignores accounts after its own when a coin has no hook.
+ */
+export const DONT_FRONT = new PublicKey("jitodontfront111111111111111111111111111111");
+
 function swapKeys(pool, trader) {
   return [
     meta(trader, { signer: true, writable: true }), meta(pool.address, { writable: true }),
     meta(pool.mint, { writable: true }), meta(pool.vault, { writable: true }),
     meta(ata(trader, pool.mint), { writable: true }), meta(TOKEN_2022), meta(SystemProgram.programId),
+    meta(DONT_FRONT),
   ];
 }
 

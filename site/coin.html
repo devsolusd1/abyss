@@ -118,6 +118,7 @@
 .s-key .kd { background: var(--f-lilac); }
 .s-key .kg { width: 10px; height: 2px; background: var(--f-cream); box-shadow: 4px 0 0 var(--f-bg); }
 .s-key .kq { width: 10px; height: 2px; background: var(--f-lilac); box-shadow: 4px 0 0 var(--f-bg); }
+.s-key .kf { width: 10px; height: 2px; background: var(--f-violet); box-shadow: 4px 0 0 var(--f-bg); }
 .s-key .km { width: auto; height: auto; font-style: normal; color: var(--f-cream); font-size: 9px; }
 .trades { width: 100%; margin-top: clamp(28px, 4vw, 44px); border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
 .trades tr.more { display: none; }                  /* the oldest rows, until "show all" */
@@ -281,7 +282,7 @@
       <p class="s-read" id="read"></p>
       <div class="s-cv"><canvas id="chart" tabindex="0" role="img" aria-label="The coin's price in candles"></canvas></div>
       <figcaption class="s-key">
-        <span><i class="ku"></i>closed up</span><span><i class="kd"></i>closed down</span><span><i class="kg"></i>graduation</span><span><i class="kq"></i>after the trade you are typing</span><span id="keyMine" hidden><i class="km">▲▼</i>your wallet's trades</span><span>drag sideways to look back · − and + zoom</span><span id="keyUsd" hidden></span>
+        <span><i class="ku"></i>closed up</span><span><i class="kd"></i>closed down</span><span><i class="kg"></i>graduation</span><span><i class="kq"></i>after the trade you are typing</span><span title="The price if every token outside the pool were sold back to it: this pool's worst case"><i class="kf"></i>pool floor</span><span id="keyMine" hidden><i class="km">▲▼</i>your wallet's trades</span><span>drag sideways to look back · − and + zoom</span><span id="keyUsd" hidden></span>
       </figcaption>
     </figure>
     <table class="trades" id="tradeList">
@@ -471,6 +472,21 @@ function split(bps) {
   return pct((1e4 - bps) / 1e4) + ' to the creator, ' + pct(bps / 1e4) + ' to the platform';
 }
 function row(k, v) { return '<div class="f"><dt>' + k + '</dt><dd>' + v + '</dd></div>'; }
+// the pool's floor: the price per whole token if every token outside the pool were sold back to it. A constant product
+// x·y = k with all S tokens in it holds k/S SOL, so the price is k/S². Before graduation that is the opening price; at
+// graduation the virtual SOL goes and it drops to about 0.62× that (30 / 420); after it the fees stay out of the
+// reserves and nothing burns again, so it stays put. Not a guarantee of anything: the worst case in this pool
+function floorPrice(p) {
+  if (!p) return 0;
+  var x = (p.graduated ? 0 : lam(p.virtualSol)) + lam(p.realSol), t = units(p.tokens), s = units(Chain.SUPPLY - p.burned);
+  return s > 0 ? x * t / (s * s) : 0;
+}
+// the floor just after graduation, for a pool still on its curve: the virtual SOL gone, the burn done (the same
+// formula as the program: B = T·V/x at the line, here with the line's numbers)
+function floorAfterGrad(p) {
+  var G = lam(p.graduationSol), V = lam(p.virtualSol), x = V + G, T = units(Chain.SUPPLY) * V / x, B = T * V / x, s = units(Chain.SUPPLY) - B, t = T - B;
+  return s > 0 ? G * t / (s * s) : 0;
+}
 function renderFacts() {
   var p = POOL, st = ST, V = lam(p.virtualSol), G = lam(p.graduationSol), M = lam(p.graduationMcap), out = '';
   // the count of trades only when the whole life of the pool is read
@@ -485,6 +501,9 @@ function renderFacts() {
   out += row('in the pool', fTok(units(p.tokens)) + ' tokens' + mute('of the 1B made'));
   out += row('volume', fSol(lam(p.volume)) + ' SOL' + mute(trades == null ? 'traded so far' : 'in ' + trades + ' trade' + (trades === 1 ? '' : 's')));
   out += row('fee', (p.feeBps / 100) + '% of every trade' + mute(split(p.treasuryShareBps)));
+  out += row('pool floor', fPx(floorPrice(p)) + ' SOL per 1M' + mute(st.graduated
+    ? 'the price if every token outside the pool were sold back to it; it stays here now'
+    : 'the price if every token outside the pool were sold back to it; at graduation it drops to ' + pct(floorPrice(p) > 0 ? floorAfterGrad(p) / floorPrice(p) : 0) + ' of this'));
   out += row('fees owed', fSol(cO) + ' creator · ' + fSol(tO) + ' platform' + mute('SOL, waiting in the pool' + (cP + tP > 0 ? '; ' + fSol(cP) + ' and ' + fSol(tP) + ' paid out' : '; none claimed yet')));
   out += row('opened', esc(when(p.openedAt)) + mute(esc(ago(p.openedAt)) + ' by ' + link('address', p.creator, esc(shortKey(p.creator)))));
   out += row('mint', link('address', p.mint, esc(shortKey(p.mint))));
@@ -741,6 +760,9 @@ function drawChart(view) {
   CANDLES = C.list;
   var off = anchorAt(view, tf);
   shownTf = tf;
+  // the pool's floor, in what the chart shows: soft, so a floor far under the price does not squash the candles
+  var fp = floorPrice(POOL), fv = (SERIES === 'price' ? fp * 1e6 : fp * units(Chain.SUPPLY - POOL.burned)) * (inUsd() ? USD : 1);
+  if (fv > 0) lines.push({ v: fv, label: 'pool floor: ' + fmtV(fv), col: HEX[4], word: HEX[5], soft: true });
   if (Q && Q.q) { var qv = (SERIES === 'price' ? Q.after.price * 1e6 : Q.after.mcap) * (inUsd() ? USD : 1); lines.push({ v: qv, label: 'after this ' + Q.side + ': ' + fmtV(qv), col: HEX[5] }); }
   $('#keyMine').hidden = !C.marks.length;
   chart.set({ candles: C.list, marks: C.marks, events: C.events, lines: lines, log: LOG, fmt: fmtV, tick: inUsd() ? tickUsd : null, tfmt: timeLabel(tf, C.list),
