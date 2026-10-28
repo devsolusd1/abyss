@@ -23,7 +23,9 @@ as a pixel black hole whose disk is the real SOL in its pool.
   - `chain/` is the chain layer, bundled into `vendor/chain.js` with `npm install && npm run build`.
     `npm run check` simulates a buy, a sell, both fee claims and a launch against devnet. `send-check.mjs` sends a
     buy, a sell of what it bought and both claims for real (with `SEND=1` and the coin creator's devnet keypair in
-    `KEYPAIR`), then checks every number against the pool. `check-history.mjs` checks the trade history reader
+    `KEYPAIR`), then checks every number against the pool. `batch-check.mjs` launches a coin with a 2-minute opening
+    batch and takes it through its seat, the settle, the claim and trading, for real (about 3 minutes, same
+    `KEYPAIR`). `check-history.mjs` checks the trade history reader
     against a fake node on this machine that rate-limits like devnet's public one (about ten `getTransaction` calls in
     ten seconds per address): the reader fetches one transaction every 1.3 s, newest first, and keeps them in
     localStorage, so a coin page fills in its trades as they come and a reload needs only the new ones.
@@ -36,7 +38,7 @@ as a pixel black hole whose disk is the real SOL in its pool.
   - `/api/history?cluster=…&pool=…` answers a pool's latest 100 transactions with their event lines in one call, for
     every visitor at once (kept in memory, cached at the edge for a moment).
   - `/api/price` gives SOL in dollars for the charts (Jupiter, CoinGecko when that fails), kept 30 s.
-  - `/api/birth?cluster=…&pool=…` gives a coin's launch, its first ten buyers and, for each, the wallet that sent it
+  - `/api/birth?cluster=…&pool=…` gives a coin's launch, its first ten buyers (or seats in its opening batch) and, for each, the wallet that sent it
     its first SOL before the buy, one hop, with the transaction (facts only; kept an hour once there are ten).
   - `node server/check.mjs` checks them all against fake nodes.
 

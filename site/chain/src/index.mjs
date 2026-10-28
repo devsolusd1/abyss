@@ -66,6 +66,12 @@ export const LAUNCH = { virtualSol: 30n * LAMPORTS, graduationMcap: 420n * LAMPO
  * config's (minFeeBps).
  */
 export const BOUNDS = { minVirtualSol: LAMPORTS, maxVirtualSol: 1_000n * LAMPORTS, minMultiple: 2n, maxMultiple: 100n, maxFeeBps: 300 };
+/**
+ * The opening batch's window, in seconds (0: the coin opens at once), and its smallest commitment and total. In the
+ * window's last lockSecs no SOL goes into a seat; SOL can come back out until the window closes.
+ */
+export const OPENING = { minSecs: 120, maxSecs: 900, lockSecs: 60, minCommit: LAMPORTS / 1000n, minBatch: LAMPORTS / 100n };
+const OPENING_STATES = ["none", "open", "settled", "refund"];
 const POOL_LEN = 8 + 336;
 const CONFIG_LEN = 8 + 110;
 
@@ -126,6 +132,8 @@ export function randomSalt() {
   globalThis.crypto.getRandomValues(b);
   return new DataView(b.buffer).getBigUint64(0, true);
 }
+/** A wallet's seat in a coin's opening batch. */
+export const seatAddress = (pool, owner) => pda([enc.encode("seat"), new PublicKey(pool).toBytes(), new PublicKey(owner).toBytes()], program());
 export const ata = (owner, mint) =>
   pda([new PublicKey(owner).toBytes(), TOKEN_2022.toBytes(), new PublicKey(mint).toBytes()], ATA_PROGRAM);
 
@@ -205,6 +213,11 @@ function parsePool(address, data) {
     volume: r.u64(), openedAt: Number(r.i64()), graduatedAt: Number(r.i64()), feeBps: r.u16(), treasuryShareBps: r.u16(),
   };
   p.graduated = r.u8() === 1;
+  r.skip(3);                                             // bump, padding
+  const opensAt = Number(r.i64()), openingSol = r.u64(), totalSol = r.u64(), batchTokens = r.u64(), tokensLeft = r.u64();
+  const seats = r.u32(), state = OPENING_STATES[r.u8()] ?? "none";
+  // a coin's opening batch: null when it opened at once
+  p.opening = state === "none" ? null : { state, opensAt, sol: openingSol, totalSol, tokens: batchTokens, tokensLeft, seats };
   const { price, marketCap } = priceOf(p, p.burned);
   p.price = price;
   p.marketCap = marketCap;
@@ -266,6 +279,26 @@ export async function readConfig() {
   };
 }
 
+/** A wallet's seat in a pool's opening batch: { address, sol } (lamports), or null when it has none. */
+export async function readSeat(pool, owner) {
+  const address = seatAddress(pool, owner);
+  const info = await conn().getAccountInfo(address);
+  if (!info || !info.owner.equals(program()) || info.data.length < 8 + 72 + 1) return null;
+  return { address, sol: new Reader(info.data, 8 + 64).u64() };
+}
+
+const CLOCK = new PublicKey("SysvarC1ock11111111111111111111111111111111");
+/**
+ * The cluster's own clock, in unix seconds: the Clock sysvar's unix_timestamp (the i64 after slot, epoch start, epoch
+ * and leader schedule epoch) as of the last confirmed block. The program times the opening batch by it, and a
+ * browser's clock can be seconds or minutes off.
+ */
+export async function chainClock() {
+  const info = await conn().getAccountInfo(CLOCK);
+  if (!info || info.data.length < 40) throw new Error("The node did not send its clock");
+  return Number(new Reader(info.data, 32).i64());
+}
+
 /** What a wallet holds: SOL and, when a mint is given, that coin. */
 export async function readWallet(owner, mint) {
   const c = conn();
@@ -280,7 +313,7 @@ export async function readWallet(owner, mint) {
 
 /* ---------------- Events: the trades behind a chart ---------------- */
 
-const EVENTS = ["TradeEvent", "Launched", "Graduated", "FeesClaimed", "CreatorChanged"];
+const EVENTS = ["TradeEvent", "Launched", "Graduated", "FeesClaimed", "CreatorChanged", "Committed", "Withdrawn", "Settled", "SeatClaimed"];
 
 async function decodeEvent(b64) {
   const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
@@ -289,14 +322,24 @@ async function decodeEvent(b64) {
     if (tag.every((x, i) => bytes[i] === x)) {
       const r = new Reader(bytes, 8);
       if (name === "TradeEvent") {
-        return {
+        const e = {
           kind: "trade", mint: r.key(), trader: r.key(), recipient: r.key(), buy: r.bool(), sol: r.u64(),
           tokens: r.u64(), fee: r.u64(), realSol: r.u64(), tokenReserve: r.u64(), graduated: r.bool(),
         };
+        e.byCreator = bytes.length > r.at ? r.bool() : null;
+        e.batch = e.trader.equals(e.recipient) && e.trader.equals(poolAddress(e.mint));   // the opening batch's one buy
+        return e;
       }
       if (name === "Launched") {
-        return { kind: "launch", mint: r.key(), creator: r.key(), hookProgram: r.key(), virtualSol: r.u64(), graduationSol: r.u64(), feeBps: r.u16() };
+        const e = { kind: "launch", mint: r.key(), creator: r.key(), hookProgram: r.key(), virtualSol: r.u64(), graduationSol: r.u64(), feeBps: r.u16() };
+        e.opensAt = bytes.length >= r.at + 8 ? Number(r.i64()) : 0;
+        return e;
       }
+      if (name === "Committed" || name === "Withdrawn") {
+        return { kind: name === "Committed" ? "commit" : "withdraw", mint: r.key(), owner: r.key(), sol: r.u64(), seatSol: r.u64(), total: r.u64() };
+      }
+      if (name === "Settled") return { kind: "settle", mint: r.key(), sol: r.u64(), tokens: r.u64(), seats: r.u32(), refund: r.bool() };
+      if (name === "SeatClaimed") return { kind: "seat", mint: r.key(), owner: r.key(), sol: r.u64(), tokens: r.u64(), refund: r.bool() };
       if (name === "Graduated") return { kind: "graduation", mint: r.key(), realSol: r.u64(), tokenReserve: r.u64(), burned: r.u64() };
       if (name === "FeesClaimed") return { kind: "claim", mint: r.key(), to: r.key(), amount: r.u64(), creator: r.bool() };
       return { kind: "creator", mint: r.key(), from: r.key(), to: r.key(), settled: r.u64() };
@@ -724,6 +767,90 @@ export async function buildClaim({ pool, owner, creator = true }) {
   return { tx, signers: [], amount: creator ? pool.creatorFees : pool.treasuryFees };
 }
 
+/* The opening batch: commit SOL to a seat until the last minute, take some back until the window closes, settle once
+   it is over (anyone, one buy with all of it), then each seat claims its share of the tokens, or its SOL back. */
+
+const SETTLE_UNITS = 60_000, SEAT_CLAIM_UNITS = 80_000;   // the seat claim's with its token account opened, whose bump search varies by wallet
+
+const commitIx = (pool, owner, lamports) => ix("commit", [
+  meta(owner, { signer: true, writable: true }), meta(new PublicKey(pool), { writable: true }),
+  meta(seatAddress(pool, owner), { writable: true }), meta(SystemProgram.programId),
+], u64(lamports));
+
+/** `sol` SOL into `owner`'s seat in the pool's opening batch. */
+export async function buildCommit({ pool, owner, sol }) {
+  owner = new PublicKey(owner);
+  const lamports = typeof sol === "bigint" ? sol : toLamports(sol);
+  // the program looks for the seat's bump on every commit, 1,500 units a try: 50,000 covers 23 tries past the first
+  // (30,000 covered 10, and failed every time for about one coin and wallet pair in 2,000)
+  const tx = new Transaction().add(ComputeBudgetProgram.setComputeUnitLimit({ units: 50_000 }), await commitIx(pool.address, owner, lamports));
+  return { tx, signers: [], lamports };
+}
+
+/** `sol` SOL back out of `owner`'s seat (all of it closes the seat). */
+export async function buildWithdraw({ pool, owner, sol }) {
+  owner = new PublicKey(owner);
+  const lamports = typeof sol === "bigint" ? sol : toLamports(sol);
+  const tx = new Transaction().add(
+    ComputeBudgetProgram.setComputeUnitLimit({ units: 20_000 }),
+    await ix("withdraw", [
+      meta(owner, { signer: true, writable: true }), meta(pool.address, { writable: true }), meta(seatAddress(pool.address, owner), { writable: true }),
+    ], u64(lamports)),
+  );
+  return { tx, signers: [], lamports };
+}
+
+/**
+ * A seat's claim, after its token account is opened (idempotent) when the batch bought (`bought`). On a refund the
+ * account is not opened and the program does not touch it, but it is still passed, writable: the owner itself in its
+ * place would be the same writable account twice, which Anchor refuses.
+ */
+async function seatClaimIxs(pool, owner, bought) {
+  const claim = await ix("claim_seat", [
+    meta(owner, { signer: true, writable: true }), meta(pool.address, { writable: true }),
+    meta(seatAddress(pool.address, owner), { writable: true }), meta(pool.mint), meta(pool.vault, { writable: true }),
+    meta(ata(owner, pool.mint), { writable: true }), meta(TOKEN_2022),
+  ]);
+  return bought ? [openAccount(owner, owner, pool.mint), claim] : [claim];
+}
+
+/**
+ * Ends a batch whose window is over; whoever sends it only pays the network fee. With `claimFor` (a wallet with a seat,
+ * which then signs), the same transaction claims that seat too, its token account opened first when the batch is
+ * going to buy (OPENING.minBatch or more in it: the window is over, so `pool.opening.sol` is the batch's final SOL).
+ */
+export async function buildSettle({ pool, claimFor }) {
+  const settle = await ix("settle", [
+    meta(pool.address, { writable: true }), meta(pool.mint, { writable: true }), meta(pool.vault, { writable: true }), meta(TOKEN_2022),
+  ]);
+  if (!claimFor) return { tx: new Transaction().add(ComputeBudgetProgram.setComputeUnitLimit({ units: SETTLE_UNITS }), settle), signers: [] };
+  const buys = (pool.opening ? pool.opening.sol : 0n) >= OPENING.minBatch;
+  const tx = new Transaction().add(
+    ComputeBudgetProgram.setComputeUnitLimit({ units: SETTLE_UNITS + SEAT_CLAIM_UNITS }),
+    settle,
+    ...(await seatClaimIxs(pool, new PublicKey(claimFor), buys)),
+  );
+  return { tx, signers: [] };
+}
+
+/** `owner`'s share of the batch's tokens into their account (opened if it is not), or, after a refund, their SOL back. */
+export async function buildSeatClaim({ pool, owner }) {
+  owner = new PublicKey(owner);
+  const tx = new Transaction().add(
+    ComputeBudgetProgram.setComputeUnitLimit({ units: SEAT_CLAIM_UNITS }),
+    ...(await seatClaimIxs(pool, owner, pool.opening?.state === "settled")),
+  );
+  return { tx, signers: [] };
+}
+
+/** What a seat of `lamports` would get if the batch settled with `total` lamports in it (its own included). */
+export function quoteSeat(pool, lamports, total) {
+  lamports = BigInt(lamports); total = BigInt(total);
+  if (total < OPENING.minBatch || lamports <= 0n) return { tokens: 0n, refund: true };
+  const q = quoteBuy({ ...pool, realSol: 0n, tokens: SUPPLY, graduated: false }, total, pool.feeBps);
+  return { tokens: q.tokensOut * lamports / total, refund: false, batch: q };
+}
+
 /** Lamports as SOL in words: whole SOL with thousands commas, up to 9 decimals, no trailing zeros. */
 function solWords(lamports) {
   const whole = (lamports / LAMPORTS).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
@@ -773,9 +900,13 @@ function settingsError(problems) {
  * the creator signs.
  */
 export async function buildLaunch({
-  creator, name, symbol, uri = "", firstBuySol = 0, maxLaunchFee, salt = randomSalt(),
+  creator, name, symbol, uri = "", firstBuySol = 0, maxLaunchFee, salt = randomSalt(), openingSecs = 0,
   virtualSol = LAUNCH.virtualSol, graduationMcap = LAUNCH.graduationMcap, feeBps = LAUNCH.feeBps,
 }) {
+  openingSecs = Number(openingSecs) || 0;
+  if (openingSecs && !(openingSecs >= OPENING.minSecs && openingSecs <= OPENING.maxSecs)) {
+    throw new Error("The opening window must be 2 to 15 minutes, or none");
+  }
   creator = new PublicKey(creator);
   salt = BigInt(salt);
   const mint = mintAddress(creator, salt);
@@ -793,7 +924,7 @@ export async function buildLaunch({
   const gradSol = graduationSol(virtualSol, graduationMcap);
   const args = concat(
     str(name), str(symbol), str(uri), u64(virtualSol), u64(graduationMcap), u16(feeBps),
-    u64(maxLaunchFee ?? config.launchFee), u64(salt),
+    u64(maxLaunchFee ?? config.launchFee), u64(salt), u32(openingSecs),
   );
   const launch = await ix("launch", [
     meta(creator, { signer: true, writable: true }), meta(mint, { writable: true }),
@@ -801,8 +932,14 @@ export async function buildLaunch({
     meta(config.treasury, { writable: true }), meta(TOKEN_2022), meta(ATA_PROGRAM), meta(SystemProgram.programId),
   ], args);
   const tx = new Transaction().add(ComputeBudgetProgram.setComputeUnitLimit({ units: 200_000 }), launch);
-  let quote = null;
-  if (Number(firstBuySol) > 0) {
+  let quote = null, opening = null;
+  if (openingSecs) {
+    // a batch: nobody buys before it settles, the creator's SOL takes a seat like anyone's
+    const lamports = toLamports(firstBuySol);
+    if (lamports > 0n && lamports < OPENING.minCommit) throw new Error("A seat in the opening batch takes at least 0.001 SOL");
+    if (lamports > 0n) tx.add(await commitIx(pool, creator, lamports));
+    opening = { secs: openingSecs, commit: lamports };
+  } else if (Number(firstBuySol) > 0) {
     const opening = {
       address: pool, mint, vault, feeBps, virtualSol, realSol: 0n,
       tokens: SUPPLY, graduationSol: gradSol, graduated: false,
@@ -812,7 +949,7 @@ export async function buildLaunch({
     quote = buy.quote;
   }
   return {
-    tx, signers: [], mint, salt, pool, quote,
+    tx, signers: [], mint, salt, pool, quote, opening,
     settings: { virtualSol, graduationMcap, feeBps, graduationSol: gradSol },
     canLaunch: config.launchesOpen || config.admin.equals(creator) || config.launcher.equals(creator),
   };
@@ -902,6 +1039,12 @@ const POOL_ERRORS = [
   "The pool would hold less SOL than it owes",
   "That token account can't receive this coin; use a fresh wallet account",
   "The treasury must be a funded wallet",
+  "The opening window must be 2 to 15 minutes, or none",
+  "This coin has no opening batch going on",
+  "The opening batch has closed",
+  "Seats close in the opening batch's last minute",
+  "The opening batch is still open",
+  "Buying opens once the opening batch is settled",
 ];
 
 export function explain(errorOrSim) {

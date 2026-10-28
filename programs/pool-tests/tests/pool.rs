@@ -7,11 +7,14 @@ use {
     anchor_lang::{InstructionData, ToAccountMetas},
     dex::{
         math,
-        state::{Pool, CONFIG_SEED, MINT_SEED, POOL_SEED, SUPPLY},
+        state::{
+            Pool, CONFIG_SEED, MINT_SEED, MIN_OPENING_SECS, OPENING_LOCK_SECS, OPENING_REFUND, OPENING_SETTLED, POOL_SEED, SEAT_SEED,
+            SUPPLY,
+        },
         token::{ATA_PROGRAM, TOKEN_2022},
         ConfigArgs, LaunchArgs, PoolError,
     },
-    litesvm::{types::TransactionResult, LiteSVM},
+    litesvm::{types::{TransactionMetadata, TransactionResult}, LiteSVM},
     solana_address::Address,
     solana_clock::Clock,
     solana_instruction::{account_meta::AccountMeta, Instruction},
@@ -191,6 +194,7 @@ impl Env {
             fee_bps: FEE_BPS,
             max_launch_fee: LAUNCH_FEE,
             salt: 0,
+            opening_secs: 0,
         }
     }
 
@@ -303,6 +307,64 @@ impl Env {
         self.send(caller, vec![ix], &[])
     }
 
+    fn seat_of(coin: &Coin, owner: &Address) -> Address {
+        Address::find_program_address(&[SEAT_SEED, coin.pool.as_ref(), owner.as_ref()], &dex::ID).0
+    }
+
+    fn commit_ix(coin: &Coin, owner: &Address, sol: u64) -> Instruction {
+        let accounts = dex::accounts::Commit { owner: *owner, pool: coin.pool, seat: Env::seat_of(coin, owner), system_program: SYSTEM_PROGRAM };
+        Instruction { program_id: dex::ID, accounts: accounts.to_account_metas(None), data: dex::instruction::Commit { sol }.data() }
+    }
+
+    fn commit(&mut self, coin: &Coin, owner: &Keypair, sol: u64) -> TransactionResult {
+        let ix = Env::commit_ix(coin, &owner.pubkey(), sol);
+        self.send(owner, vec![ix], &[])
+    }
+
+    fn withdraw_ix(coin: &Coin, owner: &Address, sol: u64) -> Instruction {
+        let accounts = dex::accounts::Withdraw { owner: *owner, pool: coin.pool, seat: Env::seat_of(coin, owner) };
+        Instruction { program_id: dex::ID, accounts: accounts.to_account_metas(None), data: dex::instruction::Withdraw { sol }.data() }
+    }
+
+    fn withdraw(&mut self, coin: &Coin, owner: &Keypair, sol: u64) -> TransactionResult {
+        let ix = Env::withdraw_ix(coin, &owner.pubkey(), sol);
+        self.send(owner, vec![ix], &[])
+    }
+
+    /// The seat's SOL, or None once it is closed.
+    fn seat_sol(&self, coin: &Coin, owner: &Address) -> Option<u64> {
+        let account = self.svm.get_account(&Env::seat_of(coin, owner)).filter(|a| a.lamports > 0)?;
+        // discriminator, owner, pool, then the SOL
+        Some(u64::from_le_bytes(account.data[72..80].try_into().unwrap()))
+    }
+
+    fn settle(&mut self, coin: &Coin, caller: &Keypair) -> TransactionResult {
+        let accounts = dex::accounts::Settle { pool: coin.pool, mint: coin.mint, vault: coin.vault, token_program: TOKEN_2022 };
+        let ix = Instruction { program_id: dex::ID, accounts: accounts.to_account_metas(None), data: dex::instruction::Settle {}.data() };
+        self.send(caller, vec![ix], &[])
+    }
+
+    /// The seat's tokens into the owner's account (opened in the same transaction), or its SOL back.
+    fn claim_seat(&mut self, coin: &Coin, owner: &Keypair, open_account: bool) -> TransactionResult {
+        let who = owner.pubkey();
+        let accounts = dex::accounts::ClaimSeat {
+            owner: who, pool: coin.pool, seat: Env::seat_of(coin, &who), mint: coin.mint, vault: coin.vault,
+            owner_tokens: ata(&who, &coin.mint), token_program: TOKEN_2022,
+        };
+        let mut ixs = vec![];
+        if open_account {
+            ixs.push(Env::open_account_ix(&who, &who, &coin.mint));
+        }
+        ixs.push(Instruction { program_id: dex::ID, accounts: accounts.to_account_metas(None), data: dex::instruction::ClaimSeat {}.data() });
+        self.send(owner, ixs, &[])
+    }
+
+    fn warp(&mut self, to: i64) {
+        let mut clock = self.svm.get_sysvar::<Clock>();
+        clock.unix_timestamp = to;
+        self.svm.set_sysvar(&clock);
+    }
+
     fn pool(&self, coin: &Coin) -> Pool {
         let account = self.svm.get_account(&coin.pool).unwrap();
         bytemuck::pod_read_unaligned(&account.data[8..8 + std::mem::size_of::<Pool>()])
@@ -332,14 +394,15 @@ impl Env {
         (supply, mint_auth, freeze)
     }
 
-    /// The books every trade has to leave straight: the pool's SOL covers its rent, reserve
-    /// and fees owed, and the vault holds what the pool counts.
+    /// The books every trade has to leave straight: the pool's SOL covers its rent, reserve,
+    /// fees owed and the opening batch's SOL, and the vault holds the reserve plus the batch's
+    /// unclaimed tokens.
     fn check_books(&self, coin: &Coin) {
         let p = self.pool(coin);
         let account = self.svm.get_account(&coin.pool).unwrap();
         let rent = self.svm.minimum_balance_for_rent_exemption(account.data.len());
-        assert_eq!(account.lamports, rent + p.real_sol + p.creator_fees + p.treasury_fees, "pool lamports");
-        assert_eq!(self.tokens_at(&coin.vault), p.token_reserve, "vault balance");
+        assert_eq!(account.lamports, rent + p.real_sol + p.creator_fees + p.treasury_fees + p.opening_sol, "pool lamports");
+        assert_eq!(self.tokens_at(&coin.vault), p.token_reserve + p.opening_tokens_left, "vault balance");
         assert_eq!(self.mint(coin).0, SUPPLY - p.burned, "supply");
     }
 }
@@ -360,6 +423,12 @@ fn pool_error(e: PoolError) -> InstructionError {
 /// Compute units a successful transaction used, the compute-budget instruction included.
 fn units(result: TransactionResult) -> u64 {
     result.unwrap().compute_units_consumed
+}
+
+/// Calls the pool made to the System Program in a transaction, read off its logs: a `commit` makes two when it creates
+/// the seat (create_account, then the transfer) and one when the seat was already there.
+fn system_calls(meta: &TransactionMetadata) -> usize {
+    meta.logs.iter().filter(|l| *l == "Program 11111111111111111111111111111111 invoke [2]").count()
 }
 
 fn reserves(p: &Pool) -> math::Reserves {
@@ -825,4 +894,299 @@ fn compute_units() {
     );
     assert!(usual.max(long) < 300_000);
     assert!(first_buy.max(buy).max(sell).max(graduating).max(after) < 120_000);
+
+    // The opening batch, held under the limits the site's package asks for (site/chain/src/index.mjs).
+    let launch_batch = |env: &mut Env| {
+        let args = LaunchArgs { salt: fresh_salt(), opening_secs: 300, ..env.args() };
+        let mint = mint_for(&admin.pubkey(), args.salt);
+        let coin = Coin::of(mint);
+        let ixs = vec![env.launch_ix(&admin.pubkey(), &mint, args), Env::commit_ix(&coin, &admin.pubkey(), SOL)];
+        (units(env.send(&admin, ixs, &[])), coin)
+    };
+    let (launch_commit, small) = launch_batch(&mut env);
+    let (_, big) = launch_batch(&mut env);
+    let bob = env.bob.insecure_clone();
+    let new_seat = units(env.commit(&small, &alice, SOL));
+    let same_seat = units(env.commit(&small, &alice, SOL));
+    let part = units(env.withdraw(&small, &alice, SOL / 2));
+    let all = units(env.withdraw(&small, &alice, 3 * SOL / 2));
+    env.commit(&small, &bob, SOL).unwrap();
+    env.commit(&big, &bob, 100 * SOL).unwrap();
+    env.warp(env.pool(&small).opens_at);
+    let settle = units(env.settle(&small, &bob));
+    let settle_graduating = units(env.settle(&big, &bob));
+    assert_eq!((env.pool(&small).graduated, env.pool(&big).graduated), (0, 1));
+    let claim = units(env.claim_seat(&small, &bob, true));
+    println!(
+        "compute units, opening batch: launch with the creator's commitment {launch_commit}; commitment into a new seat \
+         {new_seat}, into the same seat {same_seat}; withdrawal of part {part}, of all {all}; settle {settle}, \
+         graduating {settle_graduating}; seat claim with account creation {claim}"
+    );
+    assert!(launch_commit < 200_000);
+    assert!(new_seat.max(same_seat) < 50_000);
+    assert!(part.max(all) < 20_000);
+    assert!(settle.max(settle_graduating) < 60_000);
+    assert!(claim < 80_000);
 }
+
+/* ---------------- the opening batch ---------------- */
+
+/// The pool's reserves as a coin opens, with the usual numbers.
+fn opening_reserves() -> math::Reserves {
+    math::Reserves {
+        virtual_sol: VIRTUAL,
+        real_sol: 0,
+        tokens: SUPPLY,
+        graduation_sol: math::graduation_sol(VIRTUAL, GRADUATION_MCAP).unwrap(),
+        graduated: false,
+    }
+}
+
+/// A coin launched with an opening batch of `secs`, the creator's commitment in the launch transaction.
+fn launch_with_batch(env: &mut Env, secs: u32, creator_sol: u64) -> Coin {
+    let admin = env.admin.insecure_clone();
+    let salt = fresh_salt();
+    let mint = mint_for(&admin.pubkey(), salt);
+    let coin = Coin::of(mint);
+    let mut ixs = vec![env.launch_ix(&admin.pubkey(), &mint, LaunchArgs { salt, opening_secs: secs, ..env.args() })];
+    if creator_sol > 0 {
+        ixs.push(Env::commit_ix(&coin, &admin.pubkey(), creator_sol));
+    }
+    env.send(&admin, ixs, &[]).unwrap();
+    coin
+}
+
+#[test]
+fn an_opening_batch_gives_every_seat_one_price() {
+    let mut env = Env::new();
+    let (admin, alice, bob) = (env.admin.insecure_clone(), env.alice.insecure_clone(), env.bob.insecure_clone());
+    let coin = launch_with_batch(&mut env, 300, SOL);
+    let opens = env.pool(&coin).opens_at;
+    assert_eq!(opens, T0 + 300);
+
+    // until the settle nobody buys: the batch takes the SOL
+    assert_eq!(error(env.buy(&coin, &alice, SOL)), pool_error(PoolError::NotOpenYet));
+    env.commit(&coin, &alice, 2 * SOL).unwrap();
+    env.commit(&coin, &bob, SOL).unwrap();
+    env.withdraw(&coin, &bob, SOL / 2).unwrap();
+    assert_eq!(error(env.commit(&coin, &bob, 1_000)), pool_error(PoolError::ZeroAmount));
+    assert_eq!(error(env.withdraw(&coin, &bob, 0)), pool_error(PoolError::ZeroAmount));
+    assert_eq!(error(env.withdraw(&coin, &bob, SOL)), pool_error(PoolError::OutOfBounds), "more than the seat holds");
+    env.check_books(&coin);
+    assert_eq!(env.pool(&coin).opening_seats, 3);
+    assert_eq!(error(env.settle(&coin, &bob)), pool_error(PoolError::OpeningNotOver));
+    assert_eq!(error(env.claim_seat(&coin, &alice, false)), pool_error(PoolError::OpeningNotOver));
+
+    // the last minute: no new SOL, withdrawals still, so every seat sees the final total and can leave
+    env.warp(opens - OPENING_LOCK_SECS - 1);
+    env.commit(&coin, &bob, SOL).unwrap();
+    env.warp(opens - OPENING_LOCK_SECS);
+    assert_eq!(error(env.commit(&coin, &alice, SOL)), pool_error(PoolError::OpeningLocked));
+    let late = Keypair::new();
+    env.svm.airdrop(&late.pubkey(), 10 * SOL).unwrap();
+    assert_eq!(error(env.commit(&coin, &late, SOL)), pool_error(PoolError::OpeningLocked), "nor into a new seat");
+    assert_eq!(env.seat_sol(&coin, &late.pubkey()), None);
+    env.warp(opens - 1);
+    assert_eq!(error(env.commit(&coin, &bob, SOL)), pool_error(PoolError::OpeningLocked));
+    env.withdraw(&coin, &bob, SOL / 2).unwrap();
+    env.check_books(&coin);
+    env.warp(opens);
+    assert_eq!(error(env.commit(&coin, &alice, SOL)), pool_error(PoolError::OpeningClosed));
+    assert_eq!(error(env.withdraw(&coin, &alice, SOL)), pool_error(PoolError::OpeningClosed));
+    assert_eq!(env.seat_sol(&coin, &bob.pubkey()), Some(SOL));
+
+    // anyone settles: one buy of the 4 SOL
+    env.settle(&coin, &bob).unwrap();
+    let p = env.pool(&coin);
+    let expected = math::buy(opening_reserves(), 4 * SOL, FEE_BPS).unwrap();
+    assert_eq!(p.opening_state, OPENING_SETTLED);
+    assert_eq!((p.opening_total_sol, p.opening_tokens, p.token_reserve), (4 * SOL, expected.tokens_out, expected.after.tokens));
+    assert_eq!(p.creator_fees + p.treasury_fees, expected.fee);
+    assert_eq!(error(env.settle(&coin, &bob)), pool_error(PoolError::NoOpening));
+    env.check_books(&coin);
+
+    // each seat its share, one price; the seat closes
+    for (who, sol) in [(&admin, SOL), (&alice, 2 * SOL), (&bob, SOL)] {
+        env.claim_seat(&coin, who, true).unwrap();
+        let share = (expected.tokens_out as u128 * sol as u128 / (4 * SOL) as u128) as u64;
+        assert_eq!(env.tokens(&who.pubkey(), &coin), share);
+        assert!(env.svm.get_account(&Env::seat_of(&coin, &who.pubkey())).is_none_or(|a| a.lamports == 0));
+    }
+    assert!(env.claim_seat(&coin, &alice, false).is_err(), "a seat is claimed once");
+    let p = env.pool(&coin);
+    assert_eq!(p.opening_seats, 0);
+    assert!(p.opening_tokens_left < 3, "only the rounding dust stays in the vault");
+    env.check_books(&coin);
+
+    // and the coin trades
+    env.buy(&coin, &alice, SOL).unwrap();
+    env.sell(&coin, &bob, 1_000 * TOKEN).unwrap();
+    env.check_books(&coin);
+}
+
+#[test]
+fn a_seat_emptied_by_withdraw_closes_and_a_new_commitment_opens_it_again() {
+    let mut env = Env::new();
+    let (admin, alice, bob) = (env.admin.insecure_clone(), env.alice.insecure_clone(), env.bob.insecure_clone());
+    let carol = Keypair::new();
+    env.svm.airdrop(&carol.pubkey(), 10 * SOL).unwrap();
+    let coin = launch_with_batch(&mut env, 300, SOL);
+    let opens = env.pool(&coin).opens_at;
+    let rent = env.svm.minimum_balance_for_rent_exemption(8 + 32 + 32 + 8 + 1);
+    let who = bob.pubkey();
+    // a commitment that creates its seat calls the System Program twice, one into a seat already there once
+    assert_eq!(system_calls(&env.commit(&coin, &alice, SOL).unwrap()), 2);
+    assert_eq!(system_calls(&env.commit(&coin, &alice, SOL).unwrap()), 1);
+    env.commit(&coin, &bob, SOL).unwrap();
+    env.commit(&coin, &carol, SOL).unwrap();
+    assert_eq!(env.pool(&coin).opening_seats, 4);
+    env.check_books(&coin);
+
+    // all of it back: the seat closes, its rent goes back to the owner, the batch has one seat fewer
+    let before = env.lamports(&who);
+    env.withdraw(&coin, &bob, SOL).unwrap();
+    assert!(env.svm.get_account(&Env::seat_of(&coin, &who)).is_none_or(|a| a.lamports == 0));
+    assert_eq!(env.lamports(&who), before + SOL + rent - 5_000);
+    let p = env.pool(&coin);
+    assert_eq!((p.opening_seats, p.opening_sol), (3, 4 * SOL));
+    env.check_books(&coin);
+    assert!(env.withdraw(&coin, &bob, 1).is_err(), "a closed seat has nothing to take back");
+
+    // a new commitment opens it again, in a transaction of its own
+    assert_eq!(system_calls(&env.commit(&coin, &bob, SOL / 2).unwrap()), 2);
+    assert_eq!(env.seat_sol(&coin, &who), Some(SOL / 2));
+    assert_eq!(env.pool(&coin).opening_seats, 4);
+    env.check_books(&coin);
+
+    // or in the same transaction as the withdrawal that closed it: the rent goes out and comes back, and the
+    // commitment creates the seat again (the withdrawal calls no program)
+    let before = env.lamports(&who);
+    let ixs = vec![Env::withdraw_ix(&coin, &who, SOL / 2), Env::commit_ix(&coin, &who, SOL / 4)];
+    assert_eq!(system_calls(&env.send(&bob, ixs, &[]).unwrap()), 2, "the seat was closed and created again");
+    assert_eq!(env.seat_sol(&coin, &who), Some(SOL / 4));
+    assert_eq!(env.lamports(&who) + 5_000, before + SOL / 4);
+    let p = env.pool(&coin);
+    assert_eq!((p.opening_seats, p.opening_sol), (4, 4 * SOL + SOL / 4));
+    env.check_books(&coin);
+
+    // in the last minute a seat can still empty and close, but not open again
+    env.warp(opens - 1);
+    let ixs = vec![Env::withdraw_ix(&coin, &carol.pubkey(), SOL), Env::commit_ix(&coin, &carol.pubkey(), SOL)];
+    assert_eq!(error(env.send(&carol, ixs, &[])), pool_error(PoolError::OpeningLocked));
+    assert_eq!(env.seat_sol(&coin, &carol.pubkey()), Some(SOL), "the refused transaction moved nothing");
+    env.withdraw(&coin, &carol, SOL).unwrap();
+    assert_eq!(env.seat_sol(&coin, &carol.pubkey()), None);
+    let p = env.pool(&coin);
+    assert_eq!((p.opening_seats, p.opening_sol), (3, 3 * SOL + SOL / 4));
+    env.check_books(&coin);
+
+    // the settle buys with the seats as they are now, and the opened-again seat's claim pays its share
+    let total = 3 * SOL + SOL / 4;
+    env.warp(opens);
+    env.settle(&coin, &carol).unwrap();
+    let expected = math::buy(opening_reserves(), total, FEE_BPS).unwrap();
+    let p = env.pool(&coin);
+    assert_eq!((p.opening_total_sol, p.opening_tokens, p.opening_seats), (total, expected.tokens_out, 3));
+    env.check_books(&coin);
+    for (owner, sol) in [(&bob, SOL / 4), (&admin, SOL), (&alice, 2 * SOL)] {
+        env.claim_seat(&coin, owner, true).unwrap();
+        let share = (expected.tokens_out as u128 * sol as u128 / total as u128) as u64;
+        assert_eq!(env.tokens(&owner.pubkey(), &coin), share);
+        assert_eq!(env.seat_sol(&coin, &owner.pubkey()), None);
+        env.check_books(&coin);
+    }
+    assert!(env.claim_seat(&coin, &carol, true).is_err(), "a seat closed before the settle has nothing to claim");
+    let p = env.pool(&coin);
+    assert_eq!(p.opening_seats, 0);
+    assert!(p.opening_tokens_left < 3, "only the rounding dust stays in the vault");
+    env.check_books(&coin);
+}
+
+#[test]
+fn a_batch_too_small_to_buy_with_gives_the_sol_back() {
+    let mut env = Env::new();
+    let (alice, bob) = (env.alice.insecure_clone(), env.bob.insecure_clone());
+    let coin = launch_with_batch(&mut env, 120, 0);
+    env.commit(&coin, &alice, SOL / 200).unwrap();
+    let before = env.lamports(&alice.pubkey());
+    env.warp(env.pool(&coin).opens_at);
+    env.settle(&coin, &bob).unwrap();
+    let p = env.pool(&coin);
+    assert_eq!((p.opening_state, p.real_sol, p.token_reserve), (OPENING_REFUND, 0, SUPPLY));
+    env.check_books(&coin);
+    env.claim_seat(&coin, &alice, false).unwrap();
+    let rent = env.svm.minimum_balance_for_rent_exemption(8 + 32 + 32 + 8 + 1);
+    assert_eq!(env.lamports(&alice.pubkey()), before + SOL / 200 + rent - 5_000, "the SOL and the seat's rent back, less the network fee");
+    assert_eq!(env.pool(&coin).opening_sol, 0);
+    env.check_books(&coin);
+    // the coin opened as it was: it trades
+    env.buy(&coin, &bob, SOL).unwrap();
+    env.check_books(&coin);
+}
+
+#[test]
+fn a_batch_past_the_graduation_line_graduates_and_shares_what_is_left() {
+    let mut env = Env::new();
+    let (alice, bob) = (env.alice.insecure_clone(), env.bob.insecure_clone());
+    let coin = launch_with_batch(&mut env, 120, 0);
+    env.commit(&coin, &alice, 60 * SOL).unwrap();
+    env.commit(&coin, &bob, 40 * SOL).unwrap();
+    env.warp(env.pool(&coin).opens_at);
+    env.settle(&coin, &alice).unwrap();
+    let p = env.pool(&coin);
+    let expected = math::buy(opening_reserves(), 100 * SOL, FEE_BPS).unwrap();
+    assert!(p.graduated == 1 && p.burned == expected.burned && p.burned > 0);
+    assert_eq!(p.opening_tokens, expected.tokens_out);
+    env.check_books(&coin);
+    env.claim_seat(&coin, &alice, true).unwrap();
+    env.claim_seat(&coin, &bob, true).unwrap();
+    assert_eq!(env.tokens(&alice.pubkey(), &coin), (expected.tokens_out as u128 * 60 / 100) as u64);
+    env.sell(&coin, &bob, 1_000 * TOKEN).unwrap();
+    env.check_books(&coin);
+}
+
+#[test]
+fn the_opening_window_stays_in_its_bounds() {
+    let mut env = Env::new();
+    let admin = env.admin.insecure_clone();
+    for secs in [1, 119, 901, 86_400] {
+        assert_eq!(env.launch_as(&admin, LaunchArgs { opening_secs: secs, ..env.args() }).err(), Some(pool_error(PoolError::BadOpening)));
+    }
+    for secs in [120, 900] {
+        env.launch_as(&admin, LaunchArgs { opening_secs: secs, ..env.args() }).unwrap();
+    }
+    // the shortest window still takes the creator's commitment in the launch transaction, before its last minute
+    let coin = launch_with_batch(&mut env, MIN_OPENING_SECS, SOL);
+    assert_eq!(env.seat_sol(&coin, &admin.pubkey()), Some(SOL));
+    env.check_books(&coin);
+}
+
+/// A TradeEvent's last field, read off a transaction's logs.
+fn traded_by_creator(meta: &TransactionMetadata) -> Option<bool> {
+    let tag = <dex::TradeEvent as anchor_lang::Discriminator>::DISCRIMINATOR;
+    meta.logs.iter().filter_map(|l| l.strip_prefix("Program data: ")).map(base64).find(|b| b.starts_with(tag)).map(|b| b[b.len() - 1] == 1)
+}
+
+fn base64(s: &str) -> Vec<u8> {
+    let value = |c: u8| match c { b'A'..=b'Z' => c - b'A', b'a'..=b'z' => c - b'a' + 26, b'0'..=b'9' => c - b'0' + 52, b'+' => 62, _ => 63 };
+    let bytes: Vec<u8> = s.bytes().filter(|&c| c != b'=').collect();
+    let mut out = Vec::with_capacity(bytes.len() * 3 / 4);
+    for chunk in bytes.chunks(4) {
+        let mut n = 0u32;
+        for (i, &c) in chunk.iter().enumerate() { n |= (value(c) as u32) << (18 - 6 * i); }
+        for i in 0..chunk.len().saturating_sub(1) { out.push((n >> (16 - 8 * i)) as u8); }
+    }
+    out
+}
+
+#[test]
+fn every_trade_says_whether_the_creator_made_it() {
+    let mut env = Env::new();
+    let (admin, alice) = (env.admin.insecure_clone(), env.alice.insecure_clone());
+    let coin = env.launch();
+    assert_eq!(traded_by_creator(&env.buy(&coin, &admin, SOL).unwrap()), Some(true));
+    assert_eq!(traded_by_creator(&env.buy(&coin, &alice, SOL).unwrap()), Some(false));
+    assert_eq!(traded_by_creator(&env.sell(&coin, &admin, 1_000 * TOKEN).unwrap()), Some(true));
+    assert_eq!(traded_by_creator(&env.sell(&coin, &alice, 1_000 * TOKEN).unwrap()), Some(false));
+}
+

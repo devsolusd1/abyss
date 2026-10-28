@@ -80,13 +80,20 @@
 .c-cl b { color: var(--f-cream); font-weight: 600; }
 .c-claim .btn { width: 100%; margin-top: 10px; }
 .c-claim [hidden] { display: none; }
+.c-batch { margin-top: 6px; padding: 14px 0 2px; border-top: 1px dashed var(--f-line); border-bottom: 1px dashed var(--f-line); margin-bottom: 14px; }
+.c-bt { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; font-size: 11px; color: var(--f-mute); }
+.c-bt b { font: 600 14px/1 var(--f-mono); color: var(--f-yellow); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.c-batch .c-cl { margin-top: 8px; }
+.c-batch .btn { width: 100%; margin-top: 10px; }
+.c-batch [hidden], #batch[hidden] { display: none; }
+.in-batch .c-seg { display: none; }
 
 /* ---------- in numbers: a flat list on the dark ground, two columns ---------- */
 #numbers { padding-bottom: 0; }
 #numbers .lead a { color: var(--f-cream); text-underline-offset: 4px; }
 .facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: repeat(6, auto); grid-auto-flow: column; column-gap: clamp(32px, 6vw, 96px); margin: clamp(36px, 5vw, 56px) 0 0; }
 .f { display: grid; grid-template-columns: 10em minmax(0, 1fr); gap: 16px; padding: 14px 0 15px; border-top: 1px solid var(--f-line); }
-.f:nth-child(5), .f:last-child { border-bottom: 1px solid var(--f-line); }
+.f:nth-child(6), .f:last-child, .born-facts .f:nth-child(2) { border-bottom: 1px solid var(--f-line); }   /* the foot of each column: six rows, two in "born" */
 .f dt { color: var(--f-mute); font-size: 11px; line-height: 1.95; }
 .f dd { margin: 0; font-size: 13px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .f dd .mute { display: block; font-size: 11px; }
@@ -122,7 +129,7 @@
 .born-facts { grid-template-rows: repeat(2, auto); }
 .born-list { margin-top: clamp(28px, 4vw, 44px); }
 .born-list td:nth-child(4) { white-space: normal; text-align: left; }
-.born-list td:nth-child(1), .born-list td:nth-child(2), .born-list th { white-space: normal; }   /* a phone: the wallet and its tag, and "in the launch", go on two lines */
+.born-list td:nth-child(1), .born-list td:nth-child(2), .trades.born-list th { white-space: normal; }   /* a phone: the wallet and its tag, and "in the launch", go on two lines */
 .born-list th:nth-child(4) { text-align: left; }
 .born-list .who { color: var(--f-yellow); font-size: 11px; }
 .born-list .mute { display: block; font-size: 11px; white-space: normal; }
@@ -169,7 +176,7 @@
   .c-trade { max-width: none; padding: 18px 16px 16px; }
   .c-seg button { font-size: 22px; }
   .facts { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; grid-auto-flow: row; }
-  .f:nth-child(5):not(:last-child) { border-bottom: 0; }
+  .f:nth-child(6):not(:last-child), .born-facts .f:nth-child(2):not(:last-child) { border-bottom: 0; }
   .f { grid-template-columns: 8.6em minmax(0, 1fr); gap: 12px; }
   .f dd { font-size: 12px; }
   .trades { font-size: 11px; }
@@ -241,6 +248,14 @@
         <button class="q c-wal" type="button" data-wallet>Connect wallet</button>
       </div>
       <p class="c-wnote" data-wallet-note aria-live="polite"></p>
+      <!-- the opening batch: while it is open SOL waits in seats; at its close it all buys at once, one price for every seat -->
+      <div class="c-batch" id="batch" hidden>
+        <p class="c-bt"><span id="batchH">opening batch</span><b id="batchClock"></b></p>
+        <p class="c-cl" id="batchTxt"></p>
+        <button type="button" class="btn sm" id="batchBtn" hidden></button>
+        <button type="button" class="btn sm ghost" id="batchBack" hidden></button>
+        <p class="c-note" id="batchNote" aria-live="polite"></p>
+      </div>
       <div class="c-seg" role="group" aria-label="Buy or sell">
         <button type="button" data-side="buy" aria-pressed="true"><i class="slot"></i>buy</button><button type="button" data-side="sell" aria-pressed="false"><i class="slot"></i>sell</button>
       </div>
@@ -290,7 +305,7 @@
       <p class="s-read" id="read"></p>
       <div class="s-cv"><canvas id="chart" tabindex="0" role="img" aria-label="The coin's price in candles"></canvas></div>
       <figcaption class="s-key">
-        <span><i class="ku"></i>closed up</span><span><i class="kd"></i>closed down</span><span><i class="kg"></i>graduation</span><span><i class="kq"></i>after the trade you are typing</span><span title="The price if every token outside the pool were sold back to it: this pool's worst case"><i class="kf"></i>pool floor</span><span id="keyMine" hidden><i class="km">▲▼</i>your wallet's trades</span><span>drag sideways to look back · − and + zoom</span><span id="keyUsd" hidden></span>
+        <span><i class="ku"></i>closed up</span><span><i class="kd"></i>closed down</span><span><i class="kg"></i>graduation</span><span><i class="kq"></i>after the trade you are typing</span><span id="keyFloor" title="The price if every token outside the pool were sold back to it"><i class="kf"></i>pool floor</span><span id="keyMine" hidden><i class="km">▲▼</i>your wallet's trades</span><span>drag sideways to look back · − and + zoom</span><span id="keyUsd" hidden></span>
       </figcaption>
     </figure>
     <table class="trades" id="tradeList">
@@ -318,7 +333,7 @@
     <p class="lead">From the coin's first transactions on <span data-net="place">devnet</span>: who launched it, what they bought, what that wallet did since, and where the first buyers' SOL came from. Facts, each with its transaction.</p>
     <dl class="facts born-facts" id="bornFacts"></dl>
     <table class="trades born-list" id="bornList" hidden>
-      <thead><tr><th scope="col">first buyers</th><th scope="col">when</th><th scope="col">SOL</th><th scope="col">its SOL came from</th></tr></thead>
+      <thead><tr><th scope="col" id="bornWho">first buyers</th><th scope="col">when</th><th scope="col">SOL</th><th scope="col">its SOL came from</th></tr></thead>
       <tbody id="bornRows"></tbody>
     </table>
     <p class="c-empty" id="bornNote">Reading the coin's first transactions…</p>
@@ -392,6 +407,7 @@ function fAmt(v) { return String(+v.toFixed(2)); }   // a setting: 30, 82.25, 42
 function lam(n) { return Number(n) / 1e9; }
 function units(n) { return Number(n) / 1e6; }
 function when(sec) { try { return new Date(sec * 1000).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }); } catch (e) { return ''; } }
+function hhmm(sec) { try { return new Date(sec * 1000).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }); } catch (e) { return ''; } }
 function chainOk() { return !!(window.Chain && window.NET && NET.ready); }
 function setText(sel, v) { var el = $(sel); if (el && el.textContent !== v) el.textContent = v; }
 function mute(html) { return '<span class="mute">' + html + '</span>'; }
@@ -497,7 +513,7 @@ function row(k, v) { return '<div class="f"><dt>' + k + '</dt><dd>' + v + '</dd>
 // the pool's floor: the price per whole token if every token outside the pool were sold back to it. A constant product
 // x·y = k with all S tokens in it holds k/S SOL, so the price is k/S². Before graduation that is the opening price; at
 // graduation the virtual SOL goes and it drops to about 0.62× that (30 / 420); after it the fees stay out of the
-// reserves and nothing burns again, so it stays put. Not a guarantee of anything: the worst case in this pool
+// reserves and nothing burns again, so it stays put. Not a guarantee of anything: the worst case as the pool stands
 function floorPrice(p) {
   if (!p) return 0;
   var x = (p.graduated ? 0 : lam(p.virtualSol)) + lam(p.realSol), t = units(p.tokens), s = units(Chain.SUPPLY - p.burned);
@@ -509,19 +525,32 @@ function floorAfterGrad(p) {
   var G = lam(p.graduationSol), V = lam(p.virtualSol), x = V + G, T = units(Chain.SUPPLY) * V / x, B = T * V / x, s = units(Chain.SUPPLY) - B, t = T - B;
   return s > 0 ? G * t / (s * s) : 0;
 }
+// what the floor is, in words: on the curve it is not the last word, since graduation lowers it
+function floorWords(p) {
+  return p.graduated ? 'the worst case now; it stays here'
+    : 'the worst case on the curve; at graduation it drops to ' + pct(floorPrice(p) > 0 ? floorAfterGrad(p) / floorPrice(p) : 0) + ' of this';
+}
 /* ================= born: from /api/birth (server/birth.mjs) and the history ================= */
-var BIRTH = null, birthTries = 0, birthT = 0, creatorHold = null;
+// The answer: { complete, tooOld, read, more, launch, buyers } (server/birth.mjs). read: the pool's own transactions read
+// from its first; more: there are later ones it did not look at. A batch's entry (batch: true) has seat: { sol, settled,
+// out }, its SOL at the end of what was read, whether the batch's settle is in it, whether it went to 0 before the
+// settle. The server in use may be older and send no read, more or seat: the words fall back to what it does send
+var BIRTH = null, birthTries = 0, birthT = 0, creatorHold = null, birthPaused = false;
 async function loadBirth() {
   var url = window.NET && NET.birthUrl, mint = POOL && String(POOL.mint);
   if (!url || !POOL) return;
+  function again(ms) {
+    // the server reads a birth over a few asks on a slow node: ask again in a moment, a few times, then wait for a reload
+    if (++birthTries <= 10) { clearTimeout(birthT); birthT = setTimeout(loadBirth, ms); }
+    else { birthPaused = true; renderBorn(); }
+  }
   try {
     var res = await withTimeout(fetch(url + '&pool=' + encodeURIComponent(String(POOL.address)), { cache: 'no-store' }), 15000);
     var j = res.ok ? await res.json() : null;
     if (!POOL || String(POOL.mint) !== mint) return;
     if (j && Array.isArray(j.buyers)) { BIRTH = j; renderBorn(); readCreatorHold(); }
-    // the server reads a birth over a few asks on a slow node: ask again in a moment, a few times
-    if (!j || !j.complete) { if (++birthTries <= 10) { clearTimeout(birthT); birthT = setTimeout(loadBirth, 3000); } }
-  } catch (e) { if (++birthTries <= 10) { clearTimeout(birthT); birthT = setTimeout(loadBirth, 5000); } }
+    if (!j || !j.complete) again(3000);
+  } catch (e) { if (POOL && String(POOL.mint) === mint) again(5000); }
 }
 async function readCreatorHold() {
   if (!BIRTH || !BIRTH.launch || !POOL) return;
@@ -531,20 +560,37 @@ function span2(a, b) {
   var s = Math.max(0, Math.round(b - a));
   return s < 90 ? s + ' s' : s < 5400 ? Math.round(s / 60) + ' min' : s < 172800 ? Math.round(s / 3600) + ' h' : Math.round(s / 86400) + ' days';
 }
+var PAUSED = 'Paused: reload the page to read on.';
+function txCount(n) { return Number(n).toLocaleString('en-US') + (n === 1 ? ' transaction' : ' transactions'); }
+// a batch entry's seat as the server read it: { sol, settled, out }, or null from an older server
+function seatOf(x) { return x && x.batch && x.seat && typeof x.seat === 'object' ? x.seat : null; }
+function emptied(s) { return !!s.out && !(Number(s.sol) > 0); }   // took all of it back before the close
+// the creator's SOL in the launch: a buy, or the first SOL into its seat in the opening batch, and what became of that
+// seat by the end of what was read. Bought is said only when the read has the settle, the seat never went to 0, and the
+// pool says its batch bought
+function launchWords(L) {
+  var f = L.firstBuy;
+  if (!f) return 'no buy' + mute('the creator bought nothing in the launch transaction');
+  if (!f.batch) return fSol(f.sol) + ' SOL for ' + fTok(f.tokens) + ' tokens' + mute('bought by the creator in the launch transaction');
+  var s = null, o = POOL.opening;
+  BIRTH.buyers.forEach(function (x) { if (x.wallet === L.creator && seatOf(x)) s = seatOf(x); });
+  var then = !s ? '' : emptied(s) ? '; it took it all back before the close'
+    : s.settled ? '; ' + fSol(Number(s.sol)) + ' SOL in it at the close' + (!s.out && Number(s.sol) > 0 && o && o.state === 'settled' && o.totalSol > 0n ? ', which bought at the batch\'s one price' : o && o.state === 'refund' ? ', and the batch bought nothing' : '')
+    : '; ' + fSol(Number(s.sol)) + ' SOL in it so far';
+  return fSol(f.sol) + ' SOL into its seat in the opening batch' + mute('the creator\'s seat, taken in the launch transaction' + then);
+}
 function renderBorn() {
   var sec = $('#born');
   if (!BIRTH || !POOL) return;
   sec.hidden = false;
   var note = $('#bornNote');
-  if (BIRTH.tooOld) { $('#bornFacts').innerHTML = ''; $('#bornList').hidden = true; note.hidden = false; note.textContent = 'This coin has over 5,000 transactions: its first ones are further back than this page reads.'; return; }
+  if (BIRTH.tooOld) { $('#bornFacts').innerHTML = ''; $('#bornFacts')._h = ''; $('#bornList').hidden = true; note.hidden = false; note.textContent = 'This coin has 5,000 or more transactions: its first ones are further back than this page reads.'; return; }
   var L = BIRTH.launch;
-  if (!L) { note.hidden = false; note.textContent = BIRTH.complete ? 'The launch transaction was not found.' : 'Reading the coin\'s first transactions…'; return; }
-  var me = L.creator, out = '';
+  if (!L) { note.hidden = false; note.textContent = BIRTH.complete ? 'The launch transaction was not found.' : birthPaused ? PAUSED : 'Reading the coin\'s first transactions…'; return; }
+  var me = L.creator, out = '', batch = !!(POOL.opening || (L.firstBuy && L.firstBuy.batch) || BIRTH.buyers.some(function (x) { return x.batch; }));
   out += row('launched', esc(when(L.time)) + mute('slot ' + esc(String(L.slot)) + ' · ' + txLink(L.signature, 'the launch transaction ↗')));
   out += row('by', link('address', me, esc(shortKey(me))) + mute(String(POOL.creator) === me ? 'its creator' : 'the creator then; it is ' + link('address', POOL.creator, esc(shortKey(POOL.creator))) + ' now'));
-  out += row('in the launch', L.firstBuy
-    ? fSol(L.firstBuy.sol) + ' SOL for ' + fTok(L.firstBuy.tokens) + ' tokens' + mute('bought by the creator in the launch transaction')
-    : 'no buy' + mute('the creator bought nothing in the launch transaction'));
+  out += row('in the launch', launchWords(L));
   // the creator's wallet since, from the trades this page has read
   var b = 0, bs = 0, s = 0, ss = 0;
   (EVENTS || []).forEach(function (e) { if (e.kind === 'trade' && String(e.trader) === me) { if (e.buy) { b++; bs += lam(e.sol); } else { s++; ss += lam(e.sol); } } });
@@ -553,19 +599,33 @@ function renderBorn() {
   out += row("the creator's wallet", (b ? 'bought ' + fSol(bs) + ' SOL in ' + b + (b === 1 ? ' buy' : ' buys') : 'no buys') + ', ' + (s ? 'sold for ' + fSol(ss) + ' SOL in ' + s + (s === 1 ? ' sell' : ' sells') : 'no sells')
     + mute((whole ? 'every trade so far' : 'in the ' + (HIST ? HIST.have : 0) + ' latest transactions read') + holdTxt));
   var fx = $('#bornFacts'); if (fx._h !== out) { fx.innerHTML = out; fx._h = out; }
-  // the first buyers
+  // the first buyers, and with a batch the first seats: a seat's SOL is what was in it at the end of the read
   var rows = BIRTH.buyers.map(function (x) {
     var whenTxt = x.signature === L.signature ? 'in the launch' : (L.time && x.time ? '+' + span2(L.time, x.time) : '');
-    var f = x.funding || {}, from;
+    var f = x.funding || {}, from, it = x.batch ? 'its seat' : 'this buy', s = seatOf(x), solTxt;
     if (f.by) from = link('address', f.by, esc(shortKey(f.by))) + (f.by === me ? ' <span class="who">the creator</span>' : '') + mute(fSol(f.sol) + ' SOL, ' + (f.time && x.time ? span2(f.time, x.time) + ' before · ' : '') + txLink(f.signature, 'transaction ↗'));
-    else if (f.older) from = 'an older wallet' + mute('over 1,000 transactions before this buy');
-    else if (f.none) from = '—' + mute('no transfer found before this buy');
-    else from = mute('reading…');
-    return '<tr><td>' + link('address', x.wallet, esc(shortKey(x.wallet))) + (x.creator ? ' <span class="who">creator</span>' : '') + '</td><td>' + txLink(x.signature, esc(whenTxt)) + '</td><td>' + fSol(x.sol) + '</td><td>' + from + '</td></tr>';
+    else if (f.older) from = 'an older wallet' + mute('1,000 or more transactions before ' + it);
+    else if (f.none) from = '—' + mute('none of its oldest transactions read before ' + it + ' sent it SOL');
+    else from = mute(birthPaused ? 'not read yet' : 'reading…');
+    if (s) solTxt = fSol(Number(s.sol) || 0) + mute(emptied(s) ? 'took a seat, then took it all back' : s.settled ? 'its seat at the close' : 'in its seat so far');
+    else solTxt = fSol(x.sol) + (x.batch ? mute('first put into its seat in the batch') : '');
+    return '<tr><td>' + link('address', x.wallet, esc(shortKey(x.wallet))) + (x.creator ? ' <span class="who">creator</span>' : '') + '</td><td>' + txLink(x.signature, esc(whenTxt)) + '</td><td>' + solTxt + '</td><td>' + from + '</td></tr>';
   }).join('');
   var body = $('#bornRows'); if (body._h !== rows) { body.innerHTML = rows; body._h = rows; }
+  setText('#bornWho', batch ? 'first buyers and seats' : 'first buyers');
   $('#bornList').hidden = !BIRTH.buyers.length;
-  note.textContent = !BIRTH.complete ? 'Still reading the first transactions…' : BIRTH.buyers.length < 10 ? 'Every buyer so far: fewer than ten wallets have bought.' : 'The first ten wallets to buy.';
+  // how far the list goes: with `more`, only as far as the transactions read
+  var n = BIRTH.buyers.length, did = batch ? 'bought or taken a seat' : 'bought', t;
+  if (!BIRTH.complete) t = birthPaused ? PAUSED : 'Still reading the first transactions…';
+  else if (typeof BIRTH.read === 'number' && BIRTH.more) {
+    t = n >= 10 ? 'The first ten wallets in the coin\'s first ' + txCount(BIRTH.read) + '.'
+      : n ? 'Only ' + n + (n === 1 ? ' wallet' : ' wallets') + ' in the first ' + txCount(BIRTH.read) + '; later ones are not read here.'
+      : 'No wallet in the first ' + txCount(BIRTH.read) + '; later ones are not read here.';
+  }
+  else if (!n) t = 'No wallet has ' + did + ' yet.';
+  else if (n < 10) t = 'Every wallet so far: fewer than ten have ' + did + '.';
+  else t = batch ? 'The first ten wallets to buy or take a seat in the opening batch.' : 'The first ten wallets to buy.';
+  note.textContent = t;
   note.hidden = false;
 }
 function renderFacts() {
@@ -578,6 +638,19 @@ function renderFacts() {
   out += row('graduation', st.graduated
     ? esc(when(p.graduatedAt)) + mute(fTok(units(p.burned)) + ' tokens burned, same price, same pool')
     : 'at a ' + fAmt(M) + ' SOL market cap' + mute(fSol(st.realSol) + ' of ' + fSol(G) + ' real SOL in, ' + fSol(Math.max(0, G - st.realSol)) + ' to go'));
+  var o = p.opening, before = o && o.state === 'open' && nowS() < o.opensAt;
+  if (o) {
+    var left = o.seats ? '; ' + o.seats + (o.seats === 1 ? ' seat' : ' seats') + ' still to claim' : '';
+    var under = o.sol < Chain.OPENING.minBatch;   // the settle of a batch under 0.01 SOL buys nothing
+    out += row('opening batch', o.state === 'open'
+      ? (before ? 'closes ' : 'closed ') + esc(when(o.opensAt)) + mute(fSol(lam(o.sol)) + ' SOL in ' + o.seats + (o.seats === 1 ? ' seat' : ' seats')
+        + (before ? '; if 0.01 SOL or more is in it at the close, it all buys at once, one price for every seat'
+          : under ? '; under the 0.01 SOL it needs: the settle buys nothing' + (o.seats ? ' and every seat takes its SOL back' : '')
+          : '; waiting for anyone to settle it: one buy with all of it'))
+      : o.state === 'refund' ? 'bought nothing' + mute(fSol(lam(o.totalSol)) + ' SOL in it, under the 0.01 SOL it needs' + (o.seats ? left.replace('to claim', 'to take their SOL back') : '; every seat took its SOL back'))
+      : o.totalSol > 0n ? fSol(lam(o.totalSol)) + ' SOL bought ' + fTok(units(o.tokens)) + ' tokens' + mute('one buy at its close, one price for every seat' + left)
+      : 'nobody joined' + mute('the coin opened as it was'));
+  }
   out += row('market cap', fSol(p.marketCap) + ' SOL' + mute('on ' + fTok(units(Chain.SUPPLY - p.burned)) + ' tokens'));
   out += row('in the pool', fTok(units(p.tokens)) + ' tokens' + mute('of the 1B made'));
   out += row('pool floor', fPx(floorPrice(p)) + ' SOL per 1M' + mute(st.graduated
@@ -586,7 +659,10 @@ function renderFacts() {
   out += row('volume', fSol(lam(p.volume)) + ' SOL' + mute(trades == null ? 'traded so far' : 'in ' + trades + ' trade' + (trades === 1 ? '' : 's')));
   out += row('fee', (p.feeBps / 100) + '% of every trade' + mute(split(p.treasuryShareBps)));
   out += row('fees owed', fSol(cO) + ' creator · ' + fSol(tO) + ' platform' + mute('SOL, waiting in the pool' + (cP + tP > 0 ? '; ' + fSol(cP) + ' and ' + fSol(tP) + ' paid out' : '; none claimed yet')));
-  out += row('opened', esc(when(p.openedAt)) + mute(esc(ago(p.openedAt)) + ' by ' + link('address', p.creator, esc(shortKey(p.creator)))));
+  // with an opening batch the coin did not open at its launch: nobody could buy before the batch settled
+  out += o
+    ? row('launched', esc(when(p.openedAt)) + mute(esc(ago(p.openedAt)) + ' by ' + link('address', p.creator, esc(shortKey(p.creator))) + '; its opening batch ' + (before ? 'closes' : 'closed') + ' at ' + esc(hhmm(o.opensAt))))
+    : row('opened', esc(when(p.openedAt)) + mute(esc(ago(p.openedAt)) + ' by ' + link('address', p.creator, esc(shortKey(p.creator)))));
   out += row('mint', link('address', p.mint, esc(shortKey(p.mint))));
   out += row('pool', link('address', p.address, esc(shortKey(p.address))));
   var fx = $('#facts'); if (fx._h !== out) { fx.innerHTML = out; fx._h = out; }   // a redraw that changes nothing leaves focus and clicks alone
@@ -649,7 +725,11 @@ function renderHistory() {
   var rows = [], trades = 0;
   EVENTS.forEach(function (e, i) {
     var t = e.time ? txLink(e.signature, esc(ago(e.time))) : '';
-    if (e.kind === 'trade') { trades++; rows.push(tr(e.buy ? 'buy' : 'sell', i, [t, e.buy ? 'buy' : 'sell', fSol(lam(e.sol)), tok(units(e.tokens)), fPx(priceAt(e))])); }
+    if (e.kind === 'trade') { trades++; rows.push(tr(e.buy ? 'buy' : 'sell', i, [t, e.batch ? 'batch buy' : e.buy ? 'buy' : 'sell', fSol(lam(e.sol)), tok(units(e.tokens)), fPx(priceAt(e))])); }
+    else if (e.kind === 'commit') rows.push(tr('ev', i, [t, 'into the batch', fSol(lam(e.sol)), '', '']));
+    else if (e.kind === 'withdraw') rows.push(tr('ev', i, [t, 'out of the batch', '−' + fSol(lam(e.sol)), '', '']));
+    else if (e.kind === 'settle' && e.refund) rows.push(tr('ev', i, [t, 'batch bought nothing', fSol(lam(e.sol)), '', '']));
+    else if (e.kind === 'seat') rows.push(tr('ev', i, [t, e.refund ? 'seat refunded' : 'seat claimed', e.refund ? fSol(lam(e.sol)) : '', e.refund ? '' : tok(units(e.tokens)), '']));
     else if (e.kind === 'launch') rows.push(tr('ev', i, [t, 'launch', '', '1B', fPx(launchPrice())]));
     else if (e.kind === 'graduation') rows.push(tr('ev grad', i, [t, 'graduated', '−' + fAmt(lam(POOL.virtualSol)), '−' + fTok(units(e.burned)), fPx(lam(POOL.graduationMcap) / 1e9)]));   // the price it graduates at: the graduation market cap over the 1B made
     else if (e.kind === 'claim') rows.push(tr('ev', i, [t, (e.creator ? 'creator' : 'platform') + ' claim', fSol(lam(e.amount)), '', '']));
@@ -844,7 +924,9 @@ function drawChart(view) {
   // the pool's floor, in what the chart shows: soft, so a floor far under the price does not squash the candles
   var fp = floorPrice(POOL), fv = (SERIES === 'price' ? fp * 1e6 : fp * units(Chain.SUPPLY - POOL.burned)) * (inUsd() ? USD : 1);
   if (fv > 0) lines.push({ v: fv, label: 'pool floor: ' + fmtV(fv), col: HEX[4], word: HEX[5], soft: true });
-  if (Q && Q.q) { var qv = (SERIES === 'price' ? Q.after.price * 1e6 : Q.after.mcap) * (inUsd() ? USD : 1); lines.push({ v: qv, label: 'after this ' + Q.side + ': ' + fmtV(qv), col: HEX[5] }); }
+  var kf = $('#keyFloor'), kt = 'The price if every token outside the pool were sold back to it: ' + floorWords(POOL);
+  if (kf.title !== kt) kf.title = kt;
+  if (Q && Q.q && Q.after) { var qv = (SERIES === 'price' ? Q.after.price * 1e6 : Q.after.mcap) * (inUsd() ? USD : 1); lines.push({ v: qv, label: 'after this ' + Q.side + ': ' + fmtV(qv), col: HEX[5] }); }
   $('#keyMine').hidden = !C.marks.length;
   chart.set({ candles: C.list, marks: C.marks, events: C.events, lines: lines, log: LOG, fmt: fmtV, tick: inUsd() ? tickUsd : null, tfmt: timeLabel(tf, C.list),
     goal: POOL.graduated ? null : { v: g, label: 'graduation at ' + fmtV(g) } }, off != null ? { off: off } : null);
@@ -929,8 +1011,19 @@ function parseAmt(s) {
 }
 function makeQuote() {
   if (!POOL || !window.Chain) return { msg: POOL ? 'The trading code did not load.' : 'Reading the pool…' };
+  var ph = batchPhase();
+  if (ph === 'due') return { msg: 'The opening batch has closed: buying opens once someone settles it, above.' };
+  if (ph === 'last') return { msg: 'The opening batch\'s last minute: no more SOL goes into seats. SOL already in one can still come back out, above.' };
+  if (ph === 'open' && side !== 'buy') return { msg: 'Nobody holds this coin yet: its first tokens come out when the opening batch settles.' };
   var v = parseAmt(amt.value);
   if (!(v > 0)) return { msg: side === 'buy' ? 'Type how much SOL to spend.' : 'Type how many tokens to sell. 5m means five million.' };
+  if (ph === 'open') {
+    var lc = BigInt(Math.round(v * 1e9)), seat0 = mySeat();
+    if (lc < Chain.OPENING.minCommit) return { msg: 'A seat in the batch takes at least 0.001 SOL.', bad: true };
+    if (WAL && lc > WAL.sol) return { msg: 'Your wallet has ' + fSol(lam(WAL.sol)) + ' SOL.', bad: true };
+    var mine = (seat0 ? seat0.sol : 0n) + lc, total = POOL.opening.sol + lc;
+    return { side: 'commit', sol: v, lamports: lc, q: Chain.quoteSeat(POOL, mine, total), mine: mine, total: total, after: null };
+  }
   var fee = POOL.feeBps, r = reservesOf(POOL);
   if (side === 'buy') {
     var lamports = BigInt(Math.round(v * 1e9));
@@ -953,6 +1046,12 @@ function renderQuote() {
   try { Q = makeQuote(); } catch (e) { report(e); Q = { msg: 'Could not quote that amount.', bad: true }; }
   var t;
   if (!Q.q) t = esc(Q.msg);
+  else if (Q.side === 'commit') {
+    t = 'Into your seat: <b>' + fSol(Q.sol) + '</b> SOL. ';
+    t += Q.q.refund
+      ? 'The batch needs 0.01 SOL in all to buy; under it, every seat takes its SOL back.'
+      : 'If the batch closed now with it, ' + (Q.mine > Q.lamports ? 'your seat of <b>' + fSol(lam(Q.mine)) + '</b> SOL' : 'it') + ' would take about <b>' + tok(units(Q.q.tokens)) + '</b> tokens: <b>' + fSol(lam(Q.total)) + '</b> SOL buying at once, fee <b>' + fSol(lam(Q.q.batch.fee)) + '</b> SOL. More SOL in the batch means fewer tokens per SOL, the same for every seat.';
+  }
   else if (Q.side === 'buy') {
     t = 'You get <b>' + tok(units(Q.q.tokensOut)) + '</b> tokens, at least <b>' + tok(units(Q.minOut)) + '</b> or it stops (1% slippage). Fee <b>' + fSol(lam(Q.q.fee)) + '</b> SOL. ';
     if (Q.q.graduates) t += 'This buy <b>graduates the coin</b>: the ' + fAmt(lam(POOL.virtualSol)) + ' virtual SOL drops out and ' + fTok(units(Q.q.burned)) + ' tokens burn, so the price does not jump. Same pool after.';
@@ -968,15 +1067,18 @@ function renderQuote() {
 }
 function holdLabel(t) { holdTxt.textContent = t; holdFill.textContent = t; }   // the yellow fill carries the same words, dark
 function paintHold() {
-  var w = window.Wallet && Wallet.current;
+  paintBatch();
+  var w = window.Wallet && Wallet.current, ph = batchPhase(), verb = ph === 'open' ? 'commit' : side;
   if (claimEl) paintClaim();                           // the claim buttons wait while a trade goes out, and the other way round
   holdBtn.classList.toggle('connect', !w);
   holdBtn.classList.toggle('busy', busy);
   if (busy) { holdLabel('Working…'); holdBtn.disabled = true; holdBtn.classList.remove('ready'); return; }
-  if (!w) { holdLabel('Connect a wallet to ' + side); holdBtn.disabled = !POOL; holdBtn.classList.remove('ready'); return; }
+  if (ph === 'due') { holdLabel('Buying opens after the settle'); holdBtn.disabled = true; holdBtn.classList.remove('ready'); return; }
+  if (ph === 'last') { holdLabel('Seats closed: last minute'); holdBtn.disabled = true; holdBtn.classList.remove('ready'); return; }
+  if (!w) { holdLabel('Connect a wallet to ' + verb); holdBtn.disabled = !POOL; holdBtn.classList.remove('ready'); return; }
   holdBtn.disabled = !(Q && Q.q);
   holdBtn.classList.toggle('ready', !holdBtn.disabled);
-  holdLabel(holdBtn.classList.contains('holding') ? 'Keep holding…' : 'Hold to ' + side);
+  holdLabel(holdBtn.classList.contains('holding') ? 'Keep holding…' : 'Hold to ' + verb);
 }
 function paintHoldings() {
   var w = window.Wallet && Wallet.current, el = $('#holdings');
@@ -1054,7 +1156,8 @@ async function execute() {
     try { var fresh = await withTimeout(Chain.readPool(POOL.mint), 12000); if (fresh) { PINNED = false; applyPool(fresh); } } catch (e) { /* quote on what we have */ }
     var q = makeQuote();
     if (!q.q) { note(q.msg, true); return; }
-    var built = side === 'buy'
+    var built = q.side === 'commit' ? await Chain.buildCommit({ pool: POOL, owner: w.publicKey, sol: q.lamports })
+      : side === 'buy'
       ? await Chain.buildBuy({ pool: POOL, owner: w.publicKey, sol: q.sol, slippageBps: Number(SLIP) })
       : await Chain.buildSell({ pool: POOL, owner: w.publicKey, tokens: q.units, slippageBps: Number(SLIP) });
     note('Asking ' + place + ' whether it would go through…');
@@ -1070,6 +1173,145 @@ async function execute() {
     else note(sendError(e), true);
   } finally { busy = false; paintHold(); }
 }
+
+/* ================= the opening batch (Chain.buildCommit, buildWithdraw, buildSettle, buildSeatClaim) ================= */
+// A coin launched with a batch takes no buys until the batch settles. SOL goes into seats, one per wallet, until the
+// window's last minute, and can come back out until it closes; once it is over anyone settles it, one buy with all of
+// it, so every seat pays one price. Then each seat claims its share of the tokens (or, when the batch bought nothing,
+// its SOL back); the wallet that settles claims its own seat in the same transaction. The window is the chain's clock:
+// this browser's is set against it (the Clock sysvar, read at the start and every 3 minutes while the batch is open),
+// and what is left of the gap, a second or two, is the simulation's to catch.
+var SEAT = null, SEAT_OF = '', batchKey = '';           // SEAT: this wallet's seat as read, for SEAT_OF (wallet|pool)
+var CLOCK_OFF = 0, clockAt = 0;                         // the chain's clock minus this browser's, in seconds; when last asked
+function nowS() { return Date.now() / 1000 + (CLOCK_OFF || 0); }
+async function measureClock() {
+  if (!window.Chain || !Chain.chainClock) return;
+  clockAt = Date.now();
+  try {
+    var t0 = Date.now(), ts = await withTimeout(Chain.chainClock(), 10000), t1 = Date.now();
+    if (ts > 0 && t1 - t0 < 5000) CLOCK_OFF = ts - (t0 + t1) / 2000;   // a slow answer says little about the time
+  } catch (e) { /* this browser's clock until the next try */ }
+}
+function batchPhase() {
+  var o = POOL && POOL.opening;
+  if (!o) return null;
+  if (o.state !== 'open') return o.state;              // settled or refund
+  var s = nowS();
+  return s >= o.opensAt ? 'due' : s >= o.opensAt - Chain.OPENING.lockSecs ? 'last' : 'open';   // last: SOL only comes out
+}
+function clockTxt(s) { s = Math.max(0, Math.ceil(s)); return Math.floor(s / 60) + ':' + pad2(s % 60); }
+function mySeat() { var w = window.Wallet && Wallet.current; return w && POOL && SEAT_OF === String(w.publicKey) + '|' + String(POOL.address) ? SEAT : null; }
+async function readSeat() {
+  var w = window.Wallet && Wallet.current;
+  if (!w || !POOL || !POOL.opening) return;
+  var key = String(w.publicKey) + '|' + String(POOL.address), o = POOL.opening, s = null;
+  if (o.state === 'open' || o.seats > 0) {             // a closed batch with no seat left: nothing to read, ever
+    try { s = await withTimeout(Chain.readSeat(POOL.address, w.publicKey), 12000); } catch (e) { return; }
+    if (Wallet.current !== w || !POOL || key !== String(w.publicKey) + '|' + String(POOL.address)) return;
+  }
+  var was = mySeat();
+  SEAT = s; SEAT_OF = key;
+  if ((was && was.sol) !== (s && s.sol)) renderQuote(); else paintBatch();
+}
+function paintClock() {
+  var ph = batchPhase(), o = POOL && POOL.opening;
+  setText('#batchClock', ph === 'open' || ph === 'last' ? 'closes in ' + clockTxt(o.opensAt - nowS()) : ph === 'due' ? 'closed' : '');
+}
+function bnote(text, bad) { var n = $('#batchNote'); n.classList.toggle('bad', !!bad); n.textContent = text; }
+function bnoteHTML(html, bad) { var n = $('#batchNote'); n.classList.toggle('bad', !!bad); n.innerHTML = html; }
+function paintBatch() {
+  var box = $('#batch'), ph = batchPhase(), o = POOL && POOL.opening, seat = mySeat(), w = window.Wallet && Wallet.current;
+  var live = ph === 'open' || ph === 'last' || ph === 'due', show = !!o && (live || !!(seat && seat.sol > 0n));
+  document.body.classList.toggle('in-batch', live);
+  if (live && side !== 'buy' && !busy) { setSide('buy'); return; }   // nothing to sell yet; setSide paints again
+  if (box.hidden === show) box.hidden = !show;
+  if (!show) return;
+  paintClock();
+  var txt, btn = '', back = '', has = !!(seat && seat.sol > 0n), refunds = o.sol < Chain.OPENING.minBatch;
+  var seats = o.seats + (o.seats === 1 ? ' seat' : ' seats'), mine = has ? ' Your seat: <b>' + fSol(lam(seat.sol)) + '</b> SOL.' : '';
+  // the way out, said before anyone puts SOL in: one price for every seat, but the pool's price after the settle is
+  // above it (a buy's average is under the price it leaves), and every sell lowers it for the next one
+  var exit = ' Right after the settle the price is above the batch\'s average before its fee, so whoever sells first gets more.';
+  if (ph === 'open') {
+    txt = '<b>' + fSol(lam(o.sol)) + '</b> SOL in ' + seats + ' so far. Nobody buys before it closes; then it all buys at once, so every seat pays one price. '
+      + 'SOL goes in until its last minute and can come back out until the close.' + exit + mine;
+  } else if (ph === 'last') {
+    txt = '<b>' + fSol(lam(o.sol)) + '</b> SOL in ' + seats + '. Its last minute: no more SOL goes in, but SOL in a seat can still come back out until the close.' + exit + mine;
+  } else if (ph === 'due') {
+    txt = 'Its window is over, with <b>' + fSol(lam(o.sol)) + '</b> SOL in ' + seats + '. Anyone can settle it: '
+      + (refunds ? 'under the 0.01 SOL it needs, it buys nothing and every seat takes its SOL back' : 'one buy with all of it, then each seat claims its share')
+      + '. Buying opens after.' + (refunds ? '' : exit) + mine;
+    // a wallet with a seat settles and claims it in one transaction
+    btn = !w ? 'Connect a wallet to settle' : !has ? 'Settle the batch' : refunds ? 'Settle and take back ' + fSol(lam(seat.sol)) + ' SOL' : 'Settle and claim';
+  } else if (ph === 'refund') {
+    txt = 'The batch closed with <b>' + fSol(lam(o.totalSol)) + '</b> SOL, under the 0.01 SOL it needs, so it bought nothing. Your <b>' + fSol(lam(seat.sol)) + '</b> SOL is yours to take back.';
+    btn = 'Take back ' + fSol(lam(seat.sol)) + ' SOL';
+  } else {
+    var share = o.totalSol > 0n ? o.tokens * seat.sol / o.totalSol : 0n;
+    txt = 'The batch bought <b>' + tok(units(o.tokens)) + '</b> tokens with <b>' + fSol(lam(o.totalSol)) + '</b> SOL, one price for every seat. Your <b>' + fSol(lam(seat.sol)) + '</b> SOL takes <b>' + tok(units(share)) + '</b> of them.';
+    btn = 'Claim ' + tok(units(share)) + ' tokens';
+  }
+  if (has && (ph === 'open' || ph === 'last')) back = 'Take back your ' + fSol(lam(seat.sol)) + ' SOL';   // until the close
+  setText('#batchH', ph === 'last' ? 'opening batch · last minute' : live ? 'opening batch' : 'your seat in the opening batch');
+  var t = $('#batchTxt'); if (t._h !== txt) { t._h = txt; t.innerHTML = txt; }
+  var b1 = $('#batchBtn'), b2 = $('#batchBack');
+  b1.hidden = !btn; if (btn && b1.textContent !== btn) b1.textContent = btn; b1.disabled = busy;
+  b2.hidden = !back; if (back && b2.textContent !== back) b2.textContent = back; b2.disabled = busy;
+}
+async function batchAct(kind) {
+  var w = window.Wallet && Wallet.current;
+  if (!w) { connectWallet(); return; }
+  if (busy || !POOL || !POOL.opening) return;
+  busy = true; paintHold();
+  var what = '', sig = null;
+  try {
+    bnote('Reading the pool again…');
+    try { var fresh = await withTimeout(Chain.readPool(POOL.mint), 12000); if (fresh) { PINNED = false; applyPool(fresh); } } catch (e) { /* act on what we have */ }
+    await readSeat();
+    var ph = batchPhase(), seat = mySeat(), built;
+    var inside = ph === 'open' || ph === 'last', has = !!(seat && seat.sol > 0n);
+    if (kind === 'back') {
+      if (!inside || !has) { bnote(inside ? 'This wallet has no seat in the batch.' : 'The batch has closed.', true); return; }
+      built = await Chain.buildWithdraw({ pool: POOL, owner: w.publicKey, sol: seat.sol }); what = 'Taken back';
+    } else if (ph === 'due') {
+      // with a seat: the settle and this wallet's claim in one transaction
+      built = await Chain.buildSettle({ pool: POOL, claimFor: has ? w.publicKey : null });
+      what = !has ? 'Settled' : POOL.opening.sol < Chain.OPENING.minBatch ? 'Settled, your SOL back' : 'Settled and claimed';
+    }
+    else if ((ph === 'settled' || ph === 'refund') && seat) { built = await Chain.buildSeatClaim({ pool: POOL, owner: w.publicKey }); what = ph === 'refund' ? 'Taken back' : 'Claimed'; }
+    else { bnote(inside ? 'The batch is still open.' : 'This wallet has no seat to claim.', true); return; }
+    bnote('Asking ' + place + ' whether it would go through…');
+    var sim = await withTimeout(Chain.simulate(built, w.publicKey), 15000);
+    if (!sim.ok) { bnote(Place + ' says it would fail: ' + sim.error + '. Nothing was sent.', true); return; }
+    bnote(Place + ' says it goes through. Confirm in ' + (w.name || 'your wallet') + '.');
+    sig = await Chain.send(built, w);
+    bnoteHTML(what + ': ' + link('tx', sig, 'the signature ' + esc(shortKey(sig))) + '. Reading the pool…');
+    await refresh(true);
+    bnoteHTML(what + ': ' + link('tx', sig, 'the signature ' + esc(shortKey(sig))) + '.');
+  } catch (e) {
+    if (e && e.signature) bnoteHTML(esc(sendError(e)) + ' ' + link('tx', e.signature, 'See it on the explorer'), true);
+    else bnote(sendError(e), true);
+  } finally {
+    busy = false; paintHold();
+    // a claimed seat closes and its block goes: the result moves under the trade button
+    if (sig && $('#batch').hidden) noteHTML(what + ' from the opening batch: ' + link('tx', sig, 'the signature ' + esc(shortKey(sig))) + '.');
+  }
+}
+$('#batchBtn').addEventListener('click', function () { batchAct('main'); });
+$('#batchBack').addEventListener('click', function () { batchAct('back'); });
+// the clock, once a second; when the batch moves on (its last minute, its close) the panel, the quote and the numbers are
+// drawn again, and at the close the pool is read again (someone may have settled it already). While the batch is open
+// the chain's clock is asked again every 3 minutes
+setInterval(function () {
+  if (!POOL || !POOL.opening) return;
+  if (POOL.opening.state === 'open' && Date.now() - clockAt > 180000) measureClock();
+  var ph = batchPhase(), at = String(POOL.address) + ':', key = at + ph;
+  paintClock();
+  if (key === batchKey) return;
+  var was = batchKey; batchKey = key;
+  renderQuote(); if (ST) renderFacts();
+  if (was.indexOf(at) === 0 && ph === 'due' && !busy) refresh(true).catch(report);   // this coin's batch just closed
+}, 1000);
 
 /* ================= fees: the creator's paid to the creator, the platform's to its treasury ================= */
 // a wallet that is the pool's creator sees what the pool owes it and a button that claims it all (the program pays
@@ -1134,7 +1376,8 @@ $('#claimCBtn').addEventListener('click', function () { claim(true); });
 $('#claimTBtn').addEventListener('click', function () { claim(false); });
 
 /* ================= reading the chain ================= */
-function changed(a, b) { return !b || a.realSol !== b.realSol || a.tokens !== b.tokens || a.graduated !== b.graduated || a.volume !== b.volume || a.creatorFees !== b.creatorFees || a.treasuryFees !== b.treasuryFees || a.creatorFeesPaid !== b.creatorFeesPaid || a.treasuryFeesPaid !== b.treasuryFeesPaid || String(a.creator) !== String(b.creator); }
+function openKey(p) { var o = p.opening; return o ? [o.state, o.sol, o.seats, o.tokensLeft, o.opensAt].join('|') : ''; }
+function changed(a, b) { return !b || openKey(a) !== openKey(b) || a.realSol !== b.realSol || a.tokens !== b.tokens || a.graduated !== b.graduated || a.volume !== b.volume || a.creatorFees !== b.creatorFees || a.treasuryFees !== b.treasuryFees || a.creatorFeesPaid !== b.creatorFeesPaid || a.treasuryFeesPaid !== b.treasuryFeesPaid || String(a.creator) !== String(b.creator); }
 function applyPool(p) {
   var first = !POOL || String(POOL.mint) !== String(p.mint), diff = first || changed(p, POOL);
   POOL = p; lastRead = Date.now(); readFail = 0;
@@ -1188,18 +1431,27 @@ function takeHistory(r) {
   if (chart.hover >= 0 && CANDLES[chart.hover]) rowsOn(CANDLES[chart.hover].ev);   // a candle under the pointer lights its rows again
 }
 // fresh: the pool has moved, so the round must start after now (a running one is cut short and a new one follows it)
-// the pool's state as last read: it changes with every trade and claim, so the history server reads its list again
-// for a new one (and an answer from before a trade is never taken for one after it)
+// the pool's state as last read: it changes with every trade and claim, and with every commit, withdrawal and seat claim
+// of an opening batch, so the history server reads its list again for a new one (and an answer from before a trade is
+// never taken for one after it)
 function stateMark() {
   var p = POOL;
-  return p ? [p.volume, p.realSol, p.creatorFeesPaid, p.treasuryFeesPaid, String(p.creator).slice(0, 8)].join('-') : '';
+  return p ? [p.volume, p.realSol, p.creatorFeesPaid, p.treasuryFeesPaid, String(p.creator).slice(0, 8), openKey(p)].join('-') : '';
 }
-// a history that does not reach the pool as read: its newest trade (or graduation) left another token reserve, so a
-// newer transaction is not in it yet (the node's list can be a moment behind the account)
+// a history that does not reach the pool as read: its newest trade (or graduation) left another token reserve, or, while
+// an opening batch is open, no commit or withdrawal of its newest second left the batch's total (one slot's come back in
+// no set order, so any of them may be the last), so a newer transaction is not in it yet (the node's list can be a
+// moment behind the account)
 function lagging() {
   if (!POOL || !EVENTS) return false;
-  var last = null;
-  EVENTS.forEach(function (e) { if (e.kind === 'trade' || e.kind === 'graduation') last = e; });
+  var last = null, seats = [], top = -1, o = POOL.opening;
+  EVENTS.forEach(function (e) {
+    if (e.kind === 'trade' || e.kind === 'graduation') last = e;
+    else if (e.kind === 'commit' || e.kind === 'withdraw') { seats.push(e); top = Math.max(top, e.time || 0); }
+  });
+  if (o && o.state === 'open' && (seats.length
+    ? !seats.some(function (e) { return (e.time || 0) === top && e.total === o.sol; })
+    : o.sol > 0n)) return true;
   return !!last && last.tokenReserve !== POOL.tokens;
 }
 var waitRounds = 0, behindRounds = 0;
@@ -1282,11 +1534,12 @@ async function readAll(force, signal) {
   try { var p = await withTimeout(Chain.readPool(POOL.mint), 12000); if (p) { PINNED = false; moved = applyPool(p); } }
   catch (e) { readFail++; paintStatus(); }
   if (window.Wallet && Wallet.current) await readWal();   // the wallet first: after a trade it shows at once
+  if (POOL && POOL.opening && window.Wallet && Wallet.current) await readSeat();
   if (signal && signal.aborted) return;                   // a forced read follows this one and reads the trades itself
   if (moved || force || !EVENTS || histStale) await loadHistory(moved || force);   // a history that failed or is still coming in is read on
 }
 setInterval(function () { if (!document.hidden && !busy && POOL && !PINNED) refresh(false).catch(report); }, REFRESH_MS);
-function onWallet() { WAL = null; paintHoldings(); renderQuote(); paintClaim(); if (!claiming) cnote(''); readWal(); }
+function onWallet() { WAL = null; SEAT = null; SEAT_OF = ''; paintHoldings(); renderQuote(); paintClaim(); if (!claiming) cnote(''); bnote(''); readWal(); readSeat(); }
 if (window.Wallet) Wallet.on(onWallet);
 var again = $('#again');
 again.addEventListener('click', function () {
@@ -1326,10 +1579,11 @@ async function boot() {
     return;
   }
   document.body.classList.remove('reading');
+  if (p.opening && p.opening.state === 'open') measureClock();   // the batch's window is on the chain's clock (the 1 s tick redraws)
   applyPool(p); renderHead(busiest); layout();          // the name's height moves the hole down
-  paintHoldings(); readWal();
+  paintHoldings(); readWal(); readSeat();               // later reads: readAll, and a wallet that connects (onWallet)
   loadHistory();
-  BIRTH = null; birthTries = 0; creatorHold = null; clearTimeout(birthT); $('#born').hidden = true;
+  BIRTH = null; birthTries = 0; birthPaused = false; creatorHold = null; clearTimeout(birthT); $('#born').hidden = true;
   loadBirth();
 }
 

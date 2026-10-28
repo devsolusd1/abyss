@@ -225,6 +225,13 @@ function ago(sec) {
   if (d < 129600) return Math.round(d / 3600) + ' h ago';
   return Math.round(d / 86400) + ' days ago';
 }
+// an opening batch not settled yet: when it closes, or closed (by this browser's clock)
+function batchWhen(p) {
+  var o = p.opening, at = o ? num(o.opensAt) : 0, t;
+  if (!o || o.state !== 'open' || !at) return '';
+  try { t = new Date(at * 1000).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }); } catch (e) { return ''; }
+  return (Date.now() / 1000 < at ? 'opening batch until ' : 'opening batch closed ') + t;
+}
 // the program's default launch: 30 SOL virtual, graduating at 420 SOL market cap, a 1% fee
 var L = window.Chain && Chain.LAUNCH;
 var DEF = { V: L ? solOf(L.virtualSol) : 30, M: L ? solOf(L.graduationMcap) : 420, fee: L ? num(L.feeBps) : 100 };
@@ -307,9 +314,10 @@ function settingsOf(lk) {
 }
 function txtHtml(c) {
   var p = c.p, st = c.st, set = settingsOf(c.look);
-  var when = p.graduated && num(p.graduatedAt) ? 'graduated ' + ago(num(p.graduatedAt)) : 'opened ' + ago(num(p.openedAt));
-  var h = '<b class="nm">' + esc(c.name) + '</b>';
-  h += '<span class="sy">' + (c.symbol ? '<i>' + esc(c.symbol) + '</i>' : '') + '<i>' + esc(shortKey(c.mint)) + '</i><i>' + esc(when) + '</i></span>';
+  // a coin with an opening batch did not open at its launch: nobody could buy before the batch settled
+  var when = p.graduated && num(p.graduatedAt) ? 'graduated ' + ago(num(p.graduatedAt)) : (p.opening ? 'launched ' : 'opened ') + ago(num(p.openedAt));
+  var h = '<b class="nm">' + esc(c.name) + '</b>', bw = batchWhen(p);
+  h += '<span class="sy">' + (c.symbol ? '<i>' + esc(c.symbol) + '</i>' : '') + '<i>' + esc(shortKey(c.mint)) + '</i><i>' + esc(when) + '</i>' + (bw ? '<i>' + esc(bw) + '</i>' : '') + '</span>';
   h += '<p class="in">' + (p.graduated ? fSol(st.realSol) + ' SOL in the pool' : fSol(st.realSol) + ' of ' + fSol(st.graduationSol) + ' SOL in') + '</p>';
   h += '<dl><dt>market cap</dt><dd>' + fSol(capOf(c)) + ' SOL</dd><dt>per 1M</dt><dd>' + fPer1M(p.price) + ' SOL</dd><dt>traded</dt><dd>' + fSol(solOf(p.volume)) + ' SOL</dd></dl>';
   if (set.length) h += '<p class="set">' + set.map(function (s) { return '<i>' + esc(s[0]) + '</i>'; }).join('') + '</p>';
@@ -321,6 +329,7 @@ function labelOf(c) {
     (p.graduated ? 'Graduated, ' + fSol(st.realSol) + ' SOL in its pool.' : fSol(st.realSol) + ' of ' + fSol(st.graduationSol) + ' SOL in, ' + pctText(progressOf(p)) + ' of the way to graduation.') +
     ' ' + fPer1M(p.price) + ' SOL per million tokens, market cap ' + fSol(capOf(c)) + ' SOL.' +
     (set.length ? ' Launched with ' + set.map(function (s) { return s[1]; }).join(', ') + '.' : '') +
+    (batchWhen(p) ? ' ' + batchWhen(p).charAt(0).toUpperCase() + batchWhen(p).slice(1) + '.' : '') +
     ' Open its page.';
 }
 function renderText(c) {
@@ -338,7 +347,7 @@ function renderTape() {
   var ev = [], now = Date.now() / 1000;
   coins.forEach(function (c) {
     var p = c.p, who = '<b>' + esc(c.symbol || c.name) + '</b>';
-    if (now - num(p.openedAt) < NEWS) ev.push({ t: num(p.openedAt), cls: '', html: who + ' opened · ' + esc(ago(num(p.openedAt))) });
+    if (now - num(p.openedAt) < NEWS) ev.push({ t: num(p.openedAt), cls: '', html: who + (p.opening ? ' launched · ' : ' opened · ') + esc(ago(num(p.openedAt))) });
     if (p.graduated && num(p.graduatedAt) && now - num(p.graduatedAt) < NEWS) ev.push({ t: num(p.graduatedAt), cls: 'grad', html: who + ' graduated · ' + esc(ago(num(p.graduatedAt))) });
   });
   ev.sort(function (a, b) { return b.t - a.t; });

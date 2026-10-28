@@ -83,6 +83,14 @@ form > .blk:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
 .st::before { content: ''; position: absolute; inset: 2px; background: var(--f-bg); clip-path: var(--step); z-index: -1; }
 .st:hover:not(:disabled), .st:focus-visible { background: var(--f-yellow); }
 .st:disabled { background: var(--f-line); color: var(--f-mute); cursor: default; }
+.opens-h { margin-top: 26px; }
+.opens-h p { color: var(--f-cream); }
+.opens { display: flex; flex-wrap: wrap; gap: 8px 22px; margin-top: 8px; }
+.opens button { display: inline-flex; align-items: center; gap: 9px; padding: 5px 0; font: 500 13px/1.3 var(--f-mono); color: var(--f-mute); }
+.opens button:hover, .opens button[aria-pressed="true"] { color: var(--f-cream); }
+.opens button:disabled { cursor: default; }
+.opens i { width: 9px; height: 9px; box-shadow: inset 0 0 0 1px var(--f-line2); }
+.opens button[aria-pressed="true"] i { box-shadow: none; background: var(--f-yellow); }
 .msg { font-size: 11px; line-height: 1.6; color: var(--f-mute); margin-top: 8px; min-height: 1.6em; overflow-wrap: anywhere; }
 .msg b { color: var(--f-cream); font-weight: 600; }
 .msg.bad { color: var(--f-yellow); }
@@ -265,6 +273,15 @@ form > .blk:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
           <div class="fld-head"><p class="kick" id="buy-h">03 · first buy · optional</p><span>in SOL, fee included</span></div>
           <div class="inp" id="iBuy"><label class="vh" for="fBuy">First buy, in SOL</label><input id="fBuy" name="first" inputmode="decimal" spellcheck="false" placeholder="0" aria-describedby="mBuy"><span class="unit">SOL</span></div>
           <p class="msg" id="mBuy" aria-live="polite"></p>
+          <div class="fld-head opens-h"><p id="open-h">opening batch · optional</p><span>before anyone can buy</span></div>
+          <div class="opens" id="opens" role="group" aria-labelledby="open-h">
+            <button type="button" data-open="0" aria-pressed="true"><i aria-hidden="true"></i>none</button>
+            <button type="button" data-open="120" aria-pressed="false"><i aria-hidden="true"></i>2 min</button>
+            <button type="button" data-open="300" aria-pressed="false"><i aria-hidden="true"></i>5 min</button>
+            <button type="button" data-open="600" aria-pressed="false"><i aria-hidden="true"></i>10 min</button>
+            <button type="button" data-open="900" aria-pressed="false"><i aria-hidden="true"></i>15 min</button>
+          </div>
+          <p class="msg" id="mOpen" aria-live="polite"></p>
         </section>
       </form>
 
@@ -365,9 +382,10 @@ function numText(x) { return String(+Number(x).toFixed(9)); }   // a SOL amount 
    launches: mint, pool and vault with empty metadata, plus 6,960 lamports per metadata byte,
    plus the creator's token account when there is a first buy. Network fee: 2 signatures */
 var RENT_BASE = 6065640, RENT_BYTE = 6960, RENT_ATA = 1513840, NET_FEE = 10000;
+var RENT_SEAT = 6960 * (128 + 81);                     // a seat in the opening batch: 81 bytes, back when it is claimed
 
 /* ================= the form's state ================= */
-var F = { name: '', symbol: '', uri: '', firstRaw: '', first: 0, firstOk: true, quote: null };
+var F = { name: '', symbol: '', uri: '', firstRaw: '', first: 0, firstOk: true, quote: null, opening: 0, seatRefund: false };   // opening: the batch's seconds, 0 for none; seatRefund: the creator's seat alone would buy nothing
 var CFG = { state: 'loading', cfg: null };      // loading | ok | error | none
 var WAL = { key: null, sol: null, check: false, reading: false };
 var busy = false, launched = null, pre = { seq: 0, text: '', ok: null };
@@ -542,10 +560,12 @@ else { iV.value = lamText(DEF.v).replace(/,/g, ''); iM.value = lamText(DEF.m).re
 readSettings();
 function lookOf(g) { return BH.look({ virtualSol: g.v, graduationMcap: g.m, feeBps: g.fee }); }   // lamports in, SOL out
 function openState(g) { return { virtualSol: solNum(g.v), realSol: 0, graduationSol: solNum(gradSol(g)), graduated: false }; }
-// what the hole shows, in SOL: the pool as the chain has it once launched, else the opening pool after the first buy
+// what the hole shows, in SOL: the pool as the chain has it once launched, else the opening pool after the first buy.
+// With an opening batch the pool is born empty: the creator's SOL waits in a seat and buys only at the settle
 function previewState() {
   if (pool) return BH.fromPool(pool).state;
   var g = SET.good, q = F.quote;
+  if (F.opening) return openState(g);
   if (q && q.exact) { var a = q.after; return { virtualSol: solNum(g.v), realSol: solNum(a.realSol), graduationSol: solNum(a.graduationSol), graduated: !!a.graduated }; }
   if (q) return q.state;
   return openState(g);
@@ -598,6 +618,12 @@ function renderLegend() {
   var st = previewState(), el = $('#legend'), off = !SET.ok && !launched, t;
   if (off) t = 'out of bounds: showing the last valid settings';
   else if (pool) t = pool.graduated ? 'jets: graduated · disk: its real SOL on ' + N.place : 'disk: its real SOL, read back from ' + N.place;
+  else if (F.opening) {
+    // the batch's pool at launch: empty, whatever the seat holds
+    if (!(F.first > 0)) t = SHORT ? 'disk: empty until the settle' : 'disk: empty until the opening batch settles, full at graduation';
+    else if (F.seatRefund) t = SHORT ? 'disk: empty; under 0.01 SOL nothing buys' : 'disk: empty; under 0.01 SOL in all, the batch buys nothing';
+    else t = SHORT ? 'disk: empty until the settle' : 'disk: empty at launch; your seat buys at the settle, if the batch stays as it is';
+  }
   else if (hole.busy) t = 'the first buy is falling in…';
   else if (hole.graduated) t = SHORT ? 'jets lit: the first buy graduates it' : 'jets lit: the first buy graduates it inside the launch';
   else if (st.realSol > 0) t = 'disk: first buy, ' + fSol(st.realSol) + ' of ' + fBig(st.graduationSol) + ' SOL to graduate';
@@ -608,7 +634,12 @@ function describe() {
   // what the preview shows, in words: the canvas is hidden from screen readers
   var g = SET.good, st = previewState(), nm = F.name.trim(), R = st.realSol;
   var t = 'The new coin as a black hole' + (nm ? ', named ' + nm : '') + ': ';
-  if (st.graduated) t += (pool ? 'graduated' : 'the first buy graduates it') + ', so its jets are lit and the virtual SOL has dropped away; ' + fSol(R) + ' real SOL in it';
+  if (!pool && F.opening) {
+    t += 'nothing in its pool at launch, a thin ring, since an opening batch of ' + F.opening / 60 + ' minutes comes first'
+      + (!(F.first > 0) ? '' : F.seatRefund ? '; your seat of ' + fSol(F.first) + ' SOL alone is under the 0.01 SOL a batch needs to buy'
+        : '; your seat of ' + fSol(F.first) + ' SOL buys at the settle, if the batch stays as it is');
+  }
+  else if (st.graduated) t += (pool ? 'graduated' : 'the first buy graduates it') + ', so its jets are lit and the virtual SOL has dropped away; ' + fSol(R) + ' real SOL in it';
   else if (R > 0) t += 'its disk is the ' + fSol(R) + ' real SOL ' + (pool ? 'in its pool' : 'of the first buy') + ', of ' + fBig(st.graduationSol) + ' to graduate';
   else t += 'nothing in its pool yet, a thin ring; the disk grows with every buy, to full size at graduation';
   t += '. It opens at ' + fPx(solNum(g.v) / SUPPLY_TOK) + ' SOL per million tokens and graduates at a ' + lamText(g.m) + ' SOL market cap.';
@@ -632,6 +663,19 @@ function quoteFirst(sol) {
   T = left; rest -= R;
   if (grad) { burn = T * V / (V + R); T -= burn; if (rest > 0) { var l2 = T * R / (R + rest); out += T - l2; T = l2; R += rest; } }
   return { exact: false, out: out, fee: fee, graduates: grad, burnedTok: burn, state: { virtualSol: V, realSol: R, graduationSol: G, graduated: grad } };
+}
+// the creator's seat as the whole batch: Chain.quoteSeat on the opening pool (a batch under 0.01 SOL buys nothing and
+// every seat takes its SOL back); without the chain layer, the float model's tokens and the same 0.01 SOL line
+function quoteSeatAlone(sol, floatTok) {
+  var g = SET.good;
+  if (window.Chain && Chain.quoteSeat) {
+    try {
+      var lamports = BigInt(Math.round(sol * LAMP));
+      var s = Chain.quoteSeat({ virtualSol: g.v, graduationSol: Chain.graduationSol(g.v, g.m), feeBps: g.fee }, lamports, lamports);
+      return { refund: s.refund, tokens: Number(s.tokens) / 1e6 };
+    } catch (e) { /* fall back to the float model */ }
+  }
+  return { refund: sol < 0.01, tokens: floatTok };
 }
 function fmtUnits(u) {
   var whole = u / 1000000n, frac = (u % 1000000n).toString().padStart(6, '0');
@@ -679,7 +723,7 @@ function v() {
   if (uriBad) { r.ok = false; r.reasons.push('a working link (or none)'); }
   // first buy, quoted on the settings
   var raw = F.firstRaw.trim().replace(',', '.'), sol = raw === '' ? 0 : Number(raw), g = SET.good, sp = split();
-  F.first = 0; F.quote = null; F.firstOk = true;
+  F.first = 0; F.quote = null; F.firstOk = true; F.seatRefund = false;
   if (raw !== '' && (!/^\d*\.?\d*$/.test(raw) || !isFinite(sol))) { F.firstOk = false; setMsg('#mBuy', 'Type an amount in SOL, like 0.5.', true); }
   else if (sol > 0 && sol < 0.001) { F.firstOk = false; setMsg('#mBuy', 'At least 0.001 SOL, or leave it empty.', true); }
   else if (sol > 1000) { F.firstOk = false; setMsg('#mBuy', 'This page quotes up to 1,000 SOL.', true); }
@@ -692,8 +736,17 @@ function v() {
     var html = 'You get <b>' + fTok(outTok) + '</b> tokens, ' + (pct < 0.01 ? 'under 0.01' : pct.toFixed(2)) + '% of the supply. Fee <b>' + fSol(fee) + '</b> SOL' + (sp ? '; ' + sp.creator + '% of it is owed to you as the creator, to claim from the pool.' : '.');
     if (q.graduates) html += ' This buy is big enough to <b>graduate the coin inside the launch</b>: the ' + lamText(g.v) + ' virtual SOL drops away and ' + fTok(q.exact ? Number(q.burned) / 1e6 : q.burnedTok) + ' tokens burn, so the price holds.';
     html += '<small>' + (q.exact ? 'exactly ' + fmtUnits(q.tokensOut) + ' tokens, the program’s own math on the opening pool' : 'from the float model; the exact quote did not load') + '</small>';
+    if (F.opening) {
+      // a seat buys nothing on its own when it is under the batch's smallest total
+      var qs = quoteSeatAlone(sol, outTok); F.seatRefund = qs.refund;
+      html = 'Your seat in the opening batch: <b>' + fSol(sol) + '</b> SOL, put in with the launch. ' + (qs.refund
+        ? 'A batch buys only with 0.01 SOL or more in it: if nobody else joins, it buys nothing and your seat takes its SOL back.'
+        : 'If nobody else joins, it buys <b>' + fTok(qs.tokens) + '</b> tokens at the close; every SOL others add lowers the tokens per SOL for every seat alike, yours too.<small>a seat buys at the batch’s one price, not before anyone else</small>');
+    }
     setMsg('#mBuy', html);
-  } else setMsg('#mBuy', 'Bought in the same transaction, before anyone else can. Leave it empty to launch with no buy.');
+  } else setMsg('#mBuy', F.opening
+    ? 'With an opening batch this is your seat in it, taken in the launch transaction. Leave it empty to take none.'
+    : 'Bought in the same transaction, before anyone else can. Leave it empty to launch with no buy.');
   if (!F.firstOk) { r.ok = false; r.reasons.push('a first buy that works'); }
   ['#iName', '#iSym'].forEach(function (s, i) { $(s).classList.toggle('bad', (i ? sb > 10 : nb > 32)); });
   $('#iUri').classList.toggle('bad', uriBad); $('#iBuy').classList.toggle('bad', !F.firstOk);
@@ -768,7 +821,7 @@ function renderGets() {
 function launchFee() { return CFG.cfg ? Number(CFG.cfg.launchFee) : 0; }
 function needLamports() {
   var meta = bytes(F.name.trim()) + bytes(F.symbol.trim()) + bytes(F.uri.trim());
-  var rent = RENT_BASE + RENT_BYTE * meta + (F.first > 0 ? RENT_ATA : 0);
+  var rent = RENT_BASE + RENT_BYTE * meta + (F.first > 0 ? (F.opening ? RENT_SEAT : RENT_ATA) : 0);
   var first = F.first > 0 ? Math.round(F.first * LAMP) : 0;
   return { rent: rent, first: first, fee: launchFee(), net: NET_FEE, total: rent + first + launchFee() + NET_FEE };
 }
@@ -777,7 +830,7 @@ function renderNeed() {
   $('#needN').textContent = simmed ? (pre.spent / LAMP).toFixed(4) : fSol(n.total / LAMP);
   $('#needSmall').textContent = simmed ? 'SOL, simulated for this wallet' : 'SOL, about';
   var feeTxt = CFG.state === 'ok' ? (n.fee ? '<b>' + fSol(n.fee / LAMP) + '</b> launch fee' : 'no launch fee (<b>0</b>, read from the program)') : CFG.state === 'loading' ? 'launch fee: reading…' : 'launch fee: unknown';
-  $('#needParts').innerHTML = (n.first ? '<b>' + fSol(n.first / LAMP) + '</b> first buy · ' : '') + 'about <b>' + (n.rent / LAMP).toFixed(4) + '</b> rent, kept by the coin’s accounts · ' + feeTxt + ' · <b>0.00001</b> network fee';
+  $('#needParts').innerHTML = (n.first ? '<b>' + fSol(n.first / LAMP) + '</b> ' + (F.opening ? 'into your seat' : 'first buy') + ' · ' : '') + 'about <b>' + (n.rent / LAMP).toFixed(4) + '</b> rent, kept by the coin’s accounts · ' + feeTxt + ' · <b>0.00001</b> network fee';
   var el = $('#needWallet');
   if (!WAL.key) { el.textContent = 'Connect a wallet to see its balance.'; return; }
   if (WAL.sol == null) { el.textContent = WAL.reading ? 'Reading the wallet’s balance…' : NOT_YET ? NOT_YET_TEXT + '.' : 'Could not read the wallet’s balance.'; return; }
@@ -828,7 +881,9 @@ function renderGate(res) {
   if (!res.ok) { g.innerHTML = who + ' Still needed: ' + res.reasons.join(', ') + '.'; setHold(WAL.check ? 'Hold to simulate' : 'Hold to launch', false); return; }
   var n = needLamports(), need = pre.ok && pre.spent != null ? pre.spent : n.total;
   if (WAL.sol != null && Number(WAL.sol) < need) { g.innerHTML = who + ' It needs more SOL first.'; setHold(WAL.check ? 'Hold to simulate' : 'Hold to launch', false); return; }
-  g.innerHTML = who + (WAL.check ? '' : ' Holding signs one transaction: the coin, its pool' + (F.first > 0 ? ' and your first buy' : '') + '.');
+  g.innerHTML = who + (WAL.check ? '' : F.opening
+    ? ' Holding signs one transaction: the coin, its pool with a ' + F.opening / 60 + '-minute opening batch' + (F.first > 0 ? ', and your seat in it.' : '.')
+    : ' Holding signs one transaction: the coin, its pool' + (F.first > 0 ? ' and your first buy' : '') + '.');
   setHold(busy ? 'Working…' : (WAL.check ? 'Hold to simulate the launch' : 'Hold to launch on ' + N.place), !busy);
 }
 
@@ -898,7 +953,7 @@ async function runPre(seq) {
   renderNeed(); renderGate();
 }
 function args(creator) {
-  return { creator: creator, name: F.name.trim(), symbol: F.symbol.trim(), uri: F.uri.trim(), firstBuySol: F.first > 0 ? F.first : 0, virtualSol: SET.v, graduationMcap: SET.m, feeBps: SET.fee };
+  return { creator: creator, name: F.name.trim(), symbol: F.symbol.trim(), uri: F.uri.trim(), firstBuySol: F.first > 0 ? F.first : 0, openingSecs: F.opening, virtualSol: SET.v, graduationMcap: SET.m, feeBps: SET.fee };
 }
 function settingsOut(s) { return { virtualSol: lamText(s.v), graduationMcap: lamText(s.m), feeBps: s.fee }; }
 function status(html) { $('#status').innerHTML = html; }
@@ -971,11 +1026,27 @@ async function go() {
 }
 
 var FIELDS = [iName, iSym, iUri, iBuy, iV, iM, iFee];
+/* the opening batch: none, or a window in which SOL goes into seats and all of it buys at once at the close */
+var OPENS = [0, 120, 300, 600, 900];
+function paintOpens() {
+  Array.prototype.forEach.call(document.querySelectorAll('#opens [data-open]'), function (b) { b.setAttribute('aria-pressed', String(+b.getAttribute('data-open') === F.opening)); b.disabled = !!launched; });
+  setMsg('#mOpen', F.opening
+    ? 'For ' + F.opening / 60 + ' minutes after the launch nobody can buy. SOL goes into seats instead, one per wallet, until the last minute, and can come back out until the window closes. Then anyone settles it: all of it buys at once, so every seat pays the same price, yours too. Right after the settle the price is above the batch’s average before its fee, so whoever sells first gets more. Selling is never blocked; there is just nothing to sell before then.'
+    : 'None: the coin trades from its first second.');
+}
+$('#opens').addEventListener('click', function (e) {
+  var b = e.target.closest('[data-open]');
+  if (!b || launched || busy) return;
+  F.opening = +b.getAttribute('data-open'); paintOpens(); onInput();
+});
+function batchLine(opensAt) {
+  return opensAt ? ' Its opening batch closes at <b>' + new Date(opensAt * 1000).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) + '</b>: until its last minute SOL goes into seats, on its page.' : '';
+}
 function success(built, sig) {
   var mint = built.mint.toBase58(), poolKey = built.pool.toBase58();
   launched = { mint: mint, pool: poolKey, sig: sig };
   FIELDS.forEach(function (el) { el.readOnly = true; });
-  markPresets(); renderSettings();
+  markPresets(); renderSettings(); paintOpens();
   $('#act').hidden = true;
   $('#done').hidden = false;
   var mx = explorer('address', mint), px = explorer('address', poolKey), tx = explorer('tx', sig);
@@ -991,7 +1062,7 @@ function success(built, sig) {
       try {
         var p = await withTimeout(Chain.readPool(mint), 12000);
         if (p) {
-          $('#doneText').innerHTML = esc(displayName(p.name)) + ' (' + esc(p.symbol) + ') and its pool are on ' + N.place + ' now, for life. Read back from the chain: <b>' + fSol(Number(p.realSol) / LAMP) + '</b> real SOL in, <b>' + fTok(Number(p.tokens) / 1e6) + '</b> tokens in the pool, market cap ' + fSol(p.marketCap) + ' SOL.';
+          $('#doneText').innerHTML = esc(displayName(p.name)) + ' (' + esc(p.symbol) + ') and its pool are on ' + N.place + ' now, for life. Read back from the chain: <b>' + fSol(Number(p.realSol) / LAMP) + '</b> real SOL in, <b>' + fTok(Number(p.tokens) / 1e6) + '</b> tokens in the pool, market cap ' + fSol(p.marketCap) + ' SOL.' + batchLine(p.opening && p.opening.state === 'open' ? p.opening.opensAt : 0);
           // only now does the hole show the pool as the chain has it
           if (launched && launched.mint === mint) { pool = p; renderPreview(true); }
           return;
@@ -1003,7 +1074,7 @@ function success(built, sig) {
 }
 $('#again').addEventListener('click', function () {
   launched = null; pool = null;
-  FIELDS.forEach(function (el) { el.readOnly = false; });
+  FIELDS.forEach(function (el) { el.readOnly = false; }); paintOpens();
   [iName, iSym, iUri, iBuy].forEach(function (el) { el.value = ''; });   // the settings stay as they were
   $('#done').hidden = true; $('#act').hidden = false;
   var k = $('#kick'); k.textContent = 'new coin · preview'; k.classList.remove('live');
@@ -1075,6 +1146,7 @@ try { if (document.fonts && document.fonts.ready) document.fonts.ready.then(func
 
 /* ================= start ================= */
 [['name', iName], ['symbol', iSym], ['uri', iUri], ['first', iBuy]].forEach(function (p) { var x = params.get(p[0]); if (x != null) p[1].value = x.slice(0, 220); });
+(function () { var o = Number(params.get('open')); if (OPENS.indexOf(o) >= 0) F.opening = o; paintOpens(); })();   // ?open=300: a 5-minute batch
 (function () {
   var prog = window.NET && NET.program, link = $('#progLink');
   if (prog && NET.explorer) link.href = NET.explorer('address', prog);

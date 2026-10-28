@@ -18,13 +18,23 @@ Um único programa em que a curva de lançamento **é** o pool. Quando a moeda g
    - cunha 1 bilhão de tokens para o cofre do pool;
    - tira todas as autoridades.
 
-   A primeira compra do criador pode ir na mesma transação.
+   A primeira compra do criador pode ir na mesma transação. Ou o lançamento abre um **lote de abertura** (abaixo), e aí ninguém compra antes do lote fechar.
 2. **Curva**: produto constante com SOL virtual. Enquanto dura a curva, o preço nunca fica abaixo do de abertura.
 3. **Graduação**: acontece dentro da compra que alcança o limite.
    - A curva só aceita SOL até o limite exato. O resto da mesma compra passa pela AMM já graduada.
    - O SOL virtual sai, e a queima é sempre a mesma, conhecida desde o lançamento.
    - O preço não dá salto, e a liquidez fica travada para sempre.
 4. **Depois**: o mesmo pool, as mesmas instruções.
+
+**Lote de abertura** (opcional, 2026-10-28): quem lança escolhe uma janela de 2 a 15 minutos (`opening_secs`; 0 é sem lote).
+- Durante a janela, `buy` é recusado (`NotOpenYet`). O SOL vai para **assentos**, um por carteira (`commit`), até o último minuto; o saque (`withdraw`) fica aberto até o fim da janela. O criador pega o assento dele na própria transação do lançamento, no lugar da primeira compra.
+- No último minuto (`OPENING_LOCK_SECS`) não entra SOL novo (`OpeningLocked`), mas ainda dá para sair. Assim todo assento vê o total final por um minuto e pode ir embora. A ordem era a inversa: dava para uma baleia entrar no último segundo, com os assentos antigos já travados, e fazer `settle`, `claim_seat` e `sell` numa transação só, vendendo primeiro com o SOL dos assentos pequenos.
+- Quem tira todo o SOL fecha o assento e recebe o aluguel de volta; um `commit` depois, antes do último minuto (até na mesma transação), abre outro.
+- Depois da janela, **qualquer um** chama `settle`: uma compra só com todo o SOL do lote. Todo assento paga o mesmo preço, o do criador também. Se o lote passar da linha, a moeda gradua ali mesmo.
+- Cada assento faz `claim_seat` e recebe `floor(tokens do lote × SOL do assento / SOL do lote)`. A poeira do arredondamento fica no cofre, fora da reserva. O assento fecha e devolve o aluguel.
+- Logo depois do `settle` o preço à vista fica acima do preço médio do lote sem a taxa, então quem vende primeiro leva mais: é a corrida da saída, inerente ao preço único. (Com a taxa, só fica acima num lote maior que cerca de 0,3 SOL, com 30 SOL virtuais e 1%.)
+- Um lote abaixo de 0,01 SOL (`MIN_BATCH`), ou que a matemática recusa, não compra nada: a moeda abre como estava e cada assento pega o SOL de volta.
+- Vender nunca é bloqueado; antes do settle só não há o que vender.
 
 **Hooks:** as moedas saem sem transfer hook nesta versão, por decisão do usuário. O caminho das negociações já repassa as contas de um hook, e o pool guarda o campo `hook_program` (hoje vazio). Uma versão futura pode trazer um hook próprio do projeto sem reescrever as negociações.
 
@@ -72,9 +82,10 @@ Supply de 1.000.000.000 com 6 decimais. A curva abre com 30 SOL de market cap e 
   - o cofre e `hook_program` (vazio);
   - as reservas **anotadas** (`virtual_sol`, `real_sol`, `token_reserve`), nunca lidas dos saldos;
   - limite de graduação, queima, taxas devidas e pagas, volume, datas, taxa, parte da tesouraria;
-  - 64 bytes reservados.
-- **SOL**: fica no próprio `Pool`, acima do aluguel. Invariante: `lamports = aluguel + real_sol + taxas devidas`.
-- **Cofre**: a ATA do `Pool` para o mint.
+  - o lote de abertura, nos 64 bytes que eram reservados (`opens_at`, `opening_sol`, `opening_total_sol`, `opening_tokens`, `opening_tokens_left`, `opening_seats`, `opening_state`). Um pool antigo lê zeros: sem lote. Sobram 16 bytes reservados; o tamanho continua 8 + 336.
+- **`Seat` em `["seat", pool, dono]`**: dono, pool e o SOL do assento. Fecha no `claim_seat` ou no saque de tudo; um `commit` depois abre outro.
+- **SOL**: fica no próprio `Pool`, acima do aluguel. Invariante: `lamports = aluguel + real_sol + taxas devidas + opening_sol`.
+- **Cofre**: a ATA do `Pool` para o mint. Guarda `token_reserve + opening_tokens_left`.
 - **Mint em `["mint", criador, salt]`** (salt: um u64 que quem lança escolhe, ao acaso no site): o endereço da moeda é do próprio programa, então só o programa cria uma conta ali, e ninguém pode ter criado nada nele antes. As moedas lançadas antes disso (devnet) têm mints comuns e continuam funcionando, porque a pool sai do mint.
 
 ## Instruções
@@ -88,26 +99,35 @@ Supply de 1.000.000.000 com 6 decimais. A curva abre com 30 SOL de market cap e 
 | `sell(tokens_in, min_sol_out)` | qualquer um | vende |
 | `claim_creator_fees` / `claim_treasury_fees` | criador / qualquer um | saca taxas |
 | `set_creator` | criador | passa os direitos; paga ao criador antigo o que já era dele |
+| `commit(sol)` / `withdraw(sol)` | qualquer um / o dono do assento | põe SOL no assento do lote, até o último minuto / tira, até o fim da janela |
+| `settle` | qualquer um, depois da janela | uma compra só com todo o SOL do lote, ou o reembolso |
+| `claim_seat` | o dono do assento | a parte dele nos tokens do lote, ou o SOL de volta |
 
-Não existe instrução que tire dinheiro de um pool para o admin, nem pausa de vendas. Os erros são numerados a partir de 7000. Eventos: `Launched`, `TradeEvent` (com `recipient`), `Graduated`, `FeesClaimed`, `CreatorChanged`, `ConfigUpdated`.
+Não existe instrução que tire dinheiro de um pool para o admin, nem pausa de vendas. Os erros são numerados a partir de 7000. Eventos: `Launched` (com `opens_at`), `TradeEvent` (com `recipient` e `by_creator`), `Graduated`, `FeesClaimed`, `CreatorChanged`, `ConfigUpdated`, e os do lote: `Committed`, `Withdrawn`, `Settled`, `SeatClaimed`. A compra do lote sai como um `TradeEvent` com o próprio pool como trader.
 
 ## Como chamar (para o site)
 
 `../examples/devnet.mjs` monta todas as instruções à mão e serve de referência.
 
 - **`buy` e `sell`**: trader (assina, gravável), pool (gravável), mint (**gravável**, por causa da queima da graduação), cofre (gravável), conta de token do trader (gravável), Token-2022, System. Na compra, criar antes a ATA do comprador na mesma transação.
-- **`launch`**: 9 contas; só quem lança assina (o mint é a PDA `["mint", criador, salt]`, com o salt no fim dos argumentos).
-- **Compute medido**:
+- **`launch`**: 9 contas; só quem lança assina (o mint é a PDA `["mint", criador, salt]`, com o salt e depois `opening_secs` (u32) no fim dos argumentos).
+- **Lote**: `commit`: dono (assina, gravável), pool (gravável), assento (gravável), System. `withdraw`: dono, pool, assento. `settle`: pool, mint e cofre (graváveis), Token-2022. `claim_seat`: dono, pool, assento, mint, cofre, conta de token do dono (graváveis, menos o mint), Token-2022; criar antes a ATA na mesma transação.
+- **Compute medido** (13 rodadas do teste `compute_units`, 2026-10-28):
 
   | Operação | Compute |
   |---|---|
-  | lançamento | 78 mil a 83 mil |
-  | primeira compra (com criação da conta) | 34 mil |
-  | compra | 21 mil |
+  | lançamento | 79 mil a 98 mil |
+  | lançamento com o `commit` do criador | 94 mil a 117 mil |
+  | primeira compra (com criação da conta) | 32 mil a 37 mil |
+  | compra | 19 mil a 24 mil |
   | venda | 12 mil |
-  | compra que gradua | 27 mil |
+  | compra que gradua | 25 mil a 30 mil |
+  | `commit` num assento novo / num que já existe | 15 mil a 22 mil / 11 mil a 18 mil |
+  | `withdraw` | 8 mil |
+  | `settle` sem / com graduação | 7 mil / 13 mil |
+  | `claim_seat` (com criação da conta) | 32 mil a 35 mil |
 
-  Pedir 200 mil para lançamento com compra, e 60 mil para uma troca.
+  Os números mudam de rodada para rodada: as chaves dos testes são novas a cada vez, e cada tentativa a mais na busca do bump de uma PDA custa 1,5 mil. O teste confere contra os limites que o site pede: 200 mil para o lançamento (com compra ou `commit`), 60 mil para a compra, 40 mil para a venda, 50 mil para o `commit`, 20 mil para o `withdraw`, 60 mil para o `settle` e 80 mil para o `claim_seat` (a conta de token aberta junto também busca um bump; numa rodada chegou a 46 mil). O mais justo é o `commit`: com 15 mil de base, os 50 mil cobrem 23 tentativas a mais na busca do bump do assento (com 30 mil, cerca de 1 par moeda e carteira em 2 mil falharia sempre).
 
 ## Segurança sem auditoria (por enquanto)
 
@@ -124,10 +144,11 @@ Não existe instrução que tire dinheiro de um pool para o admin, nem pausa de 
 
 Testes:
 - 9 de matemática em `src/math.rs`;
-- 15 de integração em LiteSVM com o Token-2022 de verdade (`../pool-tests`), entre eles o ataque das contas "intransferíveis" (agora recusado no lançamento) e o endereço que pertence ao criador e ao salt;
+- 21 de integração em LiteSVM com o Token-2022 de verdade (`../pool-tests`), entre eles o ataque das contas "intransferíveis" (agora recusado no lançamento), o endereço que pertence ao criador e ao salt, e o lote de abertura (um preço para todos os assentos, a ordem das janelas, o saque total que fecha o assento e o `commit` que o abre de novo, o reembolso, o lote que gradua, os limites da janela, a janela mínima com o `commit` do criador no lançamento, o compute de cada passo);
+- na devnet, `site/chain/batch-check.mjs` faz um lote de verdade pelo pacote do site;
 - `../test.sh` roda tudo.
 
-O binário tem 430 KB, cerca de 3 SOL de aluguel.
+O binário tem 479 KB, cerca de 3,4 SOL de aluguel.
 
 ## Revisões (2026-10-22)
 
@@ -143,7 +164,7 @@ Hooks, Jupiter e OKX (exigem SDK), LP de terceiros, pares além do SOL, taxa de 
 1. ~~Programa e testes locais.~~
 2. ~~Devnet.~~
 3. **Site próprio**, em andamento.
-4. **Mainnet**: carteira nova, multisig, deploy (cerca de 2,2 SOL de aluguel) e o token principal do projeto lançado na DBC normal, decisão do usuário.
+4. **Mainnet**: carteira nova, multisig, deploy (cerca de 3,4 SOL de aluguel) e o token principal do projeto lançado na DBC normal, decisão do usuário.
 
 ## Em aberto
 

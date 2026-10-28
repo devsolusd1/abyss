@@ -7,6 +7,8 @@ pub const POOL_SEED: &[u8] = b"pool";
 /// A coin's mint is the program's own address for this seed, its creator and a number the creator picks: only the
 /// program can make an account there, so nothing can have been made at it, or for it, before the launch.
 pub const MINT_SEED: &[u8] = b"mint";
+/// A wallet's place in a coin's opening batch: `["seat", pool, owner]`.
+pub const SEAT_SEED: &[u8] = b"seat";
 
 /// Every coin has the same supply and decimals.
 pub const DECIMALS: u8 = 6;
@@ -22,6 +24,23 @@ pub const MAX_VIRTUAL_SOL: u64 = 1_000 * SOL;
 pub const MIN_GRADUATION_MULTIPLE: u64 = 2;
 pub const MAX_GRADUATION_MULTIPLE: u64 = 100;
 pub const MAX_LAUNCH_FEE: u64 = SOL;
+/// The opening batch: a window of 2 to 15 minutes before the first trade, in which anyone puts in SOL and may take it
+/// back out; at its end one buy is made with all of it, and every seat gets tokens for its share, at one price.
+pub const MIN_OPENING_SECS: u32 = 120;
+pub const MAX_OPENING_SECS: u32 = 900;
+/// The batch's last minute takes no new SOL, while withdrawals stay open to the end: every seat sees the final total
+/// for a minute and can still leave, so nobody can slip a large commitment in at the last second, settle, and be first
+/// to sell above the batch's price, out of the other seats' SOL.
+pub const OPENING_LOCK_SECS: i64 = 60;
+/// The smallest commitment, and the smallest batch that buys: a batch under MIN_BATCH, or one the math refuses, is
+/// not bought with, and every seat takes its SOL back.
+pub const MIN_COMMIT: u64 = SOL / 1_000;
+pub const MIN_BATCH: u64 = SOL / 100;
+/// Pool::opening_state
+pub const OPENING_NONE: u8 = 0;
+pub const OPENING_OPEN: u8 = 1;
+pub const OPENING_SETTLED: u8 = 2;
+pub const OPENING_REFUND: u8 = 3;
 /// The usual Metaplex limits, which wallets and indexers expect.
 pub const MAX_NAME_LEN: usize = 32;
 pub const MAX_SYMBOL_LEN: usize = 10;
@@ -48,7 +67,7 @@ pub struct Config {
 }
 
 /// One per coin, at `["pool", mint]`. It owns the coin's vault and holds the pool's SOL as
-/// lamports, above its own rent: the real reserve plus the fees nobody has claimed yet.
+/// lamports, above its own rent: the real reserve plus the fees nobody has claimed yet, and the opening batch's SOL.
 #[account(zero_copy)]
 pub struct Pool {
     pub mint: Pubkey,
@@ -84,8 +103,34 @@ pub struct Pool {
     pub graduated: u8,
     pub bump: u8,
     pub _pad: [u8; 2],
-    /// Room for what the launchpad adds later, without moving any field above.
-    pub _reserved: [u8; 64],
+    // The opening batch, in what was 64 reserved bytes (a coin launched before it reads zeros: no batch).
+    /// When the batch closes; 0 for a coin that opened at once.
+    pub opens_at: i64,
+    /// SOL in the batch and not yet bought with (or, after a refused batch, not yet taken back). It sits in this
+    /// account, above the reserve.
+    pub opening_sol: u64,
+    /// At the settle: the batch's SOL and the tokens it bought, shared among the seats by their SOL.
+    pub opening_total_sol: u64,
+    pub opening_tokens: u64,
+    /// Bought for the seats and not yet claimed: they wait in the vault, outside the reserve.
+    pub opening_tokens_left: u64,
+    pub opening_seats: u32,
+    /// OPENING_NONE, OPENING_OPEN, OPENING_SETTLED or OPENING_REFUND.
+    pub opening_state: u8,
+    pub _pad2: [u8; 3],
+    /// Room for what comes later, without moving any field above.
+    pub _reserved: [u8; 16],
+}
+
+/// A wallet's place in a coin's opening batch, at `["seat", pool, owner]`: the SOL it put in. Closed (its rent back to
+/// the owner) when the owner takes its tokens, or all its SOL back; a later commitment opens a new one.
+#[account]
+#[derive(InitSpace)]
+pub struct Seat {
+    pub owner: Pubkey,
+    pub pool: Pubkey,
+    pub sol: u64,
+    pub bump: u8,
 }
 
 impl Pool {
@@ -115,8 +160,8 @@ impl Pool {
         Ok(())
     }
 
-    /// Lamports the pool must hold above its rent.
+    /// Lamports the pool must hold above its rent: the reserve, the fees owed, and the opening batch's SOL.
     pub fn owed_lamports(&self) -> Option<u64> {
-        self.real_sol.checked_add(self.creator_fees)?.checked_add(self.treasury_fees)
+        self.real_sol.checked_add(self.creator_fees)?.checked_add(self.treasury_fees)?.checked_add(self.opening_sol)
     }
 }
