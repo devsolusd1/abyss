@@ -84,7 +84,7 @@
 /* ---------- in numbers: a flat list on the dark ground, two columns ---------- */
 #numbers { padding-bottom: 0; }
 #numbers .lead a { color: var(--f-cream); text-underline-offset: 4px; }
-.facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: repeat(5, auto); grid-auto-flow: column; column-gap: clamp(32px, 6vw, 96px); margin: clamp(36px, 5vw, 56px) 0 0; }
+.facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: repeat(6, auto); grid-auto-flow: column; column-gap: clamp(32px, 6vw, 96px); margin: clamp(36px, 5vw, 56px) 0 0; }
 .f { display: grid; grid-template-columns: 10em minmax(0, 1fr); gap: 16px; padding: 14px 0 15px; border-top: 1px solid var(--f-line); }
 .f:nth-child(5), .f:last-child { border-bottom: 1px solid var(--f-line); }
 .f dt { color: var(--f-mute); font-size: 11px; line-height: 1.95; }
@@ -492,18 +492,18 @@ function renderFacts() {
   // the count of trades only when the whole life of the pool is read
   var trades = EVENTS && HIST && HIST.complete && HIST.whole ? EVENTS.filter(function (e) { return e.kind === 'trade'; }).length : null;
   var cO = lam(p.creatorFees), cP = lam(p.creatorFeesPaid), tO = lam(p.treasuryFees), tP = lam(p.treasuryFeesPaid);
-  // the first column is the pool, the second its money and keys
+  // the first column is the pool (six rows), the second its money and keys
   out += row('virtual SOL', fAmt(V) + ' SOL' + mute(st.graduated ? 'dropped at graduation' : 'sets where the price starts; never in the vault'));
   out += row('graduation', st.graduated
     ? esc(when(p.graduatedAt)) + mute(fTok(units(p.burned)) + ' tokens burned, same price, same pool')
     : 'at a ' + fAmt(M) + ' SOL market cap' + mute(fSol(st.realSol) + ' of ' + fSol(G) + ' real SOL in, ' + fSol(Math.max(0, G - st.realSol)) + ' to go'));
   out += row('market cap', fSol(p.marketCap) + ' SOL' + mute('on ' + fTok(units(Chain.SUPPLY - p.burned)) + ' tokens'));
   out += row('in the pool', fTok(units(p.tokens)) + ' tokens' + mute('of the 1B made'));
-  out += row('volume', fSol(lam(p.volume)) + ' SOL' + mute(trades == null ? 'traded so far' : 'in ' + trades + ' trade' + (trades === 1 ? '' : 's')));
-  out += row('fee', (p.feeBps / 100) + '% of every trade' + mute(split(p.treasuryShareBps)));
   out += row('pool floor', fPx(floorPrice(p)) + ' SOL per 1M' + mute(st.graduated
     ? 'the price if every token outside the pool were sold back to it; it stays here now'
     : 'the price if every token outside the pool were sold back to it; at graduation it drops to ' + pct(floorPrice(p) > 0 ? floorAfterGrad(p) / floorPrice(p) : 0) + ' of this'));
+  out += row('volume', fSol(lam(p.volume)) + ' SOL' + mute(trades == null ? 'traded so far' : 'in ' + trades + ' trade' + (trades === 1 ? '' : 's')));
+  out += row('fee', (p.feeBps / 100) + '% of every trade' + mute(split(p.treasuryShareBps)));
   out += row('fees owed', fSol(cO) + ' creator · ' + fSol(tO) + ' platform' + mute('SOL, waiting in the pool' + (cP + tP > 0 ? '; ' + fSol(cP) + ' and ' + fSol(tP) + ' paid out' : '; none claimed yet')));
   out += row('opened', esc(when(p.openedAt)) + mute(esc(ago(p.openedAt)) + ' by ' + link('address', p.creator, esc(shortKey(p.creator)))));
   out += row('mint', link('address', p.mint, esc(shortKey(p.mint))));
