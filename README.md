@@ -20,6 +20,9 @@ as a pixel black hole whose disk is the real SOL in its pool.
     `assets/chart.js` the pixel candle chart. `node site/chain/check-pool-math.mjs` checks the math against `chain/src`.
   - `net.js` picks the cluster and the program.
   - `chain/` is the chain layer, bundled into `vendor/chain.js` with `npm install && npm run build`.
+    `npm run check` simulates a buy, a sell, both fee claims and a launch against devnet. `send-check.mjs` sends a
+    buy, a sell of what it bought and both claims for real (with `SEND=1` and the coin creator's devnet keypair in
+    `KEYPAIR`), then checks every number against the pool.
 - `site/prototypes`: the design rounds; `round7` is the black hole.
 
 ## Run the site
