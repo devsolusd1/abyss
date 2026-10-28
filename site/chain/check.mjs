@@ -27,10 +27,16 @@ const pool = pools[0];
 console.log(`         ${pool.name} (${pool.symbol})  price ${pool.price.toExponential(4)} SOL  market cap ${pool.marketCap.toFixed(3)} SOL  `
   + `to graduation ${(pool.progress * 100).toFixed(2)}%  fee ${pool.feeBps / 100}%`);
 
-const events = await Chain.history(pool.mint);
+// the history of the busiest coin, read at the public node's pace (see readHistory)
+const busiest = [...pools].sort((a, b) => (b.volume > a.volume ? 1 : b.volume < a.volume ? -1 : 0))[0];
+const started = Date.now();
+const read = await Chain.readHistory(busiest.mint);
+const events = read.events;
 const trades = events.filter((e) => e.kind === "trade");
-line(events.some((e) => e.kind === "launch") && trades.length >= 3, `history: ${events.length} events, ${trades.length} trades`);
-const points = Chain.pricePoints(events, pool);
+line(read.complete && !read.error && (!read.whole || events.some((e) => e.kind === "launch")) && trades.length >= 3,
+  `history of ${busiest.name}: ${read.have} of ${read.total} transactions, ${events.length} events, ${trades.length} trades `
+  + `in ${((Date.now() - started) / 1000).toFixed(1)} s${read.error ? ` (${read.error})` : ""}`);
+const points = Chain.pricePoints(events, busiest);
 line(points.length === trades.length && points.every((p) => p.price > 0), `price points: ${points.map((p) => p.price.toExponential(3)).join(", ")}`);
 
 const buy = await Chain.buildBuy({ pool, owner: OWNER, sol: 0.01 });

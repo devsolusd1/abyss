@@ -429,22 +429,26 @@ function renderHead(busiest) {
 }
 
 /* ================= the strip: this coin's latest trades, newest first, each a link to its transaction ================= */
-var tick = $('#tick'), tape = $('#tape'), onTape = null;
+var tick = $('#tick'), tape = $('#tape'), tapeTop = null;   // tapeTop: the newest event when the strip was last drawn
+function evKey(e) { return e.signature + ':' + e.kind + ':' + (e.n || 0); }   // n: its place among its transaction's events
 function renderTape() {
   if (!POOL || !EVENTS) return;
-  var sym = String(POOL.symbol || '').trim() || nameOf(POOL), items = [], seen = {};
+  var sym = String(POOL.symbol || '').trim() || nameOf(POOL), items = [];
+  // the first read comes in still; later events slide in, those newer than the newest one at the last drawing. The
+  // history fills in back from the newest, so older trades read in afterwards are not news
+  var cut = EVENTS.length;
+  if (tapeTop) for (var j = EVENTS.length - 1; j >= 0; j--) if (evKey(EVENTS[j]) === tapeTop) { cut = j; break; }
   for (var i = EVENTS.length - 1; i >= 0 && items.length < 12; i--) {
     var e = EVENTS[i], html = null, cls = '';
     if (e.kind === 'trade') { cls = e.buy ? 'buy' : 'sell'; html = '◎' + esc(fSol(lam(e.sol))) + ' ' + (e.buy ? '<b>bought</b> ' : 'sold ') + esc(sym) + ' · ' + esc(ago(e.time)); }
     else if (e.kind === 'graduation') { cls = 'grad'; html = '<b>' + esc(sym) + '</b> graduated · ' + esc(fTok(units(e.burned))) + ' tokens burned'; }
     if (!html) continue;
-    var key = e.signature + ':' + e.kind; seen[key] = true;
-    if (onTape && !onTape[key] && !BH.reduced) cls += ' new';   // the first read comes in still; later trades slide in
+    if (i > cut && !BH.reduced) cls += ' new';
     var u = explorer('tx', e.signature);
     items.push(u ? '<a class="' + cls + '" href="' + esc(u) + '" target="_blank" rel="noopener" tabindex="-1"><i></i>' + html + '</a>' : '<span class="' + cls + '"><i></i>' + html + '</span>');
   }
-  onTape = seen;
-  tape.innerHTML = items.join('');
+  tapeTop = EVENTS.length ? evKey(EVENTS[EVENTS.length - 1]) : null;
+  var th = items.join(''); if (tape._h !== th) { tape.innerHTML = th; tape._h = th; }
   tick.classList.toggle('none', !items.length);
 }
 
@@ -456,7 +460,8 @@ function split(bps) {
 function row(k, v) { return '<div class="f"><dt>' + k + '</dt><dd>' + v + '</dd></div>'; }
 function renderFacts() {
   var p = POOL, st = ST, V = lam(p.virtualSol), G = lam(p.graduationSol), M = lam(p.graduationMcap), out = '';
-  var trades = EVENTS ? EVENTS.filter(function (e) { return e.kind === 'trade'; }).length : null;
+  // the count of trades only when the whole life of the pool is read
+  var trades = EVENTS && HIST && HIST.complete && HIST.whole ? EVENTS.filter(function (e) { return e.kind === 'trade'; }).length : null;
   var cO = lam(p.creatorFees), cP = lam(p.creatorFeesPaid), tO = lam(p.treasuryFees), tP = lam(p.treasuryFeesPaid);
   // the first column is the pool, the second its money and keys
   out += row('virtual SOL', fAmt(V) + ' SOL' + mute(st.graduated ? 'dropped at graduation' : 'sets where the price starts; never in the vault'));
@@ -471,7 +476,7 @@ function renderFacts() {
   out += row('opened', esc(when(p.openedAt)) + mute(esc(ago(p.openedAt)) + ' by ' + link('address', p.creator, esc(shortKey(p.creator)))));
   out += row('mint', link('address', p.mint, esc(shortKey(p.mint))));
   out += row('pool', link('address', p.address, esc(shortKey(p.address))));
-  $('#facts').innerHTML = out;
+  var fx = $('#facts'); if (fx._h !== out) { fx.innerHTML = out; fx._h = out; }   // a redraw that changes nothing leaves focus and clicks alone
   // the simulator, launching a coin with the same name and settings from nothing
   var q = new URLSearchParams(), sym = String(p.symbol || '').trim();
   q.set('name', nameOf(p).slice(0, 32)); if (sym && !isTest(p)) q.set('sym', sym);
@@ -523,7 +528,7 @@ function ordered(events) {
 // SOL per whole token: after a trade (from its reserves), at launch, after graduation
 function priceAt(e) { var x = (e.graduated ? 0 : lam(POOL.virtualSol)) + lam(e.realSol), t = units(e.tokenReserve); return t > 0 ? x / t : 0; }
 function launchPrice() { return lam(POOL.virtualSol) / units(Chain.SUPPLY); }
-function tr(cls, i, cells) { return '<tr class="' + cls + '" data-i="' + i + '">' + cells.map(function (c, j) { return '<td>' + (j === 1 ? '<i class="k"></i>' : '') + c + '</td>'; }).join('') + '</tr>'; }
+function tr(cls, i, cells) { return '<tr class="' + cls + '" data-i="' + i + '" data-k="' + esc(evKey(EVENTS[i])) + '">' + cells.map(function (c, j) { return '<td>' + (j === 1 ? '<i class="k"></i>' : '') + c + '</td>'; }).join('') + '</tr>'; }
 var SHOWN = 15, allRows = false;                        // the list shows the newest 15 rows until "show all"
 function renderHistory() {
   var body = $('#rows'), note = $('#histNote'), more = $('#moreRows');
@@ -537,12 +542,31 @@ function renderHistory() {
     else if (e.kind === 'claim') rows.push(tr('ev', i, [t, (e.creator ? 'creator' : 'platform') + ' claim', fSol(lam(e.amount)), '', '']));
   });
   rows.reverse();
-  body.innerHTML = rows.map(function (r, k) { return k < SHOWN ? r : r.replace('<tr class="', '<tr class="more '); }).join('');
+  var html = rows.map(function (r, k) { return k < SHOWN ? r : r.replace('<tr class="', '<tr class="more '); }).join('');
+  if (body._h !== html) {
+    // the link in focus is found again by its row's event after the redraw (older rows coming in renumber them)
+    var act = document.activeElement, row = act && act !== body && body.contains(act) && act.closest ? act.closest('tr') : null, fk = row ? row.getAttribute('data-k') : null;
+    body.innerHTML = html; body._h = html;
+    if (fk) { var back = Array.prototype.find.call(body.querySelectorAll('tr'), function (t) { return t.getAttribute('data-k') === fk; }); back = back && back.querySelector('a'); if (back) try { back.focus({ preventScroll: true }); } catch (e) {} }
+  }
   more.hidden = rows.length <= SHOWN;
   paintMore();
   if (hi >= 0) rowsOn([hi]);
-  note.textContent = trades ? (EVENTS.length >= 100 ? 'The most recent 100 events.' : '') : 'No trades yet.';
-  note.hidden = !note.textContent;
+  setHistNote(histText(trades));
+}
+// under the list: how far the read has got while it is still going, else when there is nothing or only the latest
+function histText(trades) {
+  if (HIST && !HIST.complete && (HIST.pending || HIST.newer)) {
+    var n = HIST.pending;
+    return (n ? 'Reading ' + n + ' newer transaction' + (n === 1 ? '' : 's') : 'Reading newer transactions') + ' from devnet, about one a second'
+      + (HIST.error ? '; it stopped answering, so they are read again in 20 s.' : '.');
+  }
+  if (HIST && !HIST.complete) {
+    return HIST.have + ' of the latest ' + HIST.total + ' transactions read, newest first. Devnet\'s public node gives a page about one a second'
+      + (HIST.error ? ', and it stopped answering: the rest are read again in 20 s.' : ', so older ones are still coming in.');
+  }
+  if (!trades) return 'No trades yet.';
+  return HIST && !HIST.whole ? 'The latest ' + HIST.total + ' transactions on the pool.' : '';
 }
 function paintMore() { $('#tradeList').classList.toggle('all', allRows); setText('#moreRows', allRows ? 'show the newest ' + SHOWN : 'show all ' + $('#rows').children.length); }
 $('#moreRows').addEventListener('click', function () { allRows = !allRows; paintMore(); });
@@ -649,17 +673,39 @@ function paintTfs(tf) {
     b.setAttribute('aria-pressed', String(v === tf));
   });
 }
-function drawChart() {
-  if (!POOL || !EVENTS) { CANDLES = []; chart.set({ candles: [], marks: [], events: [], lines: [], goal: null }); readEl.textContent = ''; return; }
+// where the chart is looking, when it has been dragged back from the newest candles: the candle at its right edge, by
+// its time on a clock interval and by its newest trade one per trade. Older trades read in later go in at the left and
+// newer ones at the right, so the view is put back on the same candle rather than counted from the right
+var shownTf = null;
+function viewAnchor() {
+  if (!chart.off || !CANDLES.length) return null;
+  var c = CANDLES[CANDLES.length - 1 - chart.off];
+  if (!c) return null;
+  var last = c.ev.length ? EVENTS[c.ev[c.ev.length - 1]] : null;
+  return { tf: shownTf, t: c.t, key: last ? evKey(last) : null };
+}
+function anchorAt(view, tf) {
+  if (!view || view.tf !== tf) return null;
+  for (var k = CANDLES.length - 1; k >= 0; k--) {
+    var c = CANDLES[k];
+    if (tf > 0 ? c.t === view.t : view.key && c.ev.some(function (i) { return evKey(EVENTS[i]) === view.key; })) return CANDLES.length - 1 - k;
+  }
+  return null;
+}
+function drawChart(view) {
+  if (!POOL || !EVENTS) { CANDLES = []; shownTf = null; chart.set({ candles: [], marks: [], events: [], lines: [], goal: null }); readEl.textContent = ''; return; }
   var tf = TF == null ? autoTf() : TF, s = span();
   if (tf > 0 && s && countFor(tf, s) > MAX_CANDLES) tf = autoTf();
   paintTfs(tf);
+  if (shownTf != null && tf !== shownTf) chart.fit();    // the interval picked itself anew (more trades read): a new set of candles
   var C = buildCandles(tf), M = lam(POOL.graduationMcap), g = SERIES === 'price' ? M / 1000 : M, lines = [];
   CANDLES = C.list;
+  var off = anchorAt(view, tf);
+  shownTf = tf;
   if (Q && Q.q) { var qv = SERIES === 'price' ? Q.after.price * 1e6 : Q.after.mcap; lines.push({ v: qv, label: 'after this ' + Q.side + ': ' + fmtV(qv), col: HEX[5] }); }
   $('#keyMine').hidden = !C.marks.length;
   chart.set({ candles: C.list, marks: C.marks, events: C.events, lines: lines, log: LOG, fmt: fmtV, tfmt: timeLabel(tf, C.list),
-    goal: POOL.graduated ? null : { v: g, label: 'graduation at ' + fmtV(g) } });
+    goal: POOL.graduated ? null : { v: g, label: 'graduation at ' + fmtV(g) } }, off != null ? { off: off } : null);
   chart.select(hi >= 0 ? candleOf(hi) : -1);
   // the canvas's name says what it shows, and changes only with that (the read line above it has the numbers), so a
   // screen reader on it is not told again at every trade
@@ -670,7 +716,7 @@ function drawChart() {
 function tfName(tf) { return tf === 60 ? 'minute' : tf === 900 ? '15 minutes' : tf === 3600 ? 'hour' : tf === 14400 ? '4 hours' : 'day'; }
 function renderRead() {
   var k = chart.hover >= 0 ? chart.hover : CANDLES.length - 1, c = CANDLES[k];
-  if (!c) { readEl.textContent = EVENTS ? 'No trades yet: the chart starts with the first.' : ''; return; }
+  if (!c) { readEl.textContent = EVENTS && HIST && HIST.complete ? 'No trades yet: the chart starts with the first.' : ''; return; }
   var ch = c.o > 0 ? c.c / c.o - 1 : 0;
   readEl.innerHTML = '<b>' + esc(stamp(c.t)) + '</b>' + (chart.hover >= 0 ? '' : ' latest') +
     ' · O <b>' + fmtV(c.o) + '</b> H <b>' + fmtV(c.h) + '</b> L <b>' + fmtV(c.l) + '</b> C <b>' + fmtV(c.c) + '</b> <b class="' + (ch >= 0 ? 'up' : 'down') + '">' + pctS(ch) + '</b> · ' +
@@ -917,18 +963,94 @@ function applyPool(p) {
   renderHero(); renderFacts(); renderQuote(); paintClaim();
   return true;
 }
-async function loadHistory() {
-  var ev = null, mint = POOL && String(POOL.mint);
-  for (var attempt = 0; attempt < 3 && !ev && mint; attempt++) {
-    if (attempt) await new Promise(function (ok) { setTimeout(ok, 1500 * attempt); });
-    try { ev = await withTimeout(Chain.history(mint), 20000); } catch (e) { ev = null; }
-  }
-  if (!POOL || String(POOL.mint) !== mint) return false;   // another coin came in meanwhile (a retry)
-  if (!ev) { histStale = true; if (!EVENTS) $('#histNote').textContent = 'Devnet did not send the trades. They will be read again in 20 s.'; return false; }
-  EVENTS = ordered(ev); histStale = false;
-  renderHistory(); renderFacts(); drawChart(); renderTape();
-  return true;
+// The trades are read in rounds. In each, the chain layer fetches the transactions it has not kept yet, one call at a
+// time at the pace devnet's public node allows (about one a second; Chain.readHistory), and after each one hands over
+// one unbroken stretch of them, which goes straight onto the page. A round ends after HIST_ROUND ms; while it got
+// further, the next starts a moment later. After a trade or a claim (refresh(true)) a short round of HIST_FRESH ms
+// cuts in, so its own transaction is read before older ones
+var HIST = null, histRun = null, histCtl = null, backfillT = 0, HIST_ROUND = 12000, HIST_FRESH = 4000;
+// a pointer held down on the page (a click on its way, a drag on the chart): what comes in waits until it is let go,
+// so the row, link or candles under it are not redrawn away mid-click
+var pressed = 0, held = null, heldT = 0;               // pressed: when it went down (a lost pointerup lets go after 5 s)
+document.addEventListener('pointerdown', function () { pressed = Date.now(); }, true);
+function letGo(wait) {
+  clearTimeout(heldT);
+  heldT = setTimeout(function () {
+    var h = held; held = null;
+    if (h && POOL && String(POOL.mint) === h.mint) takeHistory(h.r);
+  }, wait);
 }
+['pointerup', 'pointercancel'].forEach(function (n) {
+  document.addEventListener(n, function () { pressed = 0; if (held) letGo(50); }, true);   // after the click
+});
+function countTrades() { return EVENTS ? EVENTS.filter(function (e) { return e.kind === 'trade'; }).length : 0; }
+function takeHistory(r) {
+  if (pressed && Date.now() - pressed < 5000) {
+    held = { r: r, mint: String(POOL.mint) };
+    letGo(5000 - (Date.now() - pressed));                 // let go when the 5 s are up, should the pointerup never come
+    return;
+  }
+  if (Date.now() - pressed >= 5000) pressed = 0;
+  held = null; clearTimeout(heldT);                       // this one is newer than any held back
+  // a stretch that reaches less far than the one on screen while the read goes on (new transactions at the top still
+  // coming in, or the node failing partway) stays off the screen: the one shown stays until it is caught up with
+  if (EVENTS && HIST && !r.complete && r.have < HIST.have) {
+    HIST = { have: HIST.have, total: HIST.total, whole: HIST.whole, complete: false, newer: true, pending: r.pending, error: r.error };
+    setHistNote(histText(countTrades()));
+    return;
+  }
+  var key = hi >= 0 && EVENTS && EVENTS[hi] ? evKey(EVENTS[hi]) : null, view = viewAnchor();
+  HIST = { have: r.have, total: r.total, whole: r.whole, complete: r.complete, pending: r.pending, error: r.error };
+  EVENTS = ordered(r.events);
+  hi = -1;                                                // the row under the pointer, found again by its transaction
+  if (key) EVENTS.forEach(function (e, i) { if (evKey(e) === key) hi = i; });
+  renderHistory(); renderFacts(); drawChart(view); renderTape();
+  if (chart.hover >= 0 && CANDLES[chart.hover]) rowsOn(CANDLES[chart.hover].ev);   // a candle under the pointer lights its rows again
+}
+// fresh: the pool has moved, so the round must start after now (a running one is cut short and a new one follows it)
+function loadHistory(fresh) {
+  var mint = POOL && String(POOL.mint);
+  if (!mint) return Promise.resolve(false);
+  if (histRun && histRun.mint === mint) {                  // one round at a time
+    if (!fresh) return histRun.p;
+    if (histCtl) histCtl.abort();
+    return histRun.p.then(function () { return loadHistory(true); });
+  }
+  var ctl = typeof AbortController === 'function' ? new AbortController() : null;
+  var run = { mint: mint, p: null };
+  run.p = (async function () {
+    try {
+      var r = null;
+      try {
+        r = await Chain.readHistory(mint, { budgetMs: fresh ? HIST_FRESH : HIST_ROUND, signal: ctl ? ctl.signal : undefined,
+          onProgress: function (x) { if (POOL && String(POOL.mint) === mint) takeHistory(x); } });
+      } catch (e) {
+        if (ctl && ctl.signal.aborted) return false;          // cut short on purpose: the round after it reads on
+        r = null;
+      }
+      if (!POOL || String(POOL.mint) !== mint) return false;   // another coin came in meanwhile (a retry)
+      if (!r) { histStale = true; if (!EVENTS) setHistNote('Devnet did not send the trades. They will be read again in 20 s.'); return false; }
+      takeHistory(r);
+      histStale = !r.complete;
+      // the next round in a moment while this one got further (or followed a trade); one that got nowhere (a failure,
+      // a pause the node asked for, a transaction it does not serve yet) leaves the rest to the 20 s reads
+      if (!r.complete && !r.error && (fresh || r.added > 0)) backfill();
+      return true;
+    } catch (e) { report(e); return false; }
+    finally { if (histRun === run) histRun = null; if (histCtl === ctl) histCtl = null; }
+  })();
+  histRun = run; histCtl = ctl;
+  return run.p;
+}
+function backfill() {
+  clearTimeout(backfillT);
+  backfillT = setTimeout(function () {
+    if (document.hidden || !POOL || PINNED || !histStale) return;
+    if (busy || inflight) { backfill(); return; }         // a trade, a claim or a read under way: again in a moment
+    refresh(false).catch(report);
+  }, 400);
+}
+function setHistNote(t) { var n = $('#histNote'); n.textContent = t; n.hidden = !t; }
 async function readWal() {
   var w = window.Wallet && Wallet.current;
   if (!w || !POOL) { WAL = null; paintHoldings(); return; }
@@ -939,28 +1061,36 @@ async function readWal() {
   // the quote depends on the wallet only through its SOL and its tokens
   if (!was || !WAL || was.sol !== WAL.sol || was.tokens !== WAL.tokens) renderQuote();
 }
-// one read at a time. A forced read asked for during another one (after a trade, while the history is still being
-// retried) waits for it and then reads again, so what it shows is the pool after the trade
-var inflight = null;
+// one read at a time. A forced read asked for during another one (after a trade, while older trades are still being
+// read in) cuts that one's round of trades short, waits for it and then reads again, so what it shows is the pool after
+// the trade
+var inflight = null, readCtl = null;
 function refresh(force) {
   if (!POOL) return Promise.resolve();
-  if (inflight) return force ? inflight.then(function () { return refresh(true); }) : inflight;
-  inflight = readAll(force).finally(function () { inflight = null; });
+  if (inflight) {
+    // the read under way gives way: its round of older trades stops, or does not start, and the new one is read first
+    if (force) { if (readCtl) readCtl.abort(); if (histCtl) histCtl.abort(); }
+    return force ? inflight.then(function () { return refresh(true); }) : inflight;
+  }
+  var ctl = typeof AbortController === 'function' ? new AbortController() : null;
+  readCtl = ctl;
+  inflight = readAll(force, ctl ? ctl.signal : null).finally(function () { inflight = null; if (readCtl === ctl) readCtl = null; });
   return inflight;
 }
-async function readAll(force) {
+async function readAll(force, signal) {
   var moved = false;
   try { var p = await withTimeout(Chain.readPool(POOL.mint), 12000); if (p) { PINNED = false; moved = applyPool(p); } }
   catch (e) { readFail++; paintStatus(); }
-  if (moved || force || !EVENTS || histStale) await loadHistory();   // a history that failed after the pool moved is read again
-  if (window.Wallet && Wallet.current) await readWal();
+  if (window.Wallet && Wallet.current) await readWal();   // the wallet first: after a trade it shows at once
+  if (signal && signal.aborted) return;                   // a forced read follows this one and reads the trades itself
+  if (moved || force || !EVENTS || histStale) await loadHistory(moved || force);   // a history that failed or is still coming in is read on
 }
 setInterval(function () { if (!document.hidden && !busy && POOL && !PINNED) refresh(false).catch(report); }, REFRESH_MS);
 function onWallet() { WAL = null; paintHoldings(); renderQuote(); paintClaim(); if (!claiming) cnote(''); readWal(); }
 if (window.Wallet) Wallet.on(onWallet);
 var again = $('#again');
 again.addEventListener('click', function () {
-  if (!POOL || busy || inflight) return;
+  if (!POOL || busy || again.disabled) return;          // a read under way gives way to it (refresh)
   again.disabled = true; setText('#status', 'reading…');
   refresh(true).catch(report).finally(function () { again.disabled = false; paintStatus(); });
 });
@@ -970,7 +1100,8 @@ async function boot() {
   if (prog && window.NET && NET.explorer) pl.href = NET.explorer('address', prog); else pl.removeAttribute('href');
   if (!chainOk()) { fail('The chain code did not load.', '<a href="/coins">See all coins</a>'); return; }
   var p = null, busiest = false;
-  POOL = null; EVENTS = null; onTape = null; PINNED = false;   // nothing is read on a pool until this one is in
+  POOL = null; EVENTS = null; tapeTop = null; PINNED = false;   // nothing is read on a pool until this one is in
+  HIST = null; clearTimeout(backfillT); if (histCtl) histCtl.abort();
   TF = null; hi = -1; allRows = false; histStale = false; chart.fit(); drawChart();   // a new coin: its own interval, the newest candles
   document.body.classList.remove('nocoin'); document.body.classList.add('reading');
   if (holeStill) makeHole();                           // moving again after a failed read and "try again"
@@ -1067,7 +1198,8 @@ window.__coin = {
     var h = hole.hole;
     return { look: LOOK, state: ST, shown: hole.shown, busy: hole.busy, graduated: hole.graduated, jet: h.jet, rOut: h.rOut, theta: h.theta, blobs: h.blobs.length,
       px: PX, canvas: [heroCv.width, heroCv.height, heroCv.style.width, heroCv.style.height], events: EVENTS ? EVENTS.length : null, lastRead: lastRead, pinned: PINNED,
-      busyTrade: busy, tape: tape.children.length, candles: CANDLES.length, tf: TF, zoom: chart.z, off: chart.off, chartSize: [chartCv.width, chartCv.height],
+      busyTrade: busy, tape: tape.children.length, candles: CANDLES.length, tf: TF, shownTf: shownTf, zoom: chart.z, off: chart.off, chartSize: [chartCv.width, chartCv.height],
+      hist: HIST, histReading: !!histRun, histStale: histStale,
       overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth };
   },
   perf: function () { return hole.perf(); },

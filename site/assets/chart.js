@@ -78,11 +78,13 @@ function NoxChart(cv, o) {
 
 Object.defineProperty(NoxChart.prototype, 'following', { get: function () { return this.off === 0; } });
 
-NoxChart.prototype.set = function (d) {
+// view, optional: { off } puts the view that many candles back from the newest, for a page that knows where the
+// candles it was showing went (older ones can come in at the left)
+NoxChart.prototype.set = function (d, view) {
   for (var k in d) this.d[k] = d[k];
   var n = this.d.candles.length, grew = this.n != null && d.candles ? n - this.n : 0;   // the list can be the same array, grown
   this.n = n;
-  var off = this.off > 0 && grew > 0 ? this.off + grew : this.off;   // dragged back: the same candles stay in view
+  var off = view && view.off != null ? view.off : this.off > 0 && grew > 0 ? this.off + grew : this.off;   // dragged back: the same candles stay in view
   if (this.sel >= n) this.sel = -1;
   if (this.hover >= n) this.hover = -1;
   this.setOff(off);

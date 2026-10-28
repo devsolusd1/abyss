@@ -14,10 +14,11 @@ import {
 let NET = typeof window !== "undefined" ? window.NET : null;
 let connection = null;
 
-/** For Node scripts and tests: { rpcUrl, program, cluster }. */
+/** For Node scripts and tests: { rpcUrl, program, cluster, historyPace?, historyWindowMs? } (see the history pace below). */
 export function setNet(net) {
   NET = net;
   connection = null;
+  pace = null; nextAt = 0; coolUntil = 0;    // another node, its own limit
 }
 
 export function net() {
@@ -277,31 +278,273 @@ async function decodeEvent(b64) {
   return null;
 }
 
-/**
- * The pool's recent history, oldest first: each event with its time and signature. Read from
- * the program's own logs, so it needs nothing but an RPC.
- */
-export async function history(mint, { limit = 100 } = {}) {
-  const c = conn();
-  const sigs = await c.getSignaturesForAddress(poolAddress(mint), { limit });
-  const ok = sigs.filter((s) => !s.err);
-  const txs = [];
-  for (let i = 0; i < ok.length; i += 25) {
-    const batch = await c.getTransactions(ok.slice(i, i + 25).map((s) => s.signature), { maxSupportedTransactionVersion: 0 });
-    txs.push(...batch);
+/* ---------------- History, at the public node's pace ---------------- */
+
+// The public devnet node lets one address make about ten getTransaction calls in any ten seconds (each call in a
+// JSON-RPC batch counts), and once past that answers 429 for several seconds more. Measured on 2026-10-27: one call
+// every 1.2 s passed 50 of 50; one a second, or a burst of 8, ran into the pause. So transactions are fetched one call at
+// a time, newest first, `pace` calls per window (NET.historyPace, else 8, per NET.historyWindowMs, else 10.5 s: one
+// every 1.3 s), and a 429 pauses every read for 8/7 of a window (12 s) and lowers the pace for a while. A transaction
+// never changes once it is in, so each is fetched once: its event lines are kept in memory and, in a browser, in
+// localStorage for its pool, so a page read again needs only the new ones. Times are on a clock that only goes forward.
+const PREFIX = "Program data: ";
+let pace = null;                       // calls per window, lowered by 429s and raised back after calm stretches
+let calm = 0;                          // calls answered since the last 429
+let nextAt = 0;                        // the next call goes out no sooner than this
+let coolUntil = 0;                     // after a 429, no call before this
+const GAP = 8;                         // new transactions above kept ones, up to this many, are read from the kept ones up
+const txCache = new Map();             // signature -> { time, data: [event lines, base64] }
+const txFetching = new Map();          // signature -> the call fetching it
+const decoded = new Map();             // signature -> its events, decoded once
+
+const clock = () => (typeof performance !== "undefined" && typeof performance.now === "function" ? performance.now() : Date.now());
+const paceSet = () => Math.max(1, Number(NET?.historyPace) || 8);
+const paceNow = () => pace ?? (pace = paceSet());
+const windowMs = () => Math.max(1, Number(NET?.historyWindowMs) || 10_500);
+function sleep(ms, signal) {
+  return new Promise((ok) => {
+    const done = () => { clearTimeout(t); signal?.removeEventListener("abort", done); ok(); };
+    const t = setTimeout(done, Math.max(0, ms));
+    signal?.addEventListener("abort", done, { once: true });
+  });
+}
+
+/** Waits for this page's next call and takes it. False if that would be after `until`, or `signal` aborted. */
+async function turn(until, signal) {
+  for (;;) {
+    if (signal?.aborted) return false;
+    const now = clock(), at = Math.max(nextAt, coolUntil, now);
+    if (at > until) return false;                        // no call starts after the budget, however slow the replies were
+    if (at <= now) { nextAt = now + windowMs() / paceNow(); return true; }
+    await sleep(at - now, signal);
   }
-  const prefix = `Program data: `;
-  const events = [];
-  for (let i = 0; i < txs.length; i++) {
-    const tx = txs[i];
-    if (!tx || !tx.meta) continue;
-    for (const line of tx.meta.logMessages ?? []) {
-      if (!line.startsWith(prefix)) continue;
-      const event = await decodeEvent(line.slice(prefix.length));
-      if (event) events.push({ ...event, time: tx.blockTime, signature: ok[i].signature });
+}
+
+/** One JSON-RPC call, straight to the node (no retries: the pace is ours). Resolves to its reply, { result } or { error }. */
+async function rpc(method, params, signal) {
+  const ctl = new AbortController(), stop = () => ctl.abort();
+  const timer = setTimeout(stop, 15_000);
+  signal?.addEventListener("abort", stop, { once: true });
+  try {
+    const res = await fetch(NET.rpcUrl, {
+      method: "POST", headers: { "content-type": "application/json" }, signal: ctl.signal,
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+    });
+    let body = null;
+    try { body = await res.json(); } catch { /* not JSON */ }
+    if (res.status === 429) return { error: { code: 429 } };
+    if (!body || typeof body !== "object" || !("result" in body || "error" in body)) throw new Error(`The node answered ${res.status}`);
+    return body;
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener("abort", stop);
+  }
+}
+
+/**
+ * Fetches the first transaction in `want` (in the order to read them) that no one has or is fetching, when the pace allows it by
+ * `until`. Returns false when it sent nothing (out of time, aborted), "limited" when the node answered 429, else true.
+ * A transaction the node did not serve goes into `missed`; a 429 pauses all reads and lowers the pace.
+ */
+async function fetchOne(want, until, signal, missed) {
+  if (!(await turn(until, signal))) return false;
+  // another read may have taken some of them while this one waited
+  const s = want.find((x) => !txCache.has(x.signature) && !txFetching.has(x.signature));
+  if (!s) return true;
+  const job = rpc("getTransaction", [s.signature, { commitment: "confirmed", maxSupportedTransactionVersion: 0, encoding: "json" }], signal);
+  txFetching.set(s.signature, job);
+  let reply;
+  try { reply = await job; }
+  catch (err) { if (signal?.aborted) return false; throw err; }
+  finally { if (txFetching.get(s.signature) === job) txFetching.delete(s.signature); }
+  if (reply.error?.code === 429) {
+    coolUntil = clock() + windowMs() * 8 / 7;
+    pace = Math.max(Math.min(3, paceNow()), paceNow() - 2);   // down by two, to three at the least, never up
+    calm = 0;
+    return "limited";
+  }
+  // two windows' worth of calls without a 429: one more call per window, back up to the set pace
+  if (paceNow() < paceSet() && ++calm >= 2 * paceNow()) { pace++; calm = 0; }
+  if (reply.error) throw new Error(String(reply.error.message ?? `The node refused (${reply.error.code})`));
+  const tx = reply.result;
+  if (!tx || !tx.meta) { missed.add(s.signature); return true; }   // not served (yet): the next read asks again
+  const data = (tx.meta.logMessages ?? []).filter((l) => l.startsWith(PREFIX)).map((l) => l.slice(PREFIX.length));
+  txCache.set(s.signature, { time: tx.blockTime ?? s.blockTime ?? null, data });
+  return true;
+}
+
+/* the kept transactions, per pool in localStorage: { signature: { t, d } }, for the 30 pools read last */
+const STORE = "nox.tx.1";
+const storeKey = (pool) => `${STORE}.${NET.cluster ?? ""}.${NET.program}.${pool}`;
+const loaded = new Set();
+function storage() { try { return typeof window !== "undefined" && window.localStorage ? window.localStorage : null; } catch { return null; } }
+function loadStore(pool) {
+  if (loaded.has(pool)) return;
+  loaded.add(pool);
+  try {
+    const raw = storage()?.getItem(storeKey(pool));
+    if (!raw) return;
+    for (const [sig, v] of Object.entries(JSON.parse(raw))) {
+      if (!txCache.has(sig) && v && Array.isArray(v.d) && v.d.every((x) => typeof x === "string")) {
+        txCache.set(sig, { time: typeof v.t === "number" ? v.t : null, data: v.d });
+      }
+    }
+  } catch { /* a broken entry is read again from the chain */ }
+}
+function saveStore(pool, ok) {
+  const ls = storage();
+  if (!ls) return;
+  try {
+    const out = {};
+    for (const s of ok) { const v = txCache.get(s.signature); if (v) out[s.signature] = { t: v.time, d: v.data }; }
+    const key = storeKey(pool), list = `${STORE}.pools`;
+    let pools = [];
+    try { pools = JSON.parse(ls.getItem(list) || "[]").filter((k) => typeof k === "string" && k !== key); } catch { /* start again */ }
+    pools.push(key);
+    while (pools.length > 30) ls.removeItem(pools.shift());
+    ls.setItem(key, JSON.stringify(out));
+    ls.setItem(list, JSON.stringify(pools));
+  } catch { /* full or blocked: memory still has them */ }
+}
+
+/** A kept transaction's events, in the order its logs have them. */
+async function eventsOf(sig) {
+  if (!decoded.has(sig)) {
+    const list = [];
+    for (const b64 of txCache.get(sig).data) {
+      try { const e = await decodeEvent(b64); if (e) list.push(e); } catch { /* not one of ours */ }
+    }
+    decoded.set(sig, list);
+  }
+  return decoded.get(sig);
+}
+
+/** Settles with `p`, or rejects after `ms` or when `signal` aborts. */
+function bounded(p, ms, signal) {
+  return new Promise((ok, no) => {
+    const stop = (why) => { clearTimeout(t); signal?.removeEventListener("abort", aborted); no(new Error(why)); };
+    const aborted = () => stop("Stopped");
+    const t = setTimeout(() => stop("The node did not answer in time"), ms);
+    p.catch(() => {});                                   // a late failure after the timeout or abort is nobody's
+    if (signal?.aborted) return aborted();
+    signal?.addEventListener("abort", aborted, { once: true });
+    p.then((v) => { clearTimeout(t); signal?.removeEventListener("abort", aborted); ok(v); }, (e) => { clearTimeout(t); signal?.removeEventListener("abort", aborted); no(e); });
+  });
+}
+
+/**
+ * The pool's recent history, read from the program's own logs (it needs nothing but an RPC), at the pace above.
+ * Looks back over the last `limit` transactions on the pool and fetches the ones not kept yet, until all are in,
+ * `budgetMs` has passed, or `signal` aborts; `onProgress(result)` hears whenever what it would return changes.
+ * The order: a few new transactions above kept ones (up to GAP) from the kept ones up, so the run grows without a
+ * break; otherwise newest first, so a page read cold shows the latest trades first.
+ *
+ * Returns { events, have, total, pending, added, whole, complete, error }:
+ *   events    oldest first, each with its time, signature and place in its transaction (n): the unbroken run of
+ *             kept transactions from the newest one, or, under a few new ones not read yet, from the first kept one
+ *             below them (so a partial read is one stretch, never one with holes)
+ *   have      transactions in that run, of `total` that did not fail
+ *   pending   new transactions above the run not read yet
+ *   added     transactions this read put in (by any reader), a measure of its progress
+ *   whole     the look back reached the pool's first transaction (fewer than `limit` on it)
+ *   complete  have === total
+ *   error     why it stopped early, when the node failed (it is then partial)
+ * Throws when the list of transactions itself cannot be read (in 20 s), or `signal` aborts before it is.
+ */
+export async function readHistory(mint, { limit = 100, budgetMs = Infinity, signal, onProgress } = {}) {
+  if (signal?.aborted) throw new Error("Stopped");
+  const pool = poolAddress(mint).toBase58();
+  loadStore(pool);
+  const sigs = await bounded(conn().getSignaturesForAddress(new PublicKey(pool), { limit }), 20_000, signal);
+  const ok = sigs.filter((s) => !s.err);
+  const whole = sigs.length < limit;
+  const until = clock() + budgetMs;
+  const missed = new Set();
+  const kept = () => ok.reduce((n, s) => n + (txCache.has(s.signature) ? 1 : 0), 0), keptBefore = kept();
+  let error = null, shown = null, refused = 0, fetched = 0, from = -1;
+
+  // where the run starts: the newest transaction, or, under up to GAP new ones, the kept stretch starting near the top
+  // that reaches furthest back. Once this read has a run, its start only moves up, one kept transaction at a time, so
+  // what it hands over never shrinks
+  function pick() {
+    let best = -1, end = -1;
+    for (let i = 0; i <= Math.min(GAP, ok.length - 1); i++) {
+      if (!txCache.has(ok[i].signature) || (i > 0 && txCache.has(ok[i - 1].signature))) continue;
+      let j = i;
+      while (j + 1 < ok.length && txCache.has(ok[j + 1].signature)) j++;
+      if (j > end) { best = i; end = j; }
+    }
+    return best;                                         // -1: nothing kept near the top, so newest first
+  }
+  function start() {
+    if (from < 0 || !txCache.has(ok[from].signature)) {
+      from = pick();
+      if (from < 0) return 0;
+    }
+    while (from > 0 && txCache.has(ok[from - 1].signature)) from--;
+    return from;
+  }
+  // new ones above the run from the run up, then the rest newest first
+  function order() {
+    const at = start();
+    const list = at > 0 ? [...ok.slice(0, at).reverse(), ...ok.slice(at)] : ok;
+    return list.filter((s) => !txCache.has(s.signature) && !missed.has(s.signature));
+  }
+  async function result() {
+    const at = start(), txs = [];
+    for (let i = at; i < ok.length && txCache.has(ok[i].signature); i++) txs.push({ s: ok[i], list: await eventsOf(ok[i].signature) });
+    const events = [];
+    for (let i = txs.length - 1; i >= 0; i--) {
+      const { s, list } = txs[i], time = s.blockTime ?? txCache.get(s.signature).time;
+      list.forEach((e, n) => events.push({ ...e, time, signature: s.signature, n }));
+    }
+    return { events, have: txs.length, total: ok.length, pending: at, added: kept() - keptBefore, whole, complete: txs.length === ok.length, error };
+  }
+
+  if (onProgress) {
+    // what is kept already shows at once, before the first call
+    const r = await result();
+    if (r.have) { shown = `${r.pending}:${r.have}`; try { onProgress(r); } catch { /* the page's own problem */ } }
+  }
+  for (;;) {
+    if (signal?.aborted) break;
+    const want = order();
+    if (!want.length) break;
+    const free = want.filter((s) => !txFetching.has(s.signature));
+    if (!free.length) {
+      // all of them are being fetched by another read: wait for one of those calls
+      await Promise.race(want.map((s) => txFetching.get(s.signature)).filter(Boolean).map((p) => p.catch(() => null)));
+      continue;
+    }
+    let went;
+    try { went = await fetchOne(free, until, signal, missed); }
+    catch (err) { error = String(err?.message ?? err); break; }
+    if (!went) break;
+    // a node that keeps refusing after the pauses is out of reach for now
+    if (went === "limited") { if (++refused >= 5) { error = "The node kept answering 429 (too many requests)"; break; } continue; }
+    refused = 0;
+    if (++fetched % 6 === 0) saveStore(pool, ok);   // a page closed partway keeps what it read
+    if (onProgress) {
+      const r = await result(), key = `${r.pending}:${r.have}`;
+      if (key !== shown) { shown = key; try { onProgress(r); } catch { /* the page's own problem */ } }
     }
   }
-  return events.reverse();
+  saveStore(pool, ok);
+  return result();
+}
+
+/**
+ * The whole recent history at once (see readHistory), oldest first. A transaction the node did not serve yet is asked
+ * for again, up to three reads; throws if the node failed or the history is still not all in.
+ */
+export async function history(mint, { limit = 100 } = {}) {
+  let r = null;
+  for (let i = 0; i < 3 && !(r && r.complete); i++) {
+    r = await readHistory(mint, { limit });
+    if (r.error) throw new Error(r.error);
+  }
+  if (!r.complete) throw new Error(`The node served ${r.have} of the ${r.total} transactions`);
+  return r.events;
 }
 
 /** Price points for a chart, from the trades: { time, price } with price in SOL per token. */
