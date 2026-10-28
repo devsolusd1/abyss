@@ -118,6 +118,14 @@ const meta = (pubkey, { signer = false, writable = false } = {}) => ({ pubkey, i
 const pda = (seeds, owner) => PublicKey.findProgramAddressSync(seeds, owner)[0];
 export const configAddress = () => pda([enc.encode("config")], program());
 export const poolAddress = (mint) => pda([enc.encode("pool"), new PublicKey(mint).toBytes()], program());
+/** A coin's mint: the program's own address for its creator and a salt (u64), so nothing can be planted there first. */
+export const mintAddress = (creator, salt) => pda([enc.encode("mint"), new PublicKey(creator).toBytes(), u64(salt)], program());
+/** A random salt: 64 bits, so a creator never meets one they launched with. */
+export function randomSalt() {
+  const b = new Uint8Array(8);
+  globalThis.crypto.getRandomValues(b);
+  return new DataView(b.buffer).getBigUint64(0, true);
+}
 export const ata = (owner, mint) =>
   pda([new PublicKey(owner).toBytes(), TOKEN_2022.toBytes(), new PublicKey(mint).toBytes()], ATA_PROGRAM);
 
@@ -752,13 +760,16 @@ function settingsError(problems) {
  * optional: virtualSol and graduationMcap in lamports (BigInt), feeBps in basis points, each
  * LAUNCH's when left out. Settings outside the program's bounds (launchProblems) throw before
  * anything is built, with one sentence per broken bound in the message and the list in
- * error.problems. The new mint's key is generated here and signs too.
+ * error.problems. The coin's address is the program's for the creator and `salt` (random when left out), so only
+ * the creator signs.
  */
 export async function buildLaunch({
-  creator, name, symbol, uri = "", firstBuySol = 0, maxLaunchFee, mint = Keypair.generate(),
+  creator, name, symbol, uri = "", firstBuySol = 0, maxLaunchFee, salt = randomSalt(),
   virtualSol = LAUNCH.virtualSol, graduationMcap = LAUNCH.graduationMcap, feeBps = LAUNCH.feeBps,
 }) {
   creator = new PublicKey(creator);
+  salt = BigInt(salt);
+  const mint = mintAddress(creator, salt);
   const settings = { virtualSol, graduationMcap, feeBps };
   let problems = launchProblems(settings);
   if (problems.length) throw settingsError(problems);
@@ -768,15 +779,15 @@ export async function buildLaunch({
   if (problems.length) throw settingsError(problems);
   virtualSol = BigInt(virtualSol);
   graduationMcap = BigInt(graduationMcap);
-  const pool = poolAddress(mint.publicKey);
-  const vault = ata(pool, mint.publicKey);
+  const pool = poolAddress(mint);
+  const vault = ata(pool, mint);
   const gradSol = graduationSol(virtualSol, graduationMcap);
   const args = concat(
     str(name), str(symbol), str(uri), u64(virtualSol), u64(graduationMcap), u16(feeBps),
-    u64(maxLaunchFee ?? config.launchFee),
+    u64(maxLaunchFee ?? config.launchFee), u64(salt),
   );
   const launch = await ix("launch", [
-    meta(creator, { signer: true, writable: true }), meta(mint.publicKey, { signer: true, writable: true }),
+    meta(creator, { signer: true, writable: true }), meta(mint, { writable: true }),
     meta(configAddress()), meta(pool, { writable: true }), meta(vault, { writable: true }),
     meta(config.treasury, { writable: true }), meta(TOKEN_2022), meta(ATA_PROGRAM), meta(SystemProgram.programId),
   ], args);
@@ -784,7 +795,7 @@ export async function buildLaunch({
   let quote = null;
   if (Number(firstBuySol) > 0) {
     const opening = {
-      address: pool, mint: mint.publicKey, vault, feeBps, virtualSol, realSol: 0n,
+      address: pool, mint, vault, feeBps, virtualSol, realSol: 0n,
       tokens: SUPPLY, graduationSol: gradSol, graduated: false,
     };
     const buy = await buildBuy({ pool: opening, owner: creator, sol: firstBuySol });
@@ -792,7 +803,7 @@ export async function buildLaunch({
     quote = buy.quote;
   }
   return {
-    tx, signers: [mint], mint: mint.publicKey, pool, quote,
+    tx, signers: [], mint, salt, pool, quote,
     settings: { virtualSol, graduationMcap, feeBps, graduationSol: gradSol },
     canLaunch: config.launchesOpen || config.admin.equals(creator) || config.launcher.equals(creator),
   };
@@ -890,6 +901,9 @@ export function explain(errorOrSim) {
   if (custom) {
     const code = Number(custom[1]);
     if (code >= 7000 && code < 7000 + POOL_ERRORS.length) return POOL_ERRORS[code - 7000];
+    // Anchor's: arguments it could not read (102), a signer or seeds it did not expect (2002, 2006). From this site
+    // they mean the page and the program are not the same version (an open tab from before an upgrade, say)
+    if (code === 102 || code === 2002 || code === 2006) return "The site and the program are on different versions: reload the page";
     return `Program error ${code}`;
   }
   if (text.includes("InsufficientFunds") || text.includes("insufficient lamports")) return "Not enough SOL";

@@ -94,13 +94,15 @@ pub mod dex {
         let mint_key = a.mint.key();
         let pool_bump = ctx.bumps.pool;
         let seeds: &[&[u8]] = &[POOL_SEED, mint_key.as_ref(), &[pool_bump]];
+        let salt = args.salt.to_le_bytes();
+        let mint_seeds: &[&[u8]] = &[MINT_SEED, creator.as_ref(), &salt, &[ctx.bumps.mint]];
         // No hook in this version.
         let hook: Option<&Pubkey> = None;
         let metadata = Metadata { name: &args.name, symbol: &args.symbol, uri: &args.uri };
         let (creator_info, mint, pool) = (a.creator.to_account_info(), a.mint.to_account_info(), a.pool.to_account_info());
         let (system, token_program) = (a.system_program.to_account_info(), a.token_program.to_account_info());
 
-        token::create_mint_account(&creator_info, &mint, &system, hook.is_some(), &metadata, &pool.key())?;
+        token::create_mint_account(&creator_info, &mint, &system, hook.is_some(), &metadata, &pool.key(), mint_seeds)?;
         token::initialize_mint(&mint, &pool, &token_program, hook, &metadata, seeds)?;
         token::top_up_rent(&creator_info, &mint, &system)?;
         let vault = a.vault.to_account_info();
@@ -385,6 +387,9 @@ pub struct LaunchArgs {
     pub fee_bps: u16,
     /// The most the creator agrees to pay as launch fee, in case the config changes first.
     pub max_launch_fee: u64,
+    /// Picks the coin's address: the mint is the program's address for [MINT_SEED, creator, salt]. Any number the
+    /// creator has not launched with before.
+    pub salt: u64,
 }
 
 #[derive(Accounts)]
@@ -417,11 +422,13 @@ pub struct UpdateConfig<'info> {
 }
 
 #[derive(Accounts)]
+#[instruction(args: LaunchArgs)]
 pub struct Launch<'info> {
     #[account(mut)]
     pub creator: Signer<'info>,
-    /// CHECK: the new coin, created by `launch`. It signs so a chosen address can be used.
-    #[account(mut, signer)]
+    /// CHECK: the new coin, created by `launch` at the program's own address for the creator and the salt, so no
+    /// one else can have made it, or an account for it, before.
+    #[account(mut, seeds = [MINT_SEED, creator.key().as_ref(), &args.salt.to_le_bytes()], bump)]
     pub mint: UncheckedAccount<'info>,
     #[account(seeds = [CONFIG_SEED], bump = config.bump)]
     pub config: Box<Account<'info, Config>>,

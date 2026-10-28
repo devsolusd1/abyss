@@ -52,6 +52,7 @@ pub fn create_mint_account<'info>(
     hook: bool,
     metadata: &Metadata,
     pool: &Pubkey,
+    mint_seeds: &[&[u8]],
 ) -> Result<()> {
     let extensions: &[ExtensionType] =
         if hook { &[ExtensionType::TransferHook, ExtensionType::MetadataPointer] } else { &[ExtensionType::MetadataPointer] };
@@ -70,16 +71,18 @@ pub fn create_mint_account<'info>(
 
     let accounts = [payer.clone(), mint.clone(), system_program.clone()];
     let held = mint.lamports();
+    // the mint is the program's address (MINT_SEED): the program signs for it
     if held == 0 {
-        invoke(&system_instruction::create_account(payer.key, mint.key, lamports, space as u64, &TOKEN_2022), &accounts)?;
+        invoke_signed(&system_instruction::create_account(payer.key, mint.key, lamports, space as u64, &TOKEN_2022), &accounts, &[mint_seeds])?;
         return Ok(());
     }
+    // someone sent SOL to the address first (it can't stop the launch): top it up, then take it as it is
     require!(*mint.owner == System::id() && mint.data_is_empty(), PoolError::MintTaken);
     if held < lamports {
         invoke(&system_instruction::transfer(payer.key, mint.key, lamports - held), &accounts)?;
     }
-    invoke(&system_instruction::allocate(mint.key, space as u64), &accounts)?;
-    invoke(&system_instruction::assign(mint.key, &TOKEN_2022), &accounts)?;
+    invoke_signed(&system_instruction::allocate(mint.key, space as u64), &accounts, &[mint_seeds])?;
+    invoke_signed(&system_instruction::assign(mint.key, &TOKEN_2022), &accounts, &[mint_seeds])?;
     Ok(())
 }
 

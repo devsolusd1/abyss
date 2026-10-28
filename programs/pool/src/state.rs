@@ -4,6 +4,9 @@ use {crate::math::Reserves, anchor_lang::prelude::*};
 
 pub const CONFIG_SEED: &[u8] = b"config";
 pub const POOL_SEED: &[u8] = b"pool";
+/// A coin's mint is the program's own address for this seed, its creator and a number the creator picks: only the
+/// program can make an account there, so nothing can have been made at it, or for it, before the launch.
+pub const MINT_SEED: &[u8] = b"mint";
 
 /// Every coin has the same supply and decimals.
 pub const DECIMALS: u8 = 6;

@@ -19,7 +19,7 @@ import {
   ASSOCIATED_TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID,
   createAssociatedTokenAccountIdempotentInstruction, getAssociatedTokenAddressSync,
 } from "@solana/spl-token";
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 
@@ -80,12 +80,15 @@ const initConfig = (admin, args) =>
     meta(args.treasury, { writable: true }), meta(PROGRAM), meta(programData), meta(SystemProgram.programId),
   ], disc("init_config"), configArgs(args));
 
-function launch({ creator, coin, treasury, name, symbol, uri, maxLaunchFee }) {
+/** The coin's mint is the program's address for its creator and a salt: only the creator signs the launch. */
+const mintAddress = (creator, salt) => pda([Buffer.from("mint"), creator.toBuffer(), u64(salt)]);
+
+function launch({ creator, coin, treasury, name, symbol, uri, maxLaunchFee, salt }) {
   const args = Buffer.concat([
-    str(name), str(symbol), str(uri), u64(VIRTUAL_SOL), u64(GRADUATION_MCAP), u16(FEE_BPS), u64(maxLaunchFee),
+    str(name), str(symbol), str(uri), u64(VIRTUAL_SOL), u64(GRADUATION_MCAP), u16(FEE_BPS), u64(maxLaunchFee), u64(salt),
   ]);
   return ix([
-    meta(creator, { signer: true, writable: true }), meta(coin.mint, { signer: true, writable: true }),
+    meta(creator, { signer: true, writable: true }), meta(coin.mint, { writable: true }),
     meta(configAddress), meta(coin.pool, { writable: true }), meta(coin.vault, { writable: true }),
     meta(treasury, { writable: true }), meta(TOKEN_2022_PROGRAM_ID), meta(ASSOCIATED_TOKEN_PROGRAM_ID),
     meta(SystemProgram.programId),
@@ -219,8 +222,10 @@ if (!(await connection.getAccountInfo(configAddress))) {
 record.config = configAddress.toBase58();
 
 // 2. The launch, with the creator's first buy in the same transaction.
-const mint = Keypair.generate();
-const coin = coinAddresses(mint.publicKey);
+const salt = randomBytes(8).readBigUInt64LE(0);
+const mint = mintAddress(me, salt);
+const coin = coinAddresses(mint);
+record.salt = salt.toString();
 const opening = {
   virtualSol: VIRTUAL_SOL, realSol: 0n, tokens: SUPPLY,
   graduationSol: isqrtCeil(VIRTUAL_SOL * GRADUATION_MCAP) - VIRTUAL_SOL, graduated: false,
@@ -229,19 +234,19 @@ const first = quoteBuy(opening, FIRST_BUY, FEE_BPS);
 const launchIxs = [
   launch({
     creator: me, coin, treasury: me, name: process.env.COIN_NAME ?? "Pool Test", symbol: process.env.COIN_SYMBOL ?? "POOL",
-    uri: process.env.COIN_URI ?? "", maxLaunchFee: 0n,
+    uri: process.env.COIN_URI ?? "", maxLaunchFee: 0n, salt,
   }),
-  createAssociatedTokenAccountIdempotentInstruction(me, getAssociatedTokenAddressSync(mint.publicKey, me, false, TOKEN_2022_PROGRAM_ID),
-    me, mint.publicKey, TOKEN_2022_PROGRAM_ID),
+  createAssociatedTokenAccountIdempotentInstruction(me, getAssociatedTokenAddressSync(mint, me, false, TOKEN_2022_PROGRAM_ID),
+    me, mint, TOKEN_2022_PROGRAM_ID),
   buy(me, coin, FIRST_BUY, withSlippage(first.tokensOut)),
 ];
-record.signatures.launch = await run(connection, wallet, launchIxs, [mint], "launch + first buy");
+record.signatures.launch = await run(connection, wallet, launchIxs, [], "launch + first buy");
 if (!SEND) process.exit(0);
 Object.assign(record, Object.fromEntries(Object.entries(coin).map(([k, v]) => [k, v.toBase58()])));
 
 // 3. Sell a quarter back, then buy again.
 let pool = await readPool(connection, coin);
-const held = await tokensOf(connection, me, mint.publicKey);
+const held = await tokensOf(connection, me, mint);
 const quarter = held / 4n;
 const sold = quoteSell({ ...pool }, quarter, pool.feeBps);
 record.signatures.sell = await run(connection, wallet, [sell(me, coin, quarter, withSlippage(sold.solOut))], [], "sell a quarter");
@@ -252,7 +257,7 @@ record.signatures.buy = await run(connection, wallet, [buy(me, coin, SECOND_BUY,
 // 4. What the chain says now.
 pool = await readPool(connection, coin);
 const summary = {
-  tokensHeld: fmtTokens(await tokensOf(connection, me, mint.publicKey)),
+  tokensHeld: fmtTokens(await tokensOf(connection, me, mint)),
   realSol: fmtSol(pool.realSol),
   tokenReserve: fmtTokens(pool.tokens),
   feesOwed: { creator: fmtSol(pool.creatorFees), treasury: fmtSol(pool.treasuryFees) },
@@ -260,7 +265,7 @@ const summary = {
   graduated: pool.graduated,
 };
 console.log(summary);
-console.log(`coin: ${explorer("address", mint.publicKey.toBase58())}`);
+console.log(`coin: ${explorer("address", mint.toBase58())}`);
 record.summary = summary;
 writeFileSync(OUT, JSON.stringify(record, null, 2) + "\n");
 console.log(`written to ${OUT}`);

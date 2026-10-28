@@ -75,6 +75,7 @@ Supply de 1.000.000.000 com 6 decimais. A curva abre com 30 SOL de market cap e 
   - 64 bytes reservados.
 - **SOL**: fica no próprio `Pool`, acima do aluguel. Invariante: `lamports = aluguel + real_sol + taxas devidas`.
 - **Cofre**: a ATA do `Pool` para o mint.
+- **Mint em `["mint", criador, salt]`** (salt: um u64 que quem lança escolhe, ao acaso no site): o endereço da moeda é do próprio programa, então só o programa cria uma conta ali, e ninguém pode ter criado nada nele antes. As moedas lançadas antes disso (devnet) têm mints comuns e continuam funcionando, porque a pool sai do mint.
 
 ## Instruções
 
@@ -95,7 +96,7 @@ Não existe instrução que tire dinheiro de um pool para o admin, nem pausa de 
 `../examples/devnet.mjs` monta todas as instruções à mão e serve de referência.
 
 - **`buy` e `sell`**: trader (assina, gravável), pool (gravável), mint (**gravável**, por causa da queima da graduação), cofre (gravável), conta de token do trader (gravável), Token-2022, System. Na compra, criar antes a ATA do comprador na mesma transação.
-- **`launch`**: 9 contas, e o mint assina.
+- **`launch`**: 9 contas; só quem lança assina (o mint é a PDA `["mint", criador, salt]`, com o salt no fim dos argumentos).
 - **Compute medido**:
 
   | Operação | Compute |
@@ -117,16 +118,16 @@ Não existe instrução que tire dinheiro de um pool para o admin, nem pausa de 
 5. **O admin não alcança o dinheiro dos pools**; a tesouraria de cada pool é fixa; as vendas não pausam.
 6. **Mint fechado**: só os metadados, nenhuma autoridade, conferido depois de criar.
 7. **Tetos fixos** para taxas e curva.
-8. **O pool só paga em contas limpas.** Recusa contas congeladas ou com extensões herdadas de um mint anterior no mesmo endereço (o ataque das contas "intransferíveis"). A correção definitiva é o mint ser uma PDA do programa. Vale a pena quando os lançamentos abrirem para qualquer criador.
+8. **O mint é uma PDA do programa** (2026-10-28), o que fecha na raiz o ataque das contas "intransferíveis": antes, quem tinha a chave de um endereço podia criar ali um mint com extensões, abrir contas para outras carteiras, fechar o mint e lançar a moeda no mesmo endereço, e as contas antigas ficavam com a marca. Agora não há chave: o lançamento num endereço que não é o do programa é recusado. A defesa antiga continua: **o pool só paga em contas limpas** (recusa contas congeladas ou com extensões herdadas).
 9. **Multisig com timelock** para a autoridade de upgrade, antes da mainnet.
 10. **Começo controlado**: só a equipe lança.
 
 Testes:
 - 9 de matemática em `src/math.rs`;
-- 14 de integração em LiteSVM com o Token-2022 de verdade (`../pool-tests`), entre eles a reprodução do ataque das contas "intransferíveis";
+- 15 de integração em LiteSVM com o Token-2022 de verdade (`../pool-tests`), entre eles o ataque das contas "intransferíveis" (agora recusado no lançamento) e o endereço que pertence ao criador e ao salt;
 - `../test.sh` roda tudo.
 
-O binário tem 428 KB, cerca de 2,2 SOL de aluguel.
+O binário tem 430 KB, cerca de 3 SOL de aluguel.
 
 ## Revisões (2026-10-22)
 

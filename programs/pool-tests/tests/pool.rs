@@ -7,7 +7,7 @@ use {
     anchor_lang::{InstructionData, ToAccountMetas},
     dex::{
         math,
-        state::{Pool, CONFIG_SEED, POOL_SEED, SUPPLY},
+        state::{Pool, CONFIG_SEED, MINT_SEED, POOL_SEED, SUPPLY},
         token::{ATA_PROGRAM, TOKEN_2022},
         ConfigArgs, LaunchArgs, PoolError,
     },
@@ -44,6 +44,20 @@ fn so(var: &str, under_target: &str) -> String {
 fn ata(owner: &Address, mint: &Address) -> Address {
     Address::find_program_address(&[owner.as_ref(), TOKEN_2022.as_ref(), mint.as_ref()], &ATA_PROGRAM).0
 }
+
+/// A coin's mint: the program's address for the creator and the salt.
+fn mint_for(creator: &Address, salt: u64) -> Address {
+    Address::find_program_address(&[MINT_SEED, creator.as_ref(), &salt.to_le_bytes()], &dex::ID).0
+}
+
+/// A salt no test has used yet.
+fn fresh_salt() -> u64 {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Anchor's "a seeds constraint was violated" (ConstraintSeeds).
+const WRONG_SEEDS: InstructionError = InstructionError::Custom(2006);
 
 fn config_address() -> Address {
     Address::find_program_address(&[CONFIG_SEED], &dex::ID).0
@@ -176,6 +190,7 @@ impl Env {
             graduation_mcap: GRADUATION_MCAP,
             fee_bps: FEE_BPS,
             max_launch_fee: LAUNCH_FEE,
+            salt: 0,
         }
     }
 
@@ -199,11 +214,13 @@ impl Env {
         }
     }
 
+    /// A launch at the creator's next address (a fresh salt). Only the creator signs: the mint is the program's.
     fn launch_as(&mut self, creator: &Keypair, args: LaunchArgs) -> Result<Coin, InstructionError> {
-        let mint = Keypair::new();
-        let coin = Coin::of(mint.pubkey());
-        let ix = self.launch_ix(&creator.pubkey(), &mint.pubkey(), args);
-        self.send(creator, vec![ix], &[&mint]).map(|_| coin).map_err(|e| match e.err {
+        let args = LaunchArgs { salt: fresh_salt(), ..args };
+        let mint = mint_for(&creator.pubkey(), args.salt);
+        let coin = Coin::of(mint);
+        let ix = self.launch_ix(&creator.pubkey(), &mint, args);
+        self.send(creator, vec![ix], &[]).map(|_| coin).map_err(|e| match e.err {
             TransactionError::InstructionError(_, error) => error,
             other => panic!("failed outside the instruction: {other:?}"),
         })
@@ -569,13 +586,15 @@ fn the_treasury_must_be_able_to_take_a_payment() {
     env.update_config(&admin, wallet).unwrap();
 }
 
-/// Someone who holds a mint's key creates a non-transferable mint at that address, opens an
-/// account for a target wallet, closes the mint and launches the real coin there. The old
-/// account keeps its non-transferable mark: tokens bought into it could never leave.
+/// The old attack: someone who holds a mint's key creates a non-transferable mint at that
+/// address, opens an account for a target wallet, closes the mint and launches the real coin
+/// there; the old account keeps its non-transferable mark, so tokens bought into it could never
+/// leave. Now a coin can only be at the program's own address, which has no key: a launch at an
+/// address someone holds is refused, planted or not.
 #[test]
-fn a_buy_into_an_account_planted_by_an_earlier_mint_is_refused() {
+fn a_coin_cannot_be_launched_where_someone_planted_accounts() {
     let mut env = Env::new();
-    let (admin, alice, bob) = (env.admin.insecure_clone(), env.alice.insecure_clone(), env.bob.insecure_clone());
+    let (admin, alice) = (env.admin.insecure_clone(), env.alice.insecure_clone());
     let mint = Keypair::new();
     let m = mint.pubkey();
 
@@ -604,34 +623,60 @@ fn a_buy_into_an_account_planted_by_an_earlier_mint_is_refused() {
     env.send(&admin, vec![close], &[]).unwrap();
     assert!(env.svm.get_account(&m).is_none_or(|a| a.lamports == 0));
 
-    // The real coin at the same address launches fine...
-    let ix = env.launch_ix(&admin.pubkey(), &m, env.args());
-    env.send(&admin, vec![ix], &[&mint]).unwrap();
-    let coin = Coin::of(m);
-    // ...but the planted account can't be bought into, while a clean one can.
-    assert_eq!(error(env.buy(&coin, &alice, SOL)), pool_error(PoolError::UnsafeBuyerAccount));
-    assert_eq!(env.tokens(&alice.pubkey(), &coin), 0);
-    env.buy(&coin, &bob, SOL).unwrap();
+    // A launch there is refused, whatever salt goes with it: it is not the program's address.
+    for salt in [0, 1, u64::MAX] {
+        let ix = env.launch_ix(&admin.pubkey(), &m, LaunchArgs { salt, ..env.args() });
+        assert_eq!(error(env.send(&admin, vec![ix], &[])), WRONG_SEEDS);
+    }
+    // The coin goes to its own address, and the target's account there is a fresh one.
+    let coin = env.launch_as(&admin, env.args()).unwrap();
+    env.buy(&coin, &alice, SOL).unwrap();
+    assert!(env.tokens(&alice.pubkey(), &coin) > 0);
     env.check_books(&coin);
+}
+
+/// The address is the creator's own: another launcher can't take it, and one salt makes one coin.
+#[test]
+fn a_coin_address_belongs_to_its_creator_and_salt() {
+    let mut env = Env::new();
+    let (admin, launcher) = (env.admin.insecure_clone(), env.launcher.insecure_clone());
+    let salt = fresh_salt();
+    let admins = mint_for(&admin.pubkey(), salt);
+    // the launcher, allowed to launch, signs with the admin's address and salt: refused
+    let ix = env.launch_ix(&launcher.pubkey(), &admins, LaunchArgs { salt, ..env.args() });
+    assert_eq!(error(env.send(&launcher, vec![ix], &[])), WRONG_SEEDS);
+    // the admin launches there; a second launch with the same salt can't
+    let ix = env.launch_ix(&admin.pubkey(), &admins, LaunchArgs { salt, ..env.args() });
+    env.send(&admin, vec![ix], &[]).unwrap();
+    let again = env.launch_ix(&admin.pubkey(), &admins, LaunchArgs { salt, ..env.args() });
+    assert!(env.send(&admin, vec![again], &[]).is_err());
+    // the launcher's own address for the same salt is another coin, and launches
+    let theirs = mint_for(&launcher.pubkey(), salt);
+    assert_ne!(theirs, admins);
+    let ix = env.launch_ix(&launcher.pubkey(), &theirs, LaunchArgs { salt, ..env.args() });
+    env.send(&launcher, vec![ix], &[]).unwrap();
+    env.check_books(&Coin::of(admins));
+    env.check_books(&Coin::of(theirs));
 }
 
 #[test]
 fn the_creator_buys_in_the_launch_transaction_even_on_a_prefunded_address() {
     let mut env = Env::new();
     let (admin, alice) = (env.admin.insecure_clone(), env.alice.insecure_clone());
-    let mint = Keypair::new();
-    // Someone sends SOL to the mint's address before the launch, to block it.
-    env.send(&alice, vec![send_sol(&alice.pubkey(), &mint.pubkey(), SOL / 1_000)], &[]).unwrap();
-
-    let coin = Coin::of(mint.pubkey());
     let who = admin.pubkey();
+    let salt = fresh_salt();
+    let mint = mint_for(&who, salt);
+    // Someone sends SOL to the coin's address before the launch, to block it.
+    env.send(&alice, vec![send_sol(&alice.pubkey(), &mint, SOL / 1_000)], &[]).unwrap();
+
+    let coin = Coin::of(mint);
     let data = dex::instruction::Buy { sol_in: 2 * SOL, min_tokens_out: 0 }.data();
     let ixs = vec![
-        env.launch_ix(&who, &mint.pubkey(), env.args()),
+        env.launch_ix(&who, &mint, LaunchArgs { salt, ..env.args() }),
         Env::open_account_ix(&who, &who, &coin.mint),
         Env::swap_ix(&coin, &who, ata(&who, &coin.mint), data),
     ];
-    env.send(&admin, ixs, &[&mint]).unwrap();
+    env.send(&admin, ixs, &[]).unwrap();
     assert!(env.tokens(&who, &coin) > 0);
     env.check_books(&coin);
 }
@@ -758,9 +803,10 @@ fn compute_units() {
     let mut env = Env::new();
     let admin = env.admin.insecure_clone();
     let launch = |env: &mut Env, args: LaunchArgs| {
-        let mint = Keypair::new();
-        let ix = env.launch_ix(&admin.pubkey(), &mint.pubkey(), args);
-        (units(env.send(&admin, vec![ix], &[&mint])), Coin::of(mint.pubkey()))
+        let args = LaunchArgs { salt: fresh_salt(), ..args };
+        let mint = mint_for(&admin.pubkey(), args.salt);
+        let ix = env.launch_ix(&admin.pubkey(), &mint, args);
+        (units(env.send(&admin, vec![ix], &[])), Coin::of(mint))
     };
     let args = env.args();
     let (usual, coin) = launch(&mut env, args.clone());
