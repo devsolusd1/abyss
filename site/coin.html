@@ -165,12 +165,13 @@
   .f dd { font-size: 12px; }
   .trades { font-size: 11px; }
   .trades th, .trades td { padding-left: 10px; }
+  .trades td:nth-child(2) { white-space: normal; }   /* "platform claim" goes on two lines rather than past the screen */
   .s-chart { padding: 12px 12px 12px; }
   .s-read { white-space: normal; }
   .chips button { padding: 9px 10px 8px; }
   /* the toolbar in two rows: the intervals, then what is shown and the zoom */
   .s-bar .sp { display: none; }
-  #series { order: 2; }
+  #series, #cur { order: 2; }
   .s-bar .logc { order: 3; }
   .s-bar .zoom { order: 4; margin-left: auto; }
   #latest { order: 5; }
@@ -265,7 +266,10 @@
           <button type="button" data-tf="0">trade</button><button type="button" data-tf="60">1m</button><button type="button" data-tf="900">15m</button><button type="button" data-tf="3600">1h</button><button type="button" data-tf="14400">4h</button><button type="button" data-tf="86400">1d</button>
         </div>
         <div class="chips" role="group" aria-label="What the chart shows" id="series">
-          <button type="button" data-series="price" aria-pressed="true">price</button><button type="button" data-series="mcap" aria-pressed="false">market cap</button>
+          <button type="button" data-series="mcap" aria-pressed="true">market cap</button><button type="button" data-series="price" aria-pressed="false">price</button>
+        </div>
+        <div class="chips" role="group" aria-label="In" id="cur">
+          <button type="button" data-unit="usd" aria-pressed="true" title="In US dollars, at SOL's price now">$</button><button type="button" data-unit="sol" aria-pressed="false">SOL</button>
         </div>
         <div class="chips logc"><button type="button" id="logBtn" aria-pressed="false" title="A log scale: the same rise looks the same size at any price">log</button></div>
         <span class="sp"></span>
@@ -277,7 +281,7 @@
       <p class="s-read" id="read"></p>
       <div class="s-cv"><canvas id="chart" tabindex="0" role="img" aria-label="The coin's price in candles"></canvas></div>
       <figcaption class="s-key">
-        <span><i class="ku"></i>closed up</span><span><i class="kd"></i>closed down</span><span><i class="kg"></i>graduation</span><span><i class="kq"></i>after the trade you are typing</span><span id="keyMine" hidden><i class="km">▲▼</i>your wallet's trades</span><span>drag sideways to look back · − and + zoom</span>
+        <span><i class="ku"></i>closed up</span><span><i class="kd"></i>closed down</span><span><i class="kg"></i>graduation</span><span><i class="kq"></i>after the trade you are typing</span><span id="keyMine" hidden><i class="km">▲▼</i>your wallet's trades</span><span>drag sideways to look back · − and + zoom</span><span id="keyUsd" hidden></span>
       </figcaption>
     </figure>
     <table class="trades" id="tradeList">
@@ -594,7 +598,10 @@ $('#rows').addEventListener('focusout', function () { hover(-1); });
 // per trade (a devnet coin's few trades, days apart, would be a row of empty dashes by the clock). The trade being
 // typed in the panel shows as a lilac dashed level: where it would leave the price
 var chartCv = $('#chart'), latestBtn = $('#latest'), readEl = $('#read');
-var TF = null, SERIES = 'price', LOG = false, CANDLES = [];
+var TF = null, SERIES = 'mcap', LOG = false, CANDLES = [];
+// dollars: SOL's price now (/api/price), the same for every candle; until it is in, or when it cannot be read, SOL
+var UNIT = 'usd', USD = null, USD_FROM = '', USD_AT = 0;          // USD_AT: when the server read it (a price over 10 min old is none)
+function inUsd() { return UNIT === 'usd' && USD > 0; }
 var TFS = [60, 900, 3600, 14400, 86400], MAX_CANDLES = 3000;
 function chartH() { var w = document.documentElement.clientWidth; return w >= 1040 ? 380 : w >= 760 ? 340 : 280; }
 var chart = new NoxChart(chartCv, { height: chartH,
@@ -620,7 +627,7 @@ function autoTf() {
   return 0;
 }
 // the price after a trade per 1M tokens, or the market cap on the tokens then in existence (the burn comes with graduation)
-function valOf(p, supply) { return SERIES === 'price' ? p * 1e6 : p * supply; }
+function valOf(p, supply) { var v = SERIES === 'price' ? p * 1e6 : p * supply; return inUsd() ? v * USD : v; }
 function supplyAt(e) { return units(Chain.SUPPLY - (e.graduated ? POOL.burned : 0n)); }
 // the value just before a trade, from the trade itself: the first candle's open when the launch is older than the
 // history read. A buy's sol is paid in with its fee, a sell's is received after it; a graduating buy also burned
@@ -633,7 +640,30 @@ function valBefore(e) {
   if (real < 0n || toks <= 0n) return null;
   return valOf(((was ? 0 : lam(POOL.virtualSol)) + lam(real)) / units(toks), units(Chain.SUPPLY - (was ? POOL.burned : 0n)));
 }
-function fmtV(v) { return SERIES === 'price' ? (v >= 1 ? v.toFixed(3) : v >= .001 ? v.toFixed(4) : v.toPrecision(3)) : fSol(v); }
+// a dollar amount, its tier picked after rounding (so 999,999 is $1.00M, not $1,000.00K)
+function fmtUsd(v) {
+  var a = Math.abs(v), r = function (x, n) { return +x.toFixed(n); };
+  var d = function (x, n) { return x.toLocaleString('en-US', { minimumFractionDigits: n, maximumFractionDigits: n }); };
+  if (r(a / 1e9, 2) >= 1) return '$' + d(v / 1e9, 2) + 'B';
+  if (r(a / 1e6, 2) >= 1) return '$' + d(v / 1e6, 2) + 'M';
+  if (r(a / 1e3, 2) >= 10) return '$' + d(v / 1e3, 2) + 'K';
+  if (r(a, 1) >= 100) return '$' + d(v, 1);
+  if (r(a, 2) >= 1) return '$' + d(v, 2);
+  if (r(a, 4) >= .01) return '$' + d(v, 4);
+  return '$' + v.toPrecision(3);
+}
+// the chart's line labels in dollars: in K or M by the label's own size, as the price tag beside them, with the
+// decimals the step between the lines needs
+function tickUsd(v, step) {
+  if (step == null) return fmtUsd(v);
+  var a = Math.abs(v), u = a >= 1e6 ? 1e6 : a >= 1e4 ? 1e3 : 1, s = step / u, dec = Math.max(0, Math.ceil(-Math.log10(s) - 1e-9));
+  if (Math.abs(s / Math.pow(10, -dec) - 2.5) < 1e-6) dec++;
+  return '$' + (v / u).toFixed(Math.min(8, dec)) + (u === 1e6 ? 'M' : u === 1e3 ? 'K' : '');
+}
+function fmtV(v) {
+  if (inUsd()) return fmtUsd(v);
+  return SERIES === 'price' ? (v >= 1 ? v.toFixed(3) : v >= .001 ? v.toFixed(4) : v.toPrecision(3)) : fSol(v);
+}
 function buildCandles(tf) {
   var out = [], marks = [], evs = [], prev = null, cur = null, k = -1, t0 = null;
   var me = window.Wallet && Wallet.current ? String(Wallet.current.publicKey) : null;
@@ -707,18 +737,19 @@ function drawChart(view) {
   if (tf > 0 && s && countFor(tf, s) > MAX_CANDLES) tf = autoTf();
   paintTfs(tf);
   if (shownTf != null && tf !== shownTf) chart.fit();    // the interval picked itself anew (more trades read): a new set of candles
-  var C = buildCandles(tf), M = lam(POOL.graduationMcap), g = SERIES === 'price' ? M / 1000 : M, lines = [];
+  var C = buildCandles(tf), M = lam(POOL.graduationMcap), g = (SERIES === 'price' ? M / 1000 : M) * (inUsd() ? USD : 1), lines = [];
   CANDLES = C.list;
   var off = anchorAt(view, tf);
   shownTf = tf;
-  if (Q && Q.q) { var qv = SERIES === 'price' ? Q.after.price * 1e6 : Q.after.mcap; lines.push({ v: qv, label: 'after this ' + Q.side + ': ' + fmtV(qv), col: HEX[5] }); }
+  if (Q && Q.q) { var qv = (SERIES === 'price' ? Q.after.price * 1e6 : Q.after.mcap) * (inUsd() ? USD : 1); lines.push({ v: qv, label: 'after this ' + Q.side + ': ' + fmtV(qv), col: HEX[5] }); }
   $('#keyMine').hidden = !C.marks.length;
-  chart.set({ candles: C.list, marks: C.marks, events: C.events, lines: lines, log: LOG, fmt: fmtV, tfmt: timeLabel(tf, C.list),
+  chart.set({ candles: C.list, marks: C.marks, events: C.events, lines: lines, log: LOG, fmt: fmtV, tick: inUsd() ? tickUsd : null, tfmt: timeLabel(tf, C.list),
     goal: POOL.graduated ? null : { v: g, label: 'graduation at ' + fmtV(g) } }, off != null ? { off: off } : null);
   chart.select(hi >= 0 ? candleOf(hi) : -1);
   // the canvas's name says what it shows, and changes only with that (the read line above it has the numbers), so a
   // screen reader on it is not told again at every trade
-  var al = 'Candles of ' + nameOf(POOL) + '\'s ' + (SERIES === 'price' ? 'price, in SOL per 1M tokens' : 'market cap, in SOL') + ', ' + (tf ? 'one per ' + tfName(tf) : 'one per trade') + '. The line above it reads the candle in focus.';
+  var cur = inUsd() ? 'US dollars at SOL\'s price now' : 'SOL';
+  var al = 'Candles of ' + nameOf(POOL) + '\'s ' + (SERIES === 'price' ? 'price, in ' + cur + ' per 1M tokens' : 'market cap, in ' + cur) + ', ' + (tf ? 'one per ' + tfName(tf) : 'one per trade') + '. The line above it reads the candle in focus.';
   if (chartCv.getAttribute('aria-label') !== al) chartCv.setAttribute('aria-label', al);
   renderRead();
 }
@@ -734,6 +765,43 @@ function renderRead() {
 function press(sel, attr, value) { Array.prototype.forEach.call(document.querySelectorAll(sel + ' [' + attr + ']'), function (b) { b.setAttribute('aria-pressed', String(b.getAttribute(attr) === String(value))); }); }
 $('#tfs').addEventListener('click', function (e) { var b = e.target.closest('[data-tf]'); if (b && !b.disabled) { TF = +b.getAttribute('data-tf'); chart.fit(); drawChart(); } });
 $('#series').addEventListener('click', function (e) { var b = e.target.closest('[data-series]'); if (!b) return; SERIES = b.getAttribute('data-series'); press('#series', 'data-series', SERIES); drawChart(); });
+$('#cur').addEventListener('click', function (e) { var b = e.target.closest('[data-unit]'); if (!b || b.disabled) return; UNIT = b.getAttribute('data-unit'); paintUnit(); drawChart(); });
+function paintUnit() {
+  var usdBtn = $('#cur [data-unit="usd"]');
+  usdBtn.disabled = !(USD > 0);
+  usdBtn.title = USD > 0 ? 'In US dollars, at SOL\'s price now' : 'SOL\'s price in dollars could not be read just now';
+  press('#cur', 'data-unit', inUsd() ? 'usd' : 'sol');
+  var key = $('#keyUsd');
+  // every candle in dollars at today's price, not at the price of its day; on a test cluster, mainnet SOL's price
+  key.textContent = inUsd()
+    ? (window.NET && NET.test ? 'dollars at mainnet SOL\'s price now, ' : 'dollars at SOL\'s price now, ') + fmtUsd(USD) + ' (' + USD_FROM + '), for every candle'
+      + (window.NET && NET.test ? '; devnet SOL itself has no value' : '')
+    : '';
+  key.hidden = !key.textContent;
+}
+async function loadUsd() {
+  var url = window.NET && NET.priceUrl;
+  if (!url) { paintUnit(); return; }
+  try {
+    var res = await withTimeout(fetch(url, { cache: 'no-store' }), 10000);
+    var j = res.ok ? await res.json() : null;
+    var usd = j && Number(j.usd);
+    if (usd > 0 && usd < 1e6) {
+      var moved = usd !== USD;
+      USD = usd; USD_FROM = String(j.source || '').slice(0, 20); USD_AT = Number(j.at) || Date.now();
+      paintUnit();
+      if (moved && POOL) drawChart();
+      return;
+    }
+  } catch (e) { /* again in a minute */ }
+  // no new price: one over ten minutes old is not "now" any more, and the chart goes back to SOL
+  if (USD && Date.now() - USD_AT > 10 * 60000) { USD = null; USD_FROM = ''; if (POOL) drawChart(); }
+  paintUnit();
+}
+paintUnit();                                             // SOL until the price is in: the chips say what is drawn
+loadUsd();
+setInterval(function () { if (!document.hidden) loadUsd(); }, 60000);
+document.addEventListener('visibilitychange', function () { if (!document.hidden) loadUsd(); });
 $('#logBtn').addEventListener('click', function () { LOG = !LOG; this.setAttribute('aria-pressed', String(LOG)); drawChart(); });
 $('#zIn').addEventListener('click', function () { chart.zoom(1); });
 $('#zOut').addEventListener('click', function () { chart.zoom(-1); });
@@ -1230,7 +1298,7 @@ window.__coin = {
     return { look: LOOK, state: ST, shown: hole.shown, busy: hole.busy, graduated: hole.graduated, jet: h.jet, rOut: h.rOut, theta: h.theta, blobs: h.blobs.length,
       px: PX, canvas: [heroCv.width, heroCv.height, heroCv.style.width, heroCv.style.height], events: EVENTS ? EVENTS.length : null, lastRead: lastRead, pinned: PINNED,
       busyTrade: busy, tape: tape.children.length, candles: CANDLES.length, tf: TF, shownTf: shownTf, zoom: chart.z, off: chart.off, chartSize: [chartCv.width, chartCv.height],
-      hist: HIST, histReading: !!histRun, histStale: histStale,
+      hist: HIST, histReading: !!histRun, histStale: histStale, series: SERIES, unit: inUsd() ? 'usd' : 'sol', usd: USD,
       overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth };
   },
   perf: function () { return hole.perf(); },

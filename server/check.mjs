@@ -257,6 +257,27 @@ function makeSigs(n, tag) {
   mid.close();
 }
 
+/* ---------- SOL in dollars ---------- */
+{
+  const { handlePrice } = await import("./price.mjs");
+  const src = createServer((req, res) => {
+    src.asked = (src.asked ?? 0) + 1;
+    if (req.url.startsWith("/jup")) { res.writeHead(500).end(); return; }      // the first source is down
+    res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ solana: { usd: 123.45 } }));
+  });
+  await new Promise((ok) => src.listen(0, "127.0.0.1", ok));
+  const base = `http://127.0.0.1:${src.address().port}`, env = { PRICE_JUPITER_URL: `${base}/jup`, PRICE_COINGECKO_URL: `${base}/cg` };
+  let r = await handlePrice(new Request(`${SITE}/api/price`), env); let b = await r.json();
+  line(r.status === 200 && b.usd === 123.45 && b.source === "CoinGecko", `the first source down: the second one's price (${b.usd}, ${b.source})`);
+  line(/s-maxage=30/.test(r.headers.get("cache-control")), "kept at the edge for 30 s");
+  const asked = src.asked;
+  r = await handlePrice(new Request(`${SITE}/api/price`), env); b = await r.json();
+  line(b.usd === 123.45 && src.asked === asked, "asked again at once: from memory, no source asked");
+  r = await handlePrice(new Request(`${SITE}/api/price`, { headers: { origin: "https://elsewhere.example" } }), env);
+  line(r.status === 403, "a page on another site is refused");
+  src.close();
+}
+
 fake.close();
 console.log(failed ? `\n${failed} check(s) failed` : "\nall server checks passed");
 process.exit(failed ? 1 : 0);

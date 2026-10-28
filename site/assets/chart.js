@@ -204,13 +204,14 @@ NoxChart.prototype.paintAll = function (cv, ctx, d, cs, dpr, U, plot, timeR, vol
 
   // the price lines, about every 56 css px
   // the lines' labels share one number of decimals, from the step between them
-  var ticks = [], want = Math.max(2, Math.round(priceR * U / dpr / 56)), tfmt0 = fmt;
+  // d.tick(v, step), optional: the page writes the lines' labels itself (step is null on a log scale)
+  var ticks = [], want = Math.max(2, Math.round(priceR * U / dpr / 56)), tfmt0 = d.tick ? function (v) { return d.tick(v, null); } : fmt;
   if (log && vhi / vlo > 2.5) {
     for (var ex = Math.floor(Math.log10(vlo)); ex <= Math.ceil(Math.log10(vhi)); ex++) [1, 2, 5].forEach(function (m) { var v = m * Math.pow(10, ex); if (v >= vlo && v <= vhi) ticks.push(v); });
   } else {
     var step = nice((vhi - vlo) / want), dec = Math.max(0, Math.ceil(-Math.log10(step) - 1e-9));
     if (Math.abs(step / Math.pow(10, -dec) - 2.5) < 1e-6) dec++;
-    tfmt0 = function (v) { return v.toFixed(Math.min(8, dec)); };
+    tfmt0 = d.tick ? function (v) { return d.tick(v, step); } : function (v) { return v.toFixed(Math.min(8, dec)); };
     for (var v = Math.ceil(vlo / step) * step; v <= vhi + step * 1e-9; v += step) ticks.push(v);
   }
   var axX = (plot + 2) * U, lastRow = row(cs[cs.length - 1].c);

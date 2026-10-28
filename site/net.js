@@ -55,6 +55,7 @@
   net.rpcUrl = viaServer ? `${origin}/api/rpc?cluster=${net.cluster}` : net.publicRpc;
   net.fallbackRpc = viaServer && net.publicRpc ? net.publicRpc : "";
   net.historyUrl = viaServer ? `${origin}/api/history?cluster=${net.cluster}` : "";
+  net.priceUrl = viaServer ? `${origin}/api/price` : "";           // SOL in dollars, for the charts
   net.ready = Boolean(net.rpcUrl && net.program);
   net.say = (onTest, onMain) => (net.test ? onTest : onMain);
   window.NET = net;
