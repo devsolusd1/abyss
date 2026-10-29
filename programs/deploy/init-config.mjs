@@ -60,11 +60,6 @@ if (cluster === "mainnet") {
       throw new Error(`${name} is KEYPAIR, the deploy wallet: after the handoff it would still ${name === "LAUNCHER" ? "launch while launches are closed" : "take the platform's part of every coin's fees"}. Give the team's wallet`);
     }
   }
-  // init_config runs once, and the handoff takes the admin from KEYPAIR only: any other admin would leave the config
-  // with a key nobody may hold, and the handoff stuck, short of an upgrade.
-  if (given("ADMIN") && !addressOf(env.ADMIN, "ADMIN").equals(me)) {
-    throw new Error("on mainnet ADMIN is KEYPAIR, the deploy wallet, until multisig.mjs handoff gives it to the vault: leave ADMIN out");
-  }
 }
 // The node, before anything is read from it.
 const wrongNode = await clusterError(conn, cluster);
@@ -137,6 +132,12 @@ if (existing && !existing.bad && !differences(existing).length) {
   console.log(`  ok   the config at ${config.toBase58()} is there already, exactly as asked`);
   console.log(`\nalready done: nothing to send. Next: CLUSTER=${cluster} PROGRAM=${program.toBase58()} BUILD=… node check-deploy.mjs`);
   process.exit(0);
+}
+// A config to make on mainnet: its admin is KEYPAIR, since init_config runs once and the handoff takes the admin from
+// KEYPAIR only; any other would leave the config with a key nobody may hold, and the handoff stuck, short of an upgrade.
+// (ADMIN may still name the vault to see a config made and handed over already, above.)
+if (cluster === "mainnet" && !args.admin.equals(me)) {
+  refuse("on mainnet the admin is KEYPAIR, the deploy wallet, until multisig.mjs handoff gives it to the vault: leave ADMIN out");
 }
 const info = await conn.getAccountInfo(program, "confirmed");
 if (!info) refuse(`there is no program at ${program.toBase58()} on ${cluster}: deploy it first (deploy.sh)`);
