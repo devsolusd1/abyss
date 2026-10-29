@@ -145,7 +145,7 @@ Não existe instrução que tire dinheiro de um pool para o admin, nem pausa de 
 Testes:
 - 9 de matemática em `src/math.rs`;
 - 32 de integração em LiteSVM com o Token-2022 de verdade (`../pool-tests`), entre eles o ataque das contas "intransferíveis" (agora recusado no lançamento), o endereço que pertence ao criador e ao salt, e o lote de abertura (um preço para todos os assentos, a ordem das janelas, o saque total que fecha o assento e o `commit` que o abre de novo, o reembolso, o lote que gradua, os limites da janela, a janela mínima com o `commit` do criador no lançamento, o compute de cada passo), e mais: nada entra nem sai de um assento depois do `settle`, o reembolso com vários assentos e negociação antes dos resgates, o lote que cai abaixo do mínimo no último segundo, contas trocadas em cada passo do lote, um passeio aleatório com lote que confere os livros a cada passo, a graduação antes dos resgates, os valores mínimos, os bytes de cada evento na posição que o site e o servidor leem, e o pior caso de compute contra os limites do site;
-- na devnet, `site/chain/batch-check.mjs` faz um lote de verdade pelo pacote do site;
+- na devnet, `site/chain/batch-check.mjs` faz um lote de verdade pelo pacote do site, e `site/chain/seats-check.mjs` faz três ao mesmo tempo com seis carteiras: um que compra (quatro assentos, cada resgate conferido até a unidade), um reembolso e um vazio;
 - `../test.sh` roda tudo.
 
 O binário tem 479 KB, cerca de 3,4 SOL de aluguel.

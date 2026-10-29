@@ -28,7 +28,9 @@ as a pixel black hole whose disk is the real SOL in its pool.
     buy, a sell of what it bought and both claims for real (with `SEND=1` and the coin creator's devnet keypair in
     `KEYPAIR`), then checks every number against the pool. `batch-check.mjs` launches a coin with a 2-minute opening
     batch and takes it through its seat, the settle, the claim and trading, for real (about 3 minutes, same
-    `KEYPAIR`). `check-history.mjs` checks the trade history reader
+    `KEYPAIR`). `seats-check.mjs` runs three batches at once with six wallets made from that keypair: one that buys
+    (four seats, each claim checked to the unit, then every seat sells), a refund and an empty one; it sends their SOL
+    back at the end, and `SWEEP=1` gets back what a stopped run left (about 4 minutes, same `KEYPAIR`). `check-history.mjs` checks the trade history reader
     against a fake node on this machine that rate-limits like devnet's public one (about ten `getTransaction` calls in
     ten seconds per address): the reader fetches one transaction every 1.3 s, newest first, and keeps them in
     localStorage, so a coin page fills in its trades as they come and a reload needs only the new ones.
