@@ -1,16 +1,20 @@
-// Every pool of the program for every visitor at once: /api/pools?cluster=…[&limit=1..100][&board=1][&after=…]. The
-// coin board and the landing read this instead of the program's account list: this instance reads that list from the
-// node at most every LIST_MS, whoever asks (an answer that comes while a read is under way waits for that one), and the
-// edge keeps the answer a few seconds more, so what the node is asked does not grow with the visitors. Only Pool
-// accounts of the pool program (its owner, a Pool's size and Anchor's mark of one), newest first (then by mint).
+// Every pool of the program for every visitor at once: /api/pools?cluster=…[&limit=1..100][&board=1][&after=…|&sort=volume].
+// The coin board and the landing read this instead of the program's account list: this instance reads that list from
+// the node at most every LIST_MS, whoever asks (an answer that comes while a read is under way waits for that one), and
+// the edge keeps the answer a few seconds more, so what the node is asked does not grow with the visitors. Only Pool
+// accounts of the pool program (its owner, a Pool's size and Anchor's mark of one), newest first (then by mint); with
+// sort=volume, the most traded first (the pool's volume: every lamport its trades moved since launch, fees included),
+// then newest first as before. /coin without a coin asks for that one: limit=1&sort=volume. The order by volume has no
+// next page (after= with it is refused): what it leaves out past MAX_ANSWER is the least traded.
 //
 // A coin's name, symbol and link are its mint's metadata, which the launch seals (programs/pool/src/token.rs takes the
 // update authority away in the same instruction): they never change, so each mint's are read once and kept here. An
 // answer spends BUDGET_MS at most (SLICE_MS for a slice: the page waits 12 s and 5 s), its wait for the list included,
-// and in that time reads the metadata it still needs, newest first: a paid node is sent ROUND calls of 100 mints in one
-// batch (or as single calls, a few at a time, when it takes no batches: history.mjs callMany), the public node one call
-// at its turn (the pace the history and the birth keep: config.mjs). A pool whose metadata are not in by then comes with
-// null for them, the edge keeps that answer only a second, and the page reads those itself.
+// and in that time reads the metadata it still needs, in the answer's order (newest first, or the most traded first):
+// a paid node is sent ROUND calls of 100 mints in one batch (or as single calls, a few at a time, when it takes no
+// batches: history.mjs callMany), the public node one call at its turn (the pace the history and the birth keep:
+// config.mjs). A pool whose metadata are not in by then comes with null for them, the edge keeps that answer only a
+// second, and the page reads those itself.
 //
 // When the node fails, refuses (429) or is slow, or the public node's turn comes after the answer's time, the list read
 // last is given while it is under STALE_MS old; without one, the answer is a 503 with a retry-after, and the read goes
@@ -20,7 +24,7 @@
 //
 // Answer: { at, total, cut, pools }
 //   at: when the list was read (ms). total: the program's pools. cut: pools leaves some out to stay under MAX_ANSWER.
-//   pools, newest first, each a list:
+//   pools, newest first (with sort=volume, the most traded first), each a list:
 //     [address, data, name, symbol, uri]   the pool account's address and its whole data, in base64
 //     [data, name, symbol]                 with board=1: the mint and the numbers only (the data without its mark and
 //                                          without the creator, treasury, vault and hook program), for the coin board
@@ -42,13 +46,14 @@ const MAX_ANSWER = 4 * 1024 * 1024;                      // Vercel answers up to
 const MAX_METAS = 100_000;
 const POOL_LEN = 8 + 336;
 const KEYS_END = 8 + 32 * 5;                             // the mint, then the creator, treasury, vault and hook program
+const VOLUME = KEYS_END + 8 * 10;                        // the last of the eleven u64 amounts
 const OPENED_AT = KEYS_END + 8 * 11;                     // the i64 after the eleven u64 amounts
 const POOL_TAG = createHash("sha256").update("account:Pool").digest().subarray(0, 8);   // Anchor's mark of a Pool account
 const TOKEN_2022 = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb";
 const ADDRESS = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 const AFTER = /^(-?\d{1,16})\.([1-9A-HJ-NP-Za-km-z]{32,44})$/;
 const asks = new Limiter(60, 10_000);
-const lists = new Map();                                 // cluster -> { at, pools: [{ address, data, mint, openedAt }] }
+const lists = new Map();                                 // cluster -> { at, pools: [{ address, data, mint, openedAt, volume }] }
 const reading = new Map();                               // cluster -> the read of its list under way
 const cooling = new Map();                               // cluster -> { until, failure } after a read that failed or was refused
 const metas = new Map();                                 // cluster|mint -> [name, symbol, uri]
@@ -99,7 +104,7 @@ async function readList(cluster, until) {
     if (a?.account?.owner !== cluster.program || typeof a.pubkey !== "string" || !ADDRESS.test(a.pubkey) || !Array.isArray(d) || typeof d[0] !== "string") continue;
     const data = Buffer.from(d[0], "base64");
     if (data.length !== POOL_LEN || !data.subarray(0, 8).equals(POOL_TAG)) continue;
-    pools.push({ address: a.pubkey, data, mint: base58(data.subarray(8, 40)), openedAt: Number(data.readBigInt64LE(OPENED_AT)) });
+    pools.push({ address: a.pubkey, data, mint: base58(data.subarray(8, 40)), openedAt: Number(data.readBigInt64LE(OPENED_AT)), volume: data.readBigUInt64LE(VOLUME) });
   }
   pools.sort((a, b) => b.openedAt - a.openedAt || (a.mint < b.mint ? -1 : a.mint > b.mint ? 1 : 0));
   return { at: Date.now(), pools };
@@ -182,9 +187,9 @@ async function readRound(cluster, mints, until) {
 }
 
 /**
- * Reads the metadata missing for `mints` (newest first), a round at a time, until they are all in or `until`: one
- * answer reads a round and the others wait for it, then look again. A mint the node did not serve is not asked for
- * again by the same answer.
+ * Reads the metadata missing for `mints` (in the answer's order: newest first, or the most traded first), a round at a
+ * time, until they are all in or `until`: one answer reads a round and the others wait for it, then look again. A mint
+ * the node did not serve is not asked for again by the same answer.
  */
 async function fill(cluster, mints, until) {
   const tried = new Set();
@@ -206,20 +211,25 @@ async function fill(cluster, mints, until) {
 /** A pool for the coin board: its mint and everything after the four keys, so the page reads it as a whole pool. */
 const boardOf = (data) => Buffer.concat([data.subarray(8, 40), data.subarray(KEYS_END)]).toString("base64");
 
+/** The most traded first; the sort keeps the list's own order (newest first, then by mint) between equal volumes. */
+const byVolume = (a, b) => (b.volume > a.volume ? 1 : b.volume < a.volume ? -1 : 0);
+
 /**
- * The answer for the newest `limit` pools of a list (those after `after`, when it names one), once their metadata are
- * in or `until`: { text, complete } (complete: every pool in it named). A complete one is kept with its list, for the
- * answers that ask the same of it (a few: each can be MBs).
+ * The answer for the first `limit` pools of a list, newest first or (`sort` "volume") the most traded first, and those
+ * after `after` when it names one (newest first only), once their metadata are in or `until`: { text, complete }
+ * (complete: every pool in it named). A complete one is kept with its list, for the answers that ask the same of it (a
+ * few: each can be MBs); the list sorted by volume is kept with it too, so the order is worked out once a read.
  */
-async function answerOf(cluster, snap, limit, board, after, until) {
-  const key = `${board}|${limit}|${after ? `${after.openedAt}.${after.mint}` : ""}`, kept = snap.answers?.get(key);
+async function answerOf(cluster, snap, limit, board, sort, after, until) {
+  const key = `${board}|${limit}|${sort}|${after ? `${after.openedAt}.${after.mint}` : ""}`, kept = snap.answers?.get(key);
   if (kept) return kept;
+  const order = sort === "volume" ? (snap.byVolume ??= [...snap.pools].sort(byVolume)) : snap.pools;
   let from = 0;
   if (after) {
-    from = snap.pools.findIndex((p) => p.openedAt < after.openedAt || (p.openedAt === after.openedAt && p.mint > after.mint));
-    if (from < 0) from = snap.pools.length;
+    from = order.findIndex((p) => p.openedAt < after.openedAt || (p.openedAt === after.openedAt && p.mint > after.mint));
+    if (from < 0) from = order.length;
   }
-  const pools = snap.pools.slice(from, from + limit);
+  const pools = order.slice(from, from + limit);
   await fill(cluster, pools.map((p) => p.mint), until);
   const rows = [];
   let size = 100, named = 0;
@@ -248,6 +258,9 @@ export async function handlePools(request, env = {}) {
     const board = q.get("board") === "1";
     const a = q.has("after") ? AFTER.exec(q.get("after")) : null;
     if (q.has("after") && !a) return json({ error: "after: a pool's openedAt and mint, as <openedAt>.<mint>" }, 400);
+    const sort = q.has("sort") ? q.get("sort") : "";
+    if (q.has("sort") && sort !== "volume") return json({ error: "sort: volume, or none for the newest first" }, 400);
+    if (sort && a) return json({ error: "after: only for the newest first, not with sort" }, 400);
     if (!asks.take(callerOf(request))) return json({ error: "Too many asks from here; slow down" }, 429, { "retry-after": "5" });
 
     const until = Date.now() + (Number.isFinite(limit) ? SLICE_MS : BUDGET_MS);
@@ -257,7 +270,7 @@ export async function handlePools(request, env = {}) {
       if (!(err instanceof OutOfTime)) throw err;
       return json({ error: "The node is busy; ask again shortly" }, 503, { "retry-after": "3" });
     }
-    const { text, complete } = await answerOf(cluster, snap, limit, board, a && { openedAt: Number(a[1]), mint: a[2] }, until);
+    const { text, complete } = await answerOf(cluster, snap, limit, board, sort, a && { openedAt: Number(a[1]), mint: a[2] }, until);
     return new Response(text, { status: 200, headers: {
       "content-type": "application/json",
       "cache-control": complete ? "public, max-age=0, s-maxage=4, stale-while-revalidate=10" : "public, max-age=0, s-maxage=1",

@@ -1188,7 +1188,7 @@ async function go() {
     }
     var w = window.Wallet && Wallet.current;
     if (!w || !w.publicKey.equals(key)) { status('The wallet changed. Nothing was sent.'); return; }
-    status('Simulated: it would land. Approve it in ' + esc(w.name) + '…');
+    status('Simulated: it would land. Approve it in ' + esc(w.label || w.name) + '…');
     var sig = await Chain.send(built, w);
     success(built, sig);
   } catch (e) {

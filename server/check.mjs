@@ -1084,14 +1084,15 @@ function makeSigs(n, tag) {
   const NOT_POOLS = [];
   // a coin's metadata; `long`: as long as the program allows (a name of 32 bytes, a symbol of 10, a link of 200)
   const meta = (n, long) => (long ? [`Coin ${n}`.padEnd(32, "x"), `C${n}`.padEnd(10, "x"), `https://nox.example/c/${n}.json`.padEnd(200, "x")] : [`Coin ${n}`, `C${n}`, `https://nox.example/c/${n}.json`]);
-  function makeChain(n, from, long = false) {
+  // volume: pool i's volume (the last amount), the newest the most traded unless said
+  function makeChain(n, from, long = false, volume = (i) => 5e8 + i) {
     const list = [];
     ln.mints = new Map();
     for (let i = 0; i < n; i++) {
       const d = Buffer.alloc(344), mint = key(7, from + i);
       TAG.copy(d, 0); mint.copy(d, 8);
       for (let k = 0; k < 4; k++) key(20 + k, from + i).copy(d, 40 + 32 * k);
-      [30e9, 1e6 * i, 1e15 - i, 42e9, 420e9, 0, i, i, 0, 0, 5e8 + i].forEach((v, k) => d.writeBigUInt64LE(BigInt(v), 168 + 8 * k));
+      [30e9, 1e6 * i, 1e15 - i, 42e9, 420e9, 0, i, i, 0, 0, volume(i)].forEach((v, k) => d.writeBigUInt64LE(BigInt(v), 168 + 8 * k));
       d.writeBigInt64LE(BigInt(1_800_000_000 + i), 256); d.writeUInt16LE(100, 272); d.writeUInt16LE(5000, 274);
       list.push({ pubkey: base58(key(9, from + i)), account: account(d, PROGRAM) });
       ln.mints.set(base58(mint), mintOf(mint, ...meta(from + i, long)));
@@ -1282,6 +1283,81 @@ function makeSigs(n, tag) {
       `metadata slow to come: the landing's 12 in ${(took / 1000).toFixed(1)} s, before the page's 5 s, without names (the page reads those), kept 1 s at the edge`);
     await sleep(3200);                                   // the round under way ends
     ln.delay = 0;
+  }
+
+  // the busiest coin, for /coin without one: sort=volume, the most traded first and the newest between equals, from the
+  // list the server keeps. Volumes past 2^53 (as Numbers the two largest would be equal), two coins at the same
+  // volume, and many at 0
+  {
+    const n = 300, MAX = 2n ** 64n - 1n, base = from;
+    const vol = (i) => (i === 40 ? MAX : i === 260 ? MAX - 1n : i === 70 || i === 230 ? 2_000_000_000_000n : i % 11 === 0 ? 0n : BigInt((i * 7919) % 1009) * 1_000_000n);
+    // the order expected: by volume, then the newer (a later i: launched a second later)
+    const orderOf = (count, v) => Array.from({ length: count }, (_, i) => i).sort((a, b) => (v(b) > v(a) ? 1 : v(b) < v(a) ? -1 : b - a));
+    const mintB58 = (i) => base58(key(7, base + i));
+    const rowsOf = (x) => x.j?.pools?.map((row) => row[0]) ?? [];
+    const mintsOf = (x) => x.j?.pools?.map((row) => base58(Buffer.from(row[0], "base64").subarray(0, 32))) ?? [];
+    makeChain(n, base, false, vol); from += n + 10;
+    let want = orderOf(n, vol);
+    shift += 61_000; zero();
+    // the order is worked out once a read of the list, however many answers use it
+    const realSort = Array.prototype.sort;
+    let sorts = 0;
+    Array.prototype.sort = function (fn) { if (fn?.name === "byVolume") sorts++; return realSort.call(this, fn); };
+    try {
+      const top = await Promise.all(Array.from({ length: 50 }, () => ask("&limit=1&sort=volume")));
+      const t = top[0], row = t.j?.pools?.[0];
+      line(top.every((x) => x.r.status === 200 && x.text === t.text) && t.j.pools.length === 1 && t.j.total === n && !t.j.cut && row[0] === b58Of(base + 40)
+        && row.length === 5 && Buffer.from(row[1], "base64").readBigUInt64LE(248) === MAX && row[2] === meta(base + 40)[0],
+        `limit=1&sort=volume: 50 visitors get the same one pool, whole and named, the most traded (${MAX} lamports, not the coin at ${MAX - 1n}, newer), total ${t.j?.total}`);
+      line(ln.gpa === 1 && ln.asked.length === 1 && ln.asked[0] === mintB58(40) && /s-maxage=4\b/.test(t.r.headers.get("cache-control")),
+        `the node: ${ln.gpa} account list and that one coin's mint (${ln.asked.length}); cached at the edge as the others: ${t.r.headers.get("cache-control")}`);
+      const ten = await ask("&limit=10&sort=volume"), tenBoard = await ask("&limit=10&sort=volume&board=1");
+      line(rowsOf(ten).join() === want.slice(0, 10).map((i) => b58Of(base + i)).join() && mintsOf(tenBoard).join() === want.slice(0, 10).map(mintB58).join()
+        && want.indexOf(230) === want.indexOf(70) - 1 && ten.j.pools.every((r) => typeof r[2] === "string"),
+        "limit=10: the ten most traded in order, of two at the same volume the newer first, named; the board's form the same");
+      const all = await ask("&sort=volume"), allBoard = await ask("&sort=volume&board=1");
+      const zeros = want.filter((i) => vol(i) === 0n);
+      line(rowsOf(all).join() === want.map((i) => b58Of(base + i)).join() && mintsOf(allBoard).join() === want.map(mintB58).join() && !all.j.cut && all.j.total === n
+        && zeros.every((i, k) => k === 0 || zeros[k - 1] > i),
+        `sort=volume with no limit: all ${all.j?.pools?.length} in that order, the ${zeros.length} never traded last, newest first`);
+      // a list newest first and one by volume, asked in turn of the same list: each its own answer
+      zero();
+      const newest = await ask("&limit=10"), again = await ask("&limit=10&sort=volume"), newestBoard = await ask("&limit=10&board=1");
+      line(rowsOf(newest).join() === Array.from({ length: 10 }, (_, k) => b58Of(base + n - 1 - k)).join() && again.text === ten.text
+        && mintsOf(newestBoard).join() === Array.from({ length: 10 }, (_, k) => mintB58(n - 1 - k)).join() && ln.requests === 0,
+        "the newest 10 and the ten most traded of the same list, asked in turn: each its own answer (the order is in the kept answer's key), nothing asked of the node");
+      line(sorts === 1, `the list sorted by volume once for all ${50 + 4 + 1} answers by volume (${sorts})`);
+
+      // refused before anything is read: sort with after=, and an order the server does not have
+      zero();
+      const bad = await Promise.all([`&sort=volume&after=${1_800_000_040}.${mintB58(40)}`, `&limit=1&sort=volume&after=${1_800_000_040}.${mintB58(40)}`, "&limit=1&sort=price", "&sort=", "&sort=Volume", "&sort=new"].map((q) => ask(q)));
+      line(bad.every((x) => x.r.status === 400 && typeof x.j?.error === "string") && ln.requests === 0,
+        `sort=volume with after=, and sort=price, empty, Volume, new: ${bad.map((x) => x.r.status).join(" ")} ("${bad[0].j?.error}", "${bad[2].j?.error}"), nothing read`);
+      const plainAfter = await ask(`&limit=5&after=${1_800_000_000 + n - 1}.${mintB58(n - 1)}`);
+      line(plainAfter.r.status === 200 && rowsOf(plainAfter).join() === Array.from({ length: 5 }, (_, k) => b58Of(base + n - 2 - k)).join(), "after= without sort pages as before");
+
+      // a trade moves another coin to the top: 4 s on, the list is read again, sorted again, and the new one is given
+      const vol2 = (i) => (i === 5 ? MAX : i === 40 ? 1n : vol(i));
+      makeChain(n, base, false, vol2); want = orderOf(n, vol2);
+      shift += 4100; zero();
+      const moved = await ask("&limit=1&sort=volume"), moved10 = await ask("&limit=10&sort=volume");
+      line(moved.j?.pools?.[0]?.[0] === b58Of(base + 5) && rowsOf(moved10).join() === want.slice(0, 10).map((i) => b58Of(base + i)).join() && ln.gpa === 1 && ln.gma === 0 && sorts === 2,
+        `a coin traded past the top: 4 s on, the list read again gives it first (${ln.gpa} account list, no name read again, sorted once more)`);
+    } finally { Array.prototype.sort = realSort; }
+
+    // a whole list by volume larger than one answer: the most traded that fit, cut, and no next page for it
+    const big = 7000, vol3 = (i) => BigInt((i * 7919) % 7001) * 1000n;
+    const base3 = from;
+    makeChain(big, base3, true, vol3); from += big + 10;
+    const want3 = orderOf(big, vol3);
+    shift += 61_000; zero();
+    const w = await ask("&sort=volume"), size = Buffer.byteLength(w.text);
+    line(w.r.status === 200 && w.j.cut && w.j.total === big && w.j.pools.length < big && size < 4 * 1024 * 1024
+      && rowsOf(w).join() === want3.slice(0, w.j.pools.length).map((i) => b58Of(base3 + i)).join(),
+      `${big} pools with the longest metadata, sort=volume: the ${w.j?.pools?.length} most traded in ${Math.floor(size / 1024)} KB, cut: true, the least traded left out`);
+    const last = w.j.pools.at(-1), d = Buffer.from(last[1], "base64");
+    const next = await ask(`&sort=volume&after=${d.readBigInt64LE(256)}.${base58(d.subarray(8, 40))}`);
+    line(next.r.status === 400, `and after= of its last pool is refused (${next.r.status}): an order by volume has no next page`);
   }
   Date.now = realNow;
   listNode.close();

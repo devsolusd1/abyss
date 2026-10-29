@@ -31,17 +31,26 @@ as a pixel black hole whose disk is the real SOL in its pool.
     `assets/chart.js` the pixel candle chart. `node site/chain/check-pool-math.mjs` checks the math against `chain/src`.
   - `net.js` picks the cluster and the program (`?net=mainnet` for the rest of a visit), and gives the pages the
     words that follow the cluster (`NET.place` is "devnet" or "Solana").
-  - `chain/` is the chain layer, bundled into `vendor/chain.js` with `npm install && npm run build`.
+  - `chain/` is the chain layer, bundled into `vendor/chain.js` with `npm install && npm run build`. `npm run build:mwa`
+    bundles Solana Mobile's Mobile Wallet Adapter (`chain/src/mwa.mjs`, through `build-mwa.mjs`) into `vendor/mwa.js`,
+    which `assets/wallet.js` loads only in Android's own browser with no wallet in it: the wallet apps on the phone
+    then connect and sign from Chrome, the first connect offering them on a card beside the links that open the page
+    in Phantom or Solflare (on iOS the links stay). The build leaves out the package's Google fonts, its QR code (the
+    remote mode, never set up) and @solana/errors' message table, each checked against the package's text so a new
+    version stops the build, and puts the licenses of what it bundles at the end of the file.
     `npm run check` simulates a buy, a sell, both fee claims and a launch against devnet, and the opening batch's
     calls on devnet coins in each of its states. `check-opening.mjs` checks the batch's side of the layer offline: its
     events byte by byte, its numbers and errors against the program's source, the error words, and the settle's claim
     against a fake node. `check-fees.mjs` checks the priority fee every sent transaction gets (one price, from the
     node's recent fees for its writable accounts, between a floor and a cap of 0.0001 SOL; none on devnet) against a
     fake node. `check-wallet.mjs` runs `assets/wallet.js` against fake Wallet Standard wallets: how they are found, the
-    picker when there are several, signing, account changes and the phone links when there is none.
+    picker when there are several, signing, account changes and the phone links when there is none, and, with the
+    built `vendor/mwa.js`, the Mobile Wallet Adapter on Android: when it loads, the card, the browser's permission to
+    reach the phone's apps (granted, asked or denied), no app answering, and a sign the app lets go of.
     `check-pools.mjs` checks the coin list against the site's server and a fake node: slices, pages, a busy server,
-    and the list's age. `check-launch-usd.mjs` checks the launch page's two market caps in dollars: the conversion
-    to the lamports sent, the limits, and SOL when the price is missing. `send-check.mjs` sends a
+    the list's age, and the order by volume the coin page takes its busiest coin from. `check-launch-usd.mjs` checks
+    the launch page's two market caps in dollars: the conversion to the lamports sent, the limits, and SOL when the
+    price is missing. `send-check.mjs` sends a
     buy, a sell of what it bought and both claims for real (with `SEND=1` and the coin creator's devnet keypair in
     `KEYPAIR`), then checks every number against the pool. `batch-check.mjs` launches a coin with a 2-minute opening
     batch and takes it through its seat, the settle, the claim and trading, for real (about 3 minutes, same
@@ -62,7 +71,8 @@ as a pixel black hole whose disk is the real SOL in its pool.
     every visitor at once (kept in memory, cached at the edge for a moment).
   - `/api/pools?cluster=…` gives the coin list for every visitor at once: the program's pools read every 4 s, each
     coin's name read once (a launched coin's metadata cannot change), `limit=` for the newest few, `board=1` for the
-    numbers only, and `after=` for the next page.
+    numbers only, and `after=` for the next page; `sort=volume` puts the most traded first (no next page: with it,
+    `after=` is refused), and `/coin` with no coin asks it for one, `limit=1&sort=volume`.
   - `/api/price` gives SOL in dollars for the charts and the launch page's market caps (Jupiter, CoinGecko when that
     fails), kept 30 s.
   - `/api/birth?cluster=…&pool=…` gives a coin's launch, its first ten buyers (or seats in its opening batch) and, for each, the wallet that sent it

@@ -270,15 +270,22 @@ async function withMetadata(pools) {
   return pools;
 }
 
-/** The program's pools from the node, newest first, and the metadata of the newest `limit`. */
-async function poolsFromNode(limit) {
+// The list's orders, as the site's server has them: newest first, then by mint (launches in the same second are rare,
+// so the mints are spelled out only for those); by volume, the most traded first, then in that order (a stable sort).
+const byText = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
+const byNewest = (a, b) => b.openedAt - a.openedAt || byText(a.mint.toBase58(), b.mint.toBase58());
+const byVolume = (a, b) => (b.volume > a.volume ? 1 : b.volume < a.volume ? -1 : 0);
+
+/** The program's pools from the node, newest first (or by volume), and the metadata of the first `limit`. */
+async function poolsFromNode(limit, sort) {
   const tag = await disc("account", "Pool");
   const accounts = await conn().getProgramAccounts(program(), {
     filters: [{ dataSize: POOL_LEN }, { memcmp: { offset: 0, bytes: base58(tag) } }],
   });
   const readAt = Date.now();
   const all = accounts.map((a) => parsePool(a.pubkey, a.account.data));
-  all.sort((a, b) => b.openedAt - a.openedAt);
+  all.sort(byNewest);
+  if (sort === "volume") all.sort(byVolume);
   const pools = limit < all.length ? all.slice(0, limit) : all;
   Object.assign(pools, { total: all.length, readAt });
   return withMetadata(pools);
@@ -345,10 +352,10 @@ async function askSite(url, wait, board, late) {
   } finally { clearTimeout(timer); }
 }
 
-async function poolsFromSite(limit, board) {
+async function poolsFromSite(limit, board, sort) {
   if (!NET?.poolsUrl || Date.now() < poolsDownUntil) return null;
   const slice = Number.isFinite(limit), wait = slice ? 5000 : 12_000, until = Date.now() + (slice ? 7000 : 15_000);
-  const url = `${NET.poolsUrl}${slice ? `&limit=${limit}` : ""}${board ? "&board=1" : ""}`;
+  const url = `${NET.poolsUrl}${slice ? `&limit=${limit}` : ""}${board ? "&board=1" : ""}${sort ? `&sort=${sort}` : ""}`;
   let got;
   try { got = await askSite(url, wait, board, false); } catch (err) {
     if (!(err instanceof Busy) || Date.now() + err.retry + 1000 > until) throw err;
@@ -358,8 +365,9 @@ async function poolsFromSite(limit, board) {
   if (!got) { poolsDownUntil = Date.now() + 60_000; return null; }
   const { pools, total } = got;
   let readAt = got.readAt;
-  // the rest of a list too large for one answer; a page that fails ends it, and the total says what is missing
-  for (let page = 1; got.cut && pools.length && page < MAX_PAGES && Date.now() < until; page++) {
+  // the rest of a list too large for one answer; a page that fails ends it, and the total says what is missing. An
+  // order by volume has no next page (the server refuses after= with it): past 4 MB, the least traded are left out
+  for (let page = 1; !sort && got.cut && pools.length && page < MAX_PAGES && Date.now() < until; page++) {
     const last = pools[pools.length - 1], mint = last.mint.toBase58();
     try { got = await askSite(`${url}&after=${last.openedAt}.${mint}`, Math.min(wait, until - Date.now()), board, true); } catch { got = null; }
     const next = got?.pools[0];
@@ -374,19 +382,23 @@ async function poolsFromSite(limit, board) {
 }
 
 /**
- * The program's pools, newest first, each with its coin's name and symbol (and link). The list's `total` is how many
- * pools the program holds: more than its length with a limit, or when the site's server could not give them all (past
- * MAX_PAGES answers of 4 MB, or a page that failed). Its `readAt` is when the pools were read from the node (the site's
- * server can give a list up to a minute old while its node fails).
- *   limit  only the newest that many (1 to 100), and only their metadata read
+ * The program's pools, newest first (or, with sort, the most traded first), each with its coin's name and symbol (and
+ * link). The list's `total` is how many pools the program holds: more than its length with a limit, or when the site's
+ * server could not give them all (past MAX_PAGES answers of 4 MB, or a page that failed). Its `readAt` is when the
+ * pools were read from the node (the site's server can give a list up to a minute old while its node fails).
+ *   limit  only the first that many (1 to 100), and only their metadata read
  *   board  only what the coin board shows, so more pools fit in one answer of the site's server: no pool address,
  *          creator, treasury, vault, hook program or link (when the node is read here, the pools come whole)
- * From the site's server when there is one (NET.poolsUrl); without it, or when it fails, from the node. When the site's
- * server stays busy, it throws.
+ *   sort   "volume": the most traded first (the pool's volume, every lamport its trades moved since launch), the newest
+ *          first between equals; the site's server sorts its own list, so { limit: 1, sort: "volume" } is one pool to
+ *          read, not all of them. In one answer only (past 4 MB, the least traded are left out; `total` says so)
+ * From the site's server when there is one (NET.poolsUrl); without it, or when it fails, from the node (sorted here,
+ * then cut). When the site's server stays busy, it throws.
  */
-export async function listPools({ limit, board = false } = {}) {
+export async function listPools({ limit, board = false, sort } = {}) {
   const n = limit == null ? Infinity : Math.min(100, Math.max(1, Math.floor(Number(limit)) || 1));
-  return (await poolsFromSite(n, board)) ?? poolsFromNode(n);
+  if (sort != null && sort !== "volume") throw new Error(`listPools: no order "${sort}" (volume, or none for the newest first)`);
+  return (await poolsFromSite(n, board, sort)) ?? poolsFromNode(n, sort);
 }
 
 export async function readPool(mint) {

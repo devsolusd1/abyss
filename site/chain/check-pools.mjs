@@ -6,10 +6,13 @@
 //      lighter form too); coins whose metadata the server has not read yet are read by the page
 //   3. the site's server failing (HTTP 500, 404, an answer that is not a list, no answer in time): the node is read
 //      directly, and the server is left alone for a minute
-//   4. the landing and the coin board ask for what they show: the newest 12, and the board's form of every pool
+//   4. the landing, the coin board and a coin's page ask for what they show: the newest 12, the board's form of every
+//      pool, and (with no coin named) the one most traded
 //   5. the site's server slow or busy: a slice whose metadata are slow comes in time, and a busy server (503 with a
 //      retry-after, 429) is asked again after the time it says, never replaced by the node read from the page
 //   6. a list in several answers, read in a row after the last pool of each, and how old a list is
+//   7. the busiest coin: the list by volume (the most traded first, the newer between equals, past 2^53 too) from the
+//      site's server in one ask and with no next page, and from the node, sorted before it is cut, when the server fails
 // Nothing touches a real cluster.
 //
 //   node check-pools.mjs
@@ -288,6 +291,9 @@ head("4. what the pages ask for");
   const html = page("coins.html");
   line(/num\(pools\.readAt\)/.test(html) && /allCoins = num\(pools\.total\)/.test(html) && /Math\.max\(n, allCoins\)/.test(html) && !/read from ' \+ N\.place \+ ' just now/.test(html),
     "the board dates its status by when the pools were read (readAt), and counts every coin in its title (total)");
+  const coinHtml = page("coin.html"), coin = asks(coinHtml);
+  line(coin.length === 1 && /^\{\s*limit:\s*1,\s*sort:\s*'volume'\s*\}$/.test(coin[0]) && !/pools\.sort\(/.test(coinHtml) && /if \(!pools\.total\)/.test(coinHtml) && /'the busiest coin on '/.test(coinHtml),
+    `a coin's page with no coin named asks for the one most traded (${coin.join(" ") || "no call"}), sorts nothing itself, says "no coins" by the total, and calls it the busiest coin`);
 }
 
 /* ---------- 5. the site's server slow or busy ---------- */
@@ -389,6 +395,76 @@ head("6. a list in several answers, and its age");
   site.mode = "ok";
   const age = (Date.now() - list.readAt) / 1000;
   line(age > 58 && age < 62.5, `a list read 50 s before the answer and kept 10 s at the edge: read ${age.toFixed(1)} s ago, by the server's clock`);
+}
+
+/* ---------- 7. the busiest coin: sorted by volume ---------- */
+head("7. the busiest coin: sorted by volume");
+{
+  // volumes of every kind: past 2^53 (as Numbers the two largest would be equal; the older coin has the larger), two
+  // coins at the same volume, and every eleventh never traded
+  const MAX = 2n ** 64n - 1n;
+  const vol = (i) => (i === 20 ? MAX : i === 380 ? MAX - 1n : i === 50 || i === 300 ? 2_000_000_000_000n : i % 11 === 0 ? 0n : BigInt((i * 7919) % 1009) * 1_000_000n);
+  chain.pools.forEach((p) => p.data.writeBigUInt64LE(vol(p.i), 248));
+  const want = [...chain.pools].sort((a, b) => (vol(b.i) > vol(a.i) ? 1 : vol(b.i) < vol(a.i) ? -1 : b.i - a.i)).map((p) => p.mint);
+  const mintsOf = (list) => list.map((p) => p.mint.toBase58()).join(), n = chain.pools.length;
+  later += 61_000;                                       // past the server's list, so it reads the new volumes
+
+  Chain.setNet(NET(false));
+  const direct = await Chain.listPools({ sort: "volume" });   // the direct read, to compare with
+  line(mintsOf(direct) === want.join() && direct.total === n && direct[0].volume === MAX && named(direct),
+    `read directly, sort "volume": all ${direct.length}, the most traded first (${direct[0]?.volume} lamports, not the newer coin at ${MAX - 1n}), the newer of two at the same volume first, the never traded last`);
+
+  Chain.setNet(NET(true));
+  fresh(); site.asked = 0;
+  let list = await Chain.listPools({ limit: 1, sort: "volume" });
+  line(list.length === 1 && list.total === n && plain(list[0]) === plain(direct[0]) && site.asked === 1 && site.urls[0].endsWith("&limit=1&sort=volume") && !calls("page").length,
+    `listPools({ limit: 1, sort: "volume" }): one ask (${site.urls[0]?.replace(/^.*\?/, "")}), one pool of ${list.total}, the most traded, whole as a direct read; nothing asked of the node from the page`);
+  fresh(); site.asked = 0;
+  list = await Chain.listPools({ limit: 10, sort: "volume" });
+  const board = await Chain.listPools({ limit: 10, board: true, sort: "volume" });
+  line(mintsOf(list) === want.slice(0, 10).join() && list.every((p, k) => plain(p) === plain(direct[k])) && board.every((p, k) => boardOf(p) === boardOf(direct[k]))
+    && board.length === 10 && site.asked === 2 && !calls("page").length,
+    "limit 10: the ten most traded, the same as a direct read field by field; the board's form too");
+  fresh();
+  list = await Chain.listPools({ limit: 12 });
+  line(mintsOf(list) === newest(12).map((p) => p.mint).join(), "with no sort, the newest first as before");
+
+  // the whole list by volume, the server cutting it at 150: one answer, no after= (it has no next page)
+  site.page = 150; site.asked = 0; fresh();
+  list = await Chain.listPools({ sort: "volume" });
+  site.page = 0;
+  line(list.length === 150 && list.total === n && mintsOf(list) === want.slice(0, 150).join() && site.asked === 1 && !site.urls.some((u) => u.includes("&after=")) && !calls("page").length,
+    `the list by volume cut at 150 by the server: the ${list.length} most traded of ${list.total}, in ${site.asked} ask, no after= asked`);
+
+  // the server failing, or none: the node read from the page, sorted by volume and then cut, only those coins' names read
+  for (const [mode, what] of [["broken", "the site's server failing (HTTP 500)"], [null, "no site's server"]]) {
+    Chain.setNet(NET(mode !== null));
+    site.mode = mode ?? "ok"; site.asked = 0; fresh();
+    list = await Chain.listPools({ limit: 10, sort: "volume" });
+    site.mode = "ok";
+    const asked = mintsAsked("page"), top = want.slice(0, 10);
+    line(mintsOf(list) === top.join() && list.every((p, k) => plain(p) === plain(direct[k])) && list.total === n && calls("page", "getProgramAccounts").length === 1
+      && asked.length === 10 && asked.every((m) => top.includes(m)) && site.asked === (mode ? 1 : 0),
+      `${what}: the node read from the page, sorted by volume, then cut: the same ten, and only their ${asked.length} mints read`);
+  }
+
+  // an order the list does not have: refused before anything is asked
+  Chain.setNet(NET(true));
+  fresh(); site.asked = 0;
+  let threw = null;
+  try { await Chain.listPools({ limit: 1, sort: "price" }); } catch (err) { threw = err; }
+  line(threw && site.asked === 0 && !chain.calls.length, `sort "price": listPools fails ("${threw?.message}"), nothing asked`);
+
+  // no coins yet: an empty list with a total of 0 (the coin page says so), from the server and from the node
+  const saved = chain.pools;
+  chain.pools = [];
+  later += 61_000; fresh();
+  list = await Chain.listPools({ limit: 1, sort: "volume" });
+  Chain.setNet(NET(false));
+  const none = await Chain.listPools({ limit: 1, sort: "volume" });
+  chain.pools = saved;
+  line(list.length === 0 && list.total === 0 && none.length === 0 && none.total === 0 && calls("server", "getProgramAccounts").length === 1,
+    "no coins yet: an empty list and a total of 0, from the server and from the node");
 }
 Date.now = realClock;
 

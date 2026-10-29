@@ -1179,13 +1179,19 @@ holdBtn.addEventListener('contextmenu', function (e) { e.preventDefault(); });
 
 function note(text, bad) { noteEl.classList.toggle('bad', !!bad); noteEl.textContent = text; }
 function noteHTML(html, bad) { noteEl.classList.toggle('bad', !!bad); noteEl.innerHTML = html; }
-function connectWallet() {
+async function connectWallet() {
   if (!window.Wallet) { note('The wallet code did not load.', true); return; }
+  // on Android the phone's wallet apps come with a script of their own, which may still be loading
+  if (Wallet.ready) await Wallet.ready();
   // no wallet here: Wallet.missing says so, and on a phone links to this page opened inside Phantom or Solflare
   if (!Wallet.list().length) { note('', true); Wallet.missing(noteEl); return; }
   // with more than one wallet, the picker opens under the button just pressed (the hold button or a batch button);
   // wallet.js knows which, since a press on the hold button leaves focus where it was
-  Wallet.connect().catch(function (err) { note(err && err.message ? err.message : 'The wallet did not connect.', true); });
+  Wallet.connect().catch(function (err) {
+    // no wallet app on the phone was reached: why, and the links, here too
+    if (err && err.missing) { note('', true); Wallet.missing(noteEl); return; }
+    note(err && err.message ? err.message : 'The wallet did not connect.', true);
+  });
 }
 function sendError(e) {
   var m = String(e && e.message || e || '');
@@ -1219,7 +1225,7 @@ async function execute() {
     note('Asking ' + place + ' whether it would go through…');
     var sim = await withTimeout(Chain.simulate(built, w.publicKey), 15000);
     if (!sim.ok) { note(Place + ' says it would fail: ' + sim.error + '. Nothing was sent.', true); return; }
-    note(Place + ' says it goes through. Confirm in ' + (w.name || 'your wallet') + '.');
+    note(Place + ' says it goes through. Confirm in ' + (w.label || w.name || 'your wallet') + '.');
     sig = await Chain.send(built, w);
     noteHTML('Done: ' + link('tx', sig, 'the signature ' + esc(shortKey(sig))) + '. Reading the new pool…');
     await refresh(true);
@@ -1350,7 +1356,7 @@ async function batchAct(kind) {
       sim = await withTimeout(Chain.simulate(built, w.publicKey), 15000);
     }
     if (!sim.ok) { failed = true; bnote(Place + ' says it would fail: ' + sim.error + '. Nothing was sent.', true); return; }
-    bnote(Place + ' says it goes through. Confirm in ' + (w.name || 'your wallet') + '.');
+    bnote(Place + ' says it goes through. Confirm in ' + (w.label || w.name || 'your wallet') + '.');
     sig = await Chain.send(built, w);
     bnoteHTML(what + ': ' + link('tx', sig, 'the signature ' + esc(shortKey(sig))) + '. Reading the pool…');
     await refresh(true);
@@ -1434,7 +1440,7 @@ async function claim(asCreator) {
     cnote('Asking ' + place + ' whether it would go through…');
     var sim = await withTimeout(Chain.simulate(built, w.publicKey), 15000);
     if (!sim.ok) { cnote(Place + ' says it would fail: ' + sim.error + '. Nothing was sent.', true); return; }
-    cnote(Place + ' says it goes through. Confirm in ' + (w.name || 'your wallet') + '.');
+    cnote(Place + ' says it goes through. Confirm in ' + (w.label || w.name || 'your wallet') + '.');
     paidBefore = asCreator ? POOL.creatorFeesPaid : POOL.treasuryFeesPaid;   // the pool the claim was built on
     var sig = await Chain.send(built, w);
     cnoteHTML(done + ': ' + link('tx', sig, 'the signature ' + esc(shortKey(sig))) + '. Reading the pool…');
@@ -1646,9 +1652,10 @@ async function boot() {
       p = await withTimeout(Chain.readPool(mintParam), 15000);
       if (!p) { fail('No coin at this address on ' + place + '.', '<a href="/coins">See all coins</a> · <a href="/coin">the busiest one</a>'); return; }
     } else {
-      var pools = await withTimeout(Chain.listPools(), 15000);
-      if (!pools.length) { fail(say('No coins on devnet yet.', 'No Nox coins on Solana yet.'), 'Only the team launches for now. <a href="/coins">The coin board</a>'); return; }
-      pools.sort(function (a, b) { return Number(b.volume) - Number(a.volume); });
+      // the most traded coin, the newest between equals: one pool, which the site's server picks from its own list
+      var pools = await withTimeout(Chain.listPools({ limit: 1, sort: 'volume' }), 15000);
+      if (!pools.total) { fail(say('No coins on devnet yet.', 'No Nox coins on Solana yet.'), 'Only the team launches for now. <a href="/coins">The coin board</a>'); return; }
+      if (!pools.length) throw new Error('The list came without its coins');   // coins there, none sent: as if it did not answer
       p = pools[0]; busiest = true;
     }
   } catch (e) {
