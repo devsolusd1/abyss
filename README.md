@@ -21,7 +21,10 @@ as a pixel black hole whose disk is the real SOL in its pool.
   - `net.js` picks the cluster and the program (`?net=mainnet` for the rest of a visit), and gives the pages the
     words that follow the cluster (`NET.place` is "devnet" or "Solana").
   - `chain/` is the chain layer, bundled into `vendor/chain.js` with `npm install && npm run build`.
-    `npm run check` simulates a buy, a sell, both fee claims and a launch against devnet. `send-check.mjs` sends a
+    `npm run check` simulates a buy, a sell, both fee claims and a launch against devnet, and the opening batch's
+    calls on devnet coins in each of its states. `check-opening.mjs` checks the batch's side of the layer offline: its
+    events byte by byte, its numbers and errors against the program's source, the error words, and the settle's claim
+    against a fake node. `send-check.mjs` sends a
     buy, a sell of what it bought and both claims for real (with `SEND=1` and the coin creator's devnet keypair in
     `KEYPAIR`), then checks every number against the pool. `batch-check.mjs` launches a coin with a 2-minute opening
     batch and takes it through its seat, the settle, the claim and trading, for real (about 3 minutes, same

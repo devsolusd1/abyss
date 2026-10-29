@@ -23,7 +23,10 @@ line(netJs.includes(`program: "${PROGRAM}"`), "site/net.js names the same devnet
 line(/mainnet:[\s\S]*?program: "([^"]*)"/.exec(netJs)?.[1] === CLUSTERS.mainnet.program, "and the same (still empty) mainnet program");
 
 /* ---------- a fake node ---------- */
-const node = { calls: [], times: [], batches: 0, sigs: [], txs: new Map(), owner: PROGRAM, data: accountData("Pool"), limit: Infinity, window: [], null: new Set() };
+// limit: getTransaction calls a second, past it each one gets a 429 in its answer (a paid plan's rate). busy: a
+// method or a transaction's signature -> how many more requests that ask for it get HTTP 429 (a busy public node).
+// asked: the transactions it served or answered null for.
+const node = { calls: [], times: [], batches: 0, sigs: [], txs: new Map(), owner: PROGRAM, data: accountData("Pool"), limit: Infinity, window: [], null: new Set(), busy: new Map(), asked: [] };
 const fake = createServer((req, res) => {
   let body = "";
   req.on("data", (c) => { body += c; });
@@ -31,12 +34,20 @@ const fake = createServer((req, res) => {
     const parsed = JSON.parse(body), list = Array.isArray(parsed) ? parsed : [parsed];
     if (Array.isArray(parsed)) node.batches++;
     const now = Date.now();
+    const refuse = list.map((c) => (c.method === "getTransaction" ? c.params?.[0] : c.method)).find((k) => node.busy.get(k) > 0);
+    if (refuse) {
+      node.busy.set(refuse, node.busy.get(refuse) - 1);
+      for (const c of list) { node.calls.push(c.method); node.times.push(now); }
+      res.writeHead(429).end();
+      return;
+    }
     const answer = list.map((c) => {
       node.calls.push(c.method); node.times.push(now);
       if (c.method === "getTransaction") {
         node.window = node.window.filter((t) => t > now - 1000); node.window.push(now);
         if (node.window.length > node.limit) return { jsonrpc: "2.0", id: c.id, error: { code: 429, message: "slow" } };
         const sig = c.params[0];
+        node.asked.push(sig);
         if (node.null.has(sig)) return { jsonrpc: "2.0", id: c.id, result: null };
         const tx = node.txs.get(sig);
         // logged as the chain does: inside the pool program's invoke, and a forged line from another program after it
@@ -203,8 +214,9 @@ function makeSigs(n, tag) {
   publicPace.devnet = mark;                              // as if the birth had just taken the node's turn
   let r = await hist(POOL2, { env });
   let b = await r.json();
-  const took = Date.now() - t0;
-  line(r.status === 200 && !b.complete && b.have >= 4 && b.have <= 7, `the public node, first answer: ${b.have} of ${b.total} in ${(took / 1000).toFixed(1)} s, not complete`);
+  const took = Date.now() - t0, first = b.have;
+  // 7 s for the whole answer: the wait for the mark, the pool check and the listing, then three transactions
+  line(r.status === 200 && !b.complete && b.have >= 2 && b.have <= 4 && took < 7500, `the public node, first answer: ${b.have} of ${b.total} in ${(took / 1000).toFixed(1)} s, not complete`);
   const gaps = node.times.slice(1).map((t, i) => t - node.times[i]);
   line(node.calls[0] === "getAccountInfo" && node.calls[1] === "getSignaturesForAddress" && node.times[0] >= mark - 5 && gaps.every((g) => g >= PUBLIC_GAP - 5),
     `every call takes its turn, the pool check and the listing too: the first at the mark, then ${Math.min(...gaps)} ms apart at least`);
@@ -213,8 +225,85 @@ function makeSigs(n, tag) {
   const newest = node.sigs.filter((s) => !s.err).slice(0, b.have).map((s) => s.signature);
   line(newest.every((s) => b.txs[s]), "and what it has is the newest");
   r = await hist(POOL2, { env }); b = await r.json();
-  line(b.complete || b.have >= 9, `the next answer goes on: ${b.have} of ${b.total}`);
+  line(b.complete || b.have >= first + 3, `the next answer goes on: ${b.have} of ${b.total}`);
   CLUSTERS.devnet.publicRpc = real;
+}
+{
+  // the public node answers 429, or its next turn comes after the answer's time: each answer comes at once with what it
+  // has (with no list yet: "ask again shortly", not "the node did not answer"), the next ones make no call until the
+  // pause is over, and then the reading goes on from where it stopped
+  const { base58 } = await import("./config.mjs");
+  const real = CLUSTERS.devnet.publicRpc, realNow = Date.now, env = { RPC_URL_DEVNET: "" };
+  CLUSTERS.devnet.publicRpc = UP;
+  let ahead = 0;
+  Date.now = () => realNow() + ahead;                    // past the 12 s pause without waiting it out
+  const P1 = base58(Buffer.alloc(32, 51)), P2 = base58(Buffer.alloc(32, 52));
+  const ask = async (pool) => { const t = realNow(), r = await hist(pool, { env }); return { r, b: r.status === 200 ? await r.json() : null, took: realNow() - t }; };
+  makeSigs(3, "slow"); node.calls = []; node.asked = [];
+  publicPace.devnet = 0;
+  node.busy.set("getAccountInfo", 1);
+  let { r, b, took } = await ask(P1);
+  line(r.status === 503 && r.headers.get("retry-after") && publicPace.devnet >= Date.now() + 11_000 && took < 1000,
+    `a 429 on the pool check: "ask again shortly" at once (${r.status}, ${took} ms), and no call to the public node for 12 s`);
+  node.calls = [];
+  ({ r, took } = await ask(P2));
+  line(r.status === 503 && !node.calls.length && took < 1000, `a pool never asked for, during the pause: no call, answered in ${took} ms, not after the pause (${r.status})`);
+  ahead += 12_000; node.calls = [];
+  node.busy.set("getSignaturesForAddress", 1);
+  ({ r } = await ask(P1));
+  line(r.status === 503 && node.calls.join() === "getAccountInfo,getSignaturesForAddress" && publicPace.devnet >= Date.now() + 11_000,
+    `after the pause: the pool check, then a 429 on its first listing: "ask again shortly" (${r.status})`);
+  ahead += 12_000; node.calls = [];
+  node.busy.set(node.sigs[1].signature, 1);
+  ({ r, b } = await ask(P1));
+  line(r.status === 200 && b && !b.complete && b.have === 1 && b.total === 3 && publicPace.devnet >= Date.now() + 11_000,
+    `after the pause: a 429 on its second transaction, the answer has the first (${b?.have} of ${b?.total}), not complete`);
+  node.calls = [];
+  ({ r, b, took } = await ask(P1));
+  line(r.status === 200 && b?.have === 1 && !b.complete && !node.calls.length && took < 1000, `asked again during the pause: the same, at once, no call (${took} ms)`);
+  ahead += 12_000;
+  ({ r, b } = await ask(P1));
+  line(b?.complete && node.asked.length === 3 && new Set(node.asked).size === 3, `after the pause: complete, each transaction served once (${node.asked.length})`);
+  // ten minutes on the pool check is no longer kept, and the node's turn is late: an account read as a pool stays one,
+  // so the answer is the list kept, not "ask again shortly"
+  ahead += 10 * 60 * 1000 + 1000; node.calls = [];
+  publicPace.devnet = Date.now() + 20_000;
+  ({ r, b, took } = await ask(P1));
+  line(r.status === 200 && b?.complete && b.have === 3 && !node.calls.length && took < 1000,
+    `ten minutes on, with the node's turn late: the list kept, at once, no call (${r.status}, ${took} ms)`);
+  publicPace.devnet = 0;
+  Date.now = realNow;
+  CLUSTERS.devnet.publicRpc = real;
+}
+{
+  // a pool never listed, with the public node's next turn 6 s on (half a pause after a 429): its pool check and its
+  // listing may wait past the answer's 7 s, since without a list the answer would be a 503 (the page then reads the
+  // node itself for that read). It gets the list, with no transaction yet, under the page's 15 s
+  const { base58 } = await import("./config.mjs");
+  const real = CLUSTERS.devnet.publicRpc, env = { RPC_URL_DEVNET: "" };
+  CLUSTERS.devnet.publicRpc = UP;
+  makeSigs(3, "cold"); node.calls = [];
+  const t0 = Date.now();
+  publicPace.devnet = t0 + 6000;
+  const r = await hist(base58(Buffer.alloc(32, 54)), { env }), b = r.status === 200 ? await r.json() : null, took = Date.now() - t0;
+  line(r.status === 200 && b?.total === 3 && b.have === 0 && !b.complete && took < 12_000 && node.calls.join() === "getAccountInfo,getSignaturesForAddress",
+    `a first list after a long wait for the node's turn: ${r.status}, ${b?.have} of ${b?.total} in ${(took / 1000).toFixed(1)} s, not complete`);
+  publicPace.devnet = 0;
+  CLUSTERS.devnet.publicRpc = real;
+}
+{
+  // a paid node with a rate: past it some answers in a batch are 429. What was served is kept, the rest is not asked
+  // for in a loop, and the next answer goes on
+  const { base58 } = await import("./config.mjs");
+  makeSigs(15, "rate"); node.calls = []; node.window = []; node.limit = 5;
+  const P3 = base58(Buffer.alloc(32, 53));
+  let r = await hist(P3), b = await r.json();
+  const asked = node.calls.filter((m) => m === "getTransaction").length;
+  line(r.status === 200 && !b.complete && b.have === 5 && b.total === 14 && asked <= 20, `a paid node's 429 on part of a batch: ${b.have} of ${b.total} kept, ${asked} asked, not complete`);
+  await new Promise((ok) => setTimeout(ok, 1100));
+  r = await hist(P3); b = await r.json();
+  line(r.status === 200 && b.have === 10, `a second later the next answer goes on: ${b.have} of ${b.total}`);
+  node.limit = Infinity;
 }
 {
   // a transaction the node does not serve (yet): the answer goes on without it, and no call loops on it
@@ -305,7 +394,8 @@ function makeSigs(n, tag) {
   const trade = (mint, trader, buy, sol) => Buffer.concat([tagOf("TradeEvent"), mint, trader, trader, Buffer.from([buy ? 1 : 0]), u64(sol), u64(sol * 30), u64(1), u64(1), u64(1), Buffer.from([0, 0])]).toString("base64");
   const launched = (mint, creator) => Buffer.concat([tagOf("Launched"), mint, creator, keyOf(0), u64(30e9), u64(52e9), Buffer.from([100, 0]), u64(0)]).toString("base64");
   const seatEvent = (name, mint, owner, sol, seatSol, total = 0) => Buffer.concat([tagOf(name), mint, owner, u64(sol), u64(seatSol), u64(total)]).toString("base64");
-  const settled = (mint, sol, tokens, seats) => { const n = Buffer.alloc(4); n.writeUInt32LE(seats); return Buffer.concat([tagOf("Settled"), mint, u64(sol), u64(tokens), n, Buffer.from([0])]).toString("base64"); };
+  const settled = (mint, sol, tokens, seats, refund = false) => { const n = Buffer.alloc(4); n.writeUInt32LE(seats); return Buffer.concat([tagOf("Settled"), mint, u64(sol), u64(tokens), n, Buffer.from([refund ? 1 : 0])]).toString("base64"); };
+  const claimed = (mint, owner, sol, refund) => Buffer.concat([tagOf("SeatClaimed"), mint, owner, u64(sol), u64(0), Buffer.from([refund ? 1 : 0])]).toString("base64");
   const MINT = keyOf(5), CREATOR = keyOf(7), A = keyOf(8), B = keyOf(9), C = keyOf(10), FUNDER = keyOf(11);
   const [creator, a, b, c, funderKey] = [CREATOR, A, B, C, FUNDER].map(base58);
 
@@ -317,13 +407,18 @@ function makeSigs(n, tag) {
   const wv = events([seatEvent("Withdrawn", MINT, A, 2e8, 3e8, 4e8), settled(MINT, 9e8, 123, 4)]);
   line(wv[0]?.kind === "withdraw" && wv[0].seatSol === 300000000n && wv[0].total === 400000000n && wv[1]?.kind === "settled" && wv[1].sol === 900000000n && wv[1].tokens === 123n && wv[1].seats === 4 && !wv[1].refund,
     "a withdrawal and the batch's settle decode");
+  const rv = events([settled(MINT, 6e6, 0, 3, true), claimed(MINT, A, 1e6, true)]);
+  line(rv[0]?.kind === "settled" && rv[0].refund === true && rv[0].tokens === 0n && rv[1]?.kind === "other", "a refunded settle decodes as one, and a seat's claim counts as the pool's");
   const f = funder({ transaction: { message: { accountKeys: [funderKey, a, "11111111111111111111111111111111"] } }, meta: { preBalances: [5e9, 0, 1], postBalances: [3.99e9, 1e9, 1] } }, a);
   line(f && f.by === funderKey && f.sol === 1, `the funder is the account whose balance fell most (${f && f.by.slice(0, 4)}, ${f && f.sol} SOL)`);
   line(funder({ transaction: { message: { accountKeys: [a] } }, meta: { preBalances: [5], postBalances: [4] } }, a) === null, "a transaction where the wallet only spent gives no funder");
 
   // a fake chain: each address's signatures (newest first, with before/until/limit as the node reads them), the
-  // transactions, the program's accounts, node errors still to give for a transaction, and every call made (with when)
-  const chain = { sigs: new Map(), txs: new Map(), accounts: new Map(), errs: new Map(), calls: [] };
+  // transactions, the program's accounts, node errors still to give for a transaction, and every call made (with when).
+  // delay: how long it takes to answer a request with a getTransaction in it. busy: a method or a transaction's
+  // signature -> how many more requests that ask for it get HTTP 429 (their calls are marked refused). limit:
+  // getTransaction calls a second, past it each one gets a 429 in its answer (a paid plan's rate)
+  const chain = { sigs: new Map(), txs: new Map(), accounts: new Map(), errs: new Map(), calls: [], delay: 0, busy: new Map(), limit: Infinity, window: [] };
   const sigOf = (name) => name.padEnd(88, "x");
   let slot = 100;
   const listed = (who, signature, s, err) => {
@@ -352,6 +447,13 @@ function makeSigs(n, tag) {
     let body = ""; req.on("data", (d) => { body += d; });
     req.on("end", () => {
       const parsed = JSON.parse(body), list = Array.isArray(parsed) ? parsed : [parsed];
+      const refuse = list.map((cl) => (cl.method === "getTransaction" ? cl.params?.[0] : cl.method)).find((k) => chain.busy.get(k) > 0);
+      if (refuse) {
+        chain.busy.set(refuse, chain.busy.get(refuse) - 1);
+        for (const cl of list) chain.calls.push({ method: cl.method, params: cl.params ?? [], t: Date.now(), refused: true });
+        res.writeHead(429).end();
+        return;
+      }
       const answer = list.map((cl) => {
         const p = cl.params ?? [], ok = (result) => ({ jsonrpc: "2.0", id: cl.id, result });
         chain.calls.push({ method: cl.method, params: p, t: Date.now() });
@@ -366,13 +468,17 @@ function makeSigs(n, tag) {
           return ok(all.slice(from, Math.min(u < 0 ? all.length : u, from + (o.limit ?? 1000))));
         }
         if (cl.method === "getTransaction") {
+          const now = Date.now();
+          chain.window = chain.window.filter((t) => t > now - 1000); chain.window.push(now);
+          if (chain.window.length > chain.limit) return { jsonrpc: "2.0", id: cl.id, error: { code: 429, message: "slow" } };
           const errs = chain.errs.get(p[0]) ?? 0;
           if (errs > 0) { chain.errs.set(p[0], errs - 1); return { jsonrpc: "2.0", id: cl.id, error: { code: -32005, message: "Node is behind" } }; }
           return ok(chain.txs.get(p[0]) ?? (p[0].startsWith("spam") ? { blockTime: 1, slot: 1, transaction: { message: { accountKeys: [] } }, meta: { err: null, logMessages: [] } } : null));
         }
         return { jsonrpc: "2.0", id: cl.id, error: { code: -32601, message: "no" } };
       });
-      res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify(Array.isArray(parsed) ? answer : answer[0]));
+      const send = () => { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify(Array.isArray(parsed) ? answer : answer[0])); };
+      if (chain.delay && list.some((cl) => cl.method === "getTransaction")) setTimeout(send, chain.delay); else send();
     });
   });
   await new Promise((ok) => chainNode.listen(0, "127.0.0.1", ok));
@@ -539,6 +645,136 @@ function makeSigs(n, tag) {
     line(j.complete && byW[Z]?.funding?.none === true && zAsked.join() === "3,1,1", `none once its oldest three were all served (asked ${zAsked.join(", ")} times)`);
   }
 
+  // two asks at once: the first one did not list (its last listing was 59 s before) and is on its last call when a
+  // second one comes, a minute after that listing. The second may not open a listing under the first, which is past
+  // its own listing and would end done with that one unread: the next ask a minute on lists what is new
+  const POOLR = base58(keyOf(61)), MINTR = keyOf(62), [G1, G2, G3, GF] = [63, 64, 65, 66].map((n) => base58(keyOf(n)));
+  chain.accounts.set(POOLR, isPoolOf(MINTR));
+  walletTx(G1, "g1Fund", { from: GF });
+  const g2Fund = walletTx(G2, "g2Fund", { from: GF });
+  poolTx(POOLR, "launchR", [launched(MINTR, CREATOR)]);
+  poolTx(POOLR, "buyG1", [trade(MINTR, keyOf(63), true, 1e8)]);
+  const lastR = poolTx(POOLR, "buyG2", [trade(MINTR, keyOf(64), true, 1e8)]);
+  chain.errs.set(g2Fund, 1);
+  {
+    chain.calls = [];
+    let { j } = await birth(POOLR);                      // G2's funding is not served: not complete
+    shift += 59_000; chain.delay = 300;
+    const runA = birth(POOLR);                           // reads it again, slowly
+    for (let k = 0; k < 400 && calls("getTransaction", g2Fund).length < 2; k++) await new Promise((ok) => setTimeout(ok, 5));
+    shift += 2_000;
+    const runB = birth(POOLR);
+    const [a1, b1] = await Promise.all([runA, runB]);
+    chain.delay = 0;
+    line(a1.r.status === 200 && b1.r.status === 200 && a1.j.complete && b1.j.buyers.find((x) => x.wallet === G2)?.funding?.by === GF,
+      "an ask that comes while another is on its last call gets that one's answer");
+    const newer = poolTx(POOLR, "buyG3", [trade(MINTR, keyOf(65), true, 1e8)]);
+    shift += 61_000; chain.calls = [];
+    ({ j } = await birth(POOLR));
+    const listedR = calls("getSignaturesForAddress", POOLR);
+    line(j.complete && j.buyers.some((x) => x.wallet === G3 && x.signature === newer) && listedR.length === 1 && listedR[0].params[1].until === lastR,
+      `and a minute on, what is new is listed and read: ${j.buyers.length} buyers (${listedR.length} listing, after the newest seen)`);
+  }
+
+  // a long batch: 61 transactions with its events before the settle (one wallet in and out 25 times, not one of the
+  // first ten). The window does not stop the reading while the first seats wait on the settle
+  const POOLL = base58(keyOf(67)), MINTL = keyOf(68), V = Array.from({ length: 9 }, (_, i) => keyOf(69 + i)), v = V.map(base58);
+  chain.accounts.set(POOLL, isPoolOf(MINTL));
+  poolTx(POOLL, "launchL", [launched(MINTL, CREATOR), seatEvent("Committed", MINTL, CREATOR, 1e8, 1e8)]);
+  for (let i = 0; i < 9; i++) poolTx(POOLL, `v${i}in`, [seatEvent("Committed", MINTL, V[i], 2e8, 2e8)]);
+  for (let i = 0; i < 25; i++) {
+    poolTx(POOLL, `cyc${i}in`, [seatEvent("Committed", MINTL, keyOf(78), 1e6, 1e6)]);
+    poolTx(POOLL, `cyc${i}out`, [seatEvent("Withdrawn", MINTL, keyOf(78), 1e6, 0)]);
+  }
+  poolTx(POOLL, "v0more", [seatEvent("Committed", MINTL, V[0], 1e8, 3e8)]);
+  poolTx(POOLL, "settleL", [settled(MINTL, 2e9, 6e13, 10), trade(MINTL, keyOf(67), true, 2e9)]);
+  poolTx(POOLL, "lateL", [trade(MINTL, keyOf(79), true, 1e8)]);
+  {
+    const { r, j } = await birth(POOLL);
+    const seat0 = j.buyers?.find((x) => x.wallet === v[0])?.seat;
+    line(j.buyers?.length === 10 && !j.buyers.some((x) => x.wallet === base58(keyOf(78))) && seat0?.sol === 0.3 && seat0.settled && j.buyers.every((x) => x.seat?.settled),
+      `a batch past the window of 60 before its settle: the first seats followed on to it (${seat0?.sol} SOL, settled: ${seat0?.settled})`);
+    line(j.complete && j.read === 62 && j.more && /s-maxage=3600/.test(r.headers.get("cache-control")), `and the reading stops at the settle, final (read ${j.read}, more: ${j.more})`);
+  }
+
+  // only FETCH stops it: a settle after 200 transactions that only name the pool is not reached, and the birth is final
+  // with its seat not settled
+  const POOLF = base58(keyOf(80)), MINTF = keyOf(81);
+  chain.accounts.set(POOLF, isPoolOf(MINTF));
+  poolTx(POOLF, "launchF", [launched(MINTF, CREATOR), seatEvent("Committed", MINTF, CREATOR, 1e8, 1e8)]);
+  spam(POOLF, 200);
+  poolTx(POOLF, "settleF", [settled(MINTF, 1e8, 3e12, 1), trade(MINTF, keyOf(80), true, 1e8)]);
+  {
+    chain.calls = [];
+    const { r, j } = await birth(POOLF);
+    line(j.complete && j.more && j.buyers[0]?.seat?.settled === false && j.buyers[0].seat.sol === 0.1 && calls("getTransaction").length === 200 && /s-maxage=3600/.test(r.headers.get("cache-control")),
+      `a settle past FETCH: ${calls("getTransaction").length} fetched, final, the seat not settled`);
+  }
+
+  // a refunded batch (under 0.01 SOL) with three seats: one left all of it and came back, and a transaction carries
+  // another pool's seat events and settle before this pool's own commit. Only this pool's events count
+  const POOLRF = base58(keyOf(82)), MINTRF = keyOf(83), [R1, R2, R3, OTHERRF, LATE] = [84, 85, 86, 87, 88].map(keyOf);
+  chain.accounts.set(POOLRF, isPoolOf(MINTRF));
+  poolTx(POOLRF, "launchRF", [launched(MINTRF, CREATOR), seatEvent("Committed", MINTRF, CREATOR, 3e6, 3e6, 3e6)]);
+  poolTx(POOLRF, "r1in", [seatEvent("Committed", MINTRF, R1, 1e6, 1e6, 4e6)]);
+  poolTx(POOLRF, "r2in", [seatEvent("Committed", MINTRF, R2, 2e6, 2e6, 6e6)]);
+  poolTx(POOLRF, "r2out", [seatEvent("Withdrawn", MINTRF, R2, 2e6, 0, 4e6)]);
+  // the other pool's withdrawal comes after this pool's commit, so it would leave R1's seat empty if it counted
+  poolTx(POOLRF, "mixedRF", [seatEvent("Committed", OTHERRF, R3, 5e8, 5e8, 5e8), settled(OTHERRF, 5e8, 1e13, 1),
+    seatEvent("Committed", MINTRF, R1, 1e6, 2e6, 5e6), seatEvent("Withdrawn", OTHERRF, R1, 1e6, 0, 0)]);
+  poolTx(POOLRF, "r2back", [seatEvent("Committed", MINTRF, R2, 1e6, 1e6, 6e6)]);
+  poolTx(POOLRF, "settleRF", [settled(MINTRF, 6e6, 0, 3, true)]);
+  poolTx(POOLRF, "claimRF", [claimed(MINTRF, R1, 2e6, true)]);
+  poolTx(POOLRF, "lateRF", [trade(MINTRF, LATE, true, 1e8)]);
+  {
+    const { j } = await birth(POOLRF);
+    const byW = Object.fromEntries((j.buyers ?? []).map((x) => [x.wallet, x]));
+    const [r1, r2] = [byW[base58(R1)], byW[base58(R2)]];
+    line(j.complete && !j.more && j.read === 9 && (j.buyers ?? []).map((x) => x.wallet).join() === [creator, base58(R1), base58(R2), base58(LATE)].join()
+      && j.buyers.slice(0, 3).every((x) => x.batch && x.seat.settled) && byW[creator].seat.sol === 0.003 && !byW[base58(LATE)].batch,
+      `a refunded batch: three seats settled with the SOL in them, and a buy after it (${j.buyers?.length} buyers, read ${j.read})`);
+    line(r2?.sol === 0.002 && r2.seat?.sol === 0.001 && r2.seat.out === false, `a seat that left all of it and came back: ${r2?.seat?.sol} SOL at the settle, out: ${r2?.seat?.out}`);
+    line(!byW[base58(R3)] && r1?.seat?.sol === 0.002 && r1.seat.out === false,
+      `another pool's seat events and settle in the same transaction are not this pool's (R1's seat ${r1?.seat?.sol} SOL, out: ${r1?.seat?.out})`);
+  }
+
+  // a paid node that refuses a whole batch of transactions (HTTP 429): an answer with what it read before it (nothing
+  // here), and the next ask reads on from there
+  const POOLP = base58(keyOf(92)), MINTP = keyOf(93);
+  chain.accounts.set(POOLP, isPoolOf(MINTP));
+  const launchP = poolTx(POOLP, "launchP", [launched(MINTP, CREATOR)]);
+  poolTx(POOLP, "buyP", [trade(MINTP, keyOf(94), true, 1e8)]);
+  {
+    chain.calls = []; chain.busy.set(launchP, 1);
+    let { r, j } = await birth(POOLP);
+    line(r.status === 200 && j && !j.complete && j.read === 0 && /s-maxage=1\b/.test(r.headers.get("cache-control")), `a paid node's 429 on a batch: ${r.status}, not complete`);
+    chain.calls = [];
+    ({ r, j } = await birth(POOLP));
+    line(j.complete && j.read === 2 && j.buyers.length === 1 && !calls("getAccountInfo").length && !calls("getSignaturesForAddress", POOLP).length,
+      "the next ask reads on from there: no pool check, no listing again");
+  }
+
+  // a paid node with a rate of 5 transactions a second: each batch of 10 gets 5 served and 5 refused (429 in its
+  // answer). What was served is read, nothing is asked again in a loop, and each ask a second on reads on
+  const POOLT = base58(keyOf(95)), MINTT = keyOf(96);
+  chain.accounts.set(POOLT, isPoolOf(MINTT));
+  poolTx(POOLT, "launchT", [launched(MINTT, CREATOR)]);
+  for (let i = 0; i < 12; i++) poolTx(POOLT, `buyT${i}`, [trade(MINTT, keyOf(110 + i), true, 1e8)]);
+  {
+    chain.limit = 5; chain.window = []; chain.calls = [];
+    let { r, j } = await birth(POOLT);
+    line(r.status === 200 && j && !j.complete && j.read === 5 && j.buyers.length === 4 && calls("getTransaction").length === 10,
+      `a paid node's 429 on part of a batch: the 5 served are read (read ${j?.read}, ${calls("getTransaction").length} asked), not complete`);
+    shift += 1100;
+    ({ j } = await birth(POOLT));
+    line(!j.complete && j.read === 10, `a second later the next ask reads on (read ${j.read})`);
+    shift += 1100;
+    ({ r, j } = await birth(POOLT));
+    line(j.complete && j.read === 11 && j.buyers.length === 10 && j.buyers.every((x) => x.funding?.none) && /s-maxage=3600/.test(r.headers.get("cache-control")),
+      `and a second after that the birth is whole: ${j.buyers.length} buyers, read ${j.read}, final`);
+    chain.limit = Infinity;
+  }
+
   // 5,000 transactions exactly: the start is in them (not tooOld); spam that only names the pool stops at 200 fetched.
   // 5,001: its start is further back than this pages.
   const POOL6 = base58(keyOf(33)), MINT6 = keyOf(21), POOL7 = base58(keyOf(34));
@@ -586,6 +822,38 @@ function makeSigs(n, tag) {
     const gaps = chain.calls.slice(1).map((x, i) => x.t - chain.calls[i].t);
     line(j.complete && chain.calls[0]?.method === "getAccountInfo" && chain.calls[0].t >= mark - 5 && chain.calls.length === 3 && gaps.every((g) => g >= PUBLIC_GAP - 5),
       `and with the mark near: its ${chain.calls.length} calls, the first at the mark, then ${Math.min(...gaps)} ms apart at least`);
+    publicPace.devnet = 0;
+    CLUSTERS.devnet.publicRpc = real;
+  }
+
+  // the public node answers 429: on the pool check, then on a transaction. Each answer is a 200 with what it has, not
+  // complete; nothing in this instance calls the node for 12 s (an ask then comes back at once); after that the
+  // reading goes on from where it stopped, with nothing read again
+  {
+    const real = CLUSTERS.devnet.publicRpc;
+    CLUSTERS.devnet.publicRpc = CHAIN;
+    const POOLB = base58(keyOf(89)), MINTB = keyOf(90), Q = base58(keyOf(91)), pub = { RPC_URL_DEVNET: "" };
+    chain.accounts.set(POOLB, isPoolOf(MINTB));
+    const launchB = poolTx(POOLB, "launchB", [launched(MINTB, CREATOR)]);
+    const buyQ = poolTx(POOLB, "buyQ", [trade(MINTB, keyOf(91), true, 1e8)]);
+    publicPace.devnet = 0; chain.calls = [];
+    chain.busy.set("getAccountInfo", 1);
+    let { r, j } = await birth(POOLB, pub);
+    line(r.status === 200 && j && !j.complete && !j.launch && publicPace.devnet >= Date.now() + 11_000 && /s-maxage=1\b/.test(r.headers.get("cache-control")),
+      `a 429 on the pool check: ${r.status}, not complete (ask again), and no call to the public node for 12 s`);
+    shift += 12_000; chain.calls = [];
+    chain.busy.set(buyQ, 1);
+    ({ r, j } = await birth(POOLB, pub));
+    line(r.status === 200 && !j.complete && j.read === 1 && j.launch?.signature === launchB && !j.buyers.length && publicPace.devnet >= Date.now() + 11_000,
+      `after the pause: a 429 on its second transaction, the answer has the launch before it (read ${j.read}), not complete`);
+    chain.calls = [];
+    const t0 = realNow();
+    ({ r, j } = await birth(POOLB, pub));
+    line(r.status === 200 && !j.complete && j.read === 1 && !chain.calls.length && realNow() - t0 < 1000, `asked again during the pause: what it has, at once (${realNow() - t0} ms), no call`);
+    shift += 12_000; chain.calls = [];
+    ({ r, j } = await birth(POOLB, pub));
+    line(j.complete && j.buyers[0]?.wallet === Q && j.buyers[0].funding?.none && chain.calls.map((x) => x.method).join() === "getTransaction,getSignaturesForAddress" && chain.calls[0].params[0] === buyQ,
+      `after the pause: on from the refused transaction, nothing read again (${chain.calls.length} calls)`);
     publicPace.devnet = 0;
     CLUSTERS.devnet.publicRpc = real;
   }

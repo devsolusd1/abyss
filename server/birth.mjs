@@ -7,13 +7,17 @@
 // another pool's events (the program ignores accounts it does not use), so each event's mint must be the pool's own.
 //
 // It reads the pool's first OLDEST transactions with an event of this pool, fetching FETCH at most (a transaction that
-// only names the pool counts there). A birth that has its FIRST buyers (and their seats settled) or its window read,
-// with transactions after it, is final: it does not change, so it is kept in this instance's memory, cached at the
-// edge for an hour and never read again. Any other birth keeps what it read, and a minute after its last listing only
-// the signatures after the newest seen are listed and read on. With a paid node one answer does it all; on the public
-// node every call keeps its pace (one every 1.3 s, on the mark the history shares) and an answer gives what it has
-// (complete: false), the next one goes on. A transaction the node does not serve (null, or an error) is not read: the
-// answer stays complete: false and the next ask tries it again.
+// only names the pool counts there). While one of the first buyers has a seat in an opening batch and the batch's
+// settle has not been read, the OLDEST window does not stop the reading: only FETCH does, and a birth stopped there
+// keeps seat.settled false (each seat as the last transaction read left it). A birth that has its FIRST buyers or its
+// window read (and their seats settled), or FETCH fetched, with transactions after it, is final: it does not change,
+// so it is kept in this instance's memory, cached at the edge for an hour and never read again. Any other birth keeps
+// what it read, and a minute after its last listing (not while an ask is still reading it) only the signatures after
+// the newest seen are listed and read on. With a paid node one answer does it all, unless the node refuses part of a
+// batch (its plan's rate): what it served is read, and the next ask goes on. On the public node every call keeps its
+// pace (one every 1.3 s, on the mark the history shares) and an answer gives what it has (complete: false), the next
+// one goes on. A transaction the node does not serve (null, or an error) is not read: the answer stays
+// complete: false and the next ask tries it again.
 //
 // Answer: { complete, tooOld, read, more, launch, buyers }
 //   complete: nothing more to read until the pool has new transactions. tooOld: 5,000 or more transactions, its start
@@ -22,7 +26,7 @@
 //   launch: { signature, slot, time, creator, firstBuy: { sol, tokens } | { sol, batch: true } (the creator's seat) | null }
 //   buyers: [{ wallet, signature, slot, time, sol, creator, funding, batch?, seat? }], in chain order
 //     seat (batch): { sol (in it at the end of what was read), settled (the batch's settle was read: sol is final),
-//                     out (a withdrawal emptied it before the settle) }
+//                     out (a withdrawal emptied it before the settle, and no commit took a seat again after it) }
 //     funding: { by, signature, time, sol } | { older: true } (1,000 or more transactions before the buy)
 //              | { none: true } (its oldest transactions before the buy that did not fail, up to TRIES, were all read
 //              and none gave it SOL) | null (not read yet: complete is false)
@@ -45,12 +49,17 @@ const tag = (name) => createHash("sha256").update(`event:${name}`).digest().suba
 const TRADE = tag("TradeEvent"), LAUNCHED = tag("Launched"), COMMITTED = tag("Committed"), WITHDRAWN = tag("Withdrawn"), SETTLED = tag("Settled");
 const OTHERS = ["SeatClaimed", "Graduated", "FeesClaimed", "CreatorChanged"].map(tag);   // the pool's too: they count as read
 
-/** A call that keeps the public node's pace (the turn the history takes too), and gives up when the answer's time is spent. */
+/**
+ * A call that keeps the public node's pace (the turn the history takes too), and gives up when the answer's time is
+ * spent or the node refuses all of it (429). A batch it refuses only in part (a paid plan's rate) comes back as it is:
+ * the caller reads what was served, up to the first one that was not.
+ */
 async function paced(cluster, body, until) {
   if (!(await publicTurn(cluster, until)) || (cluster.paid && Date.now() > until)) throw new OutOfTime();
   const r = await call(cluster, body);
-  const errs = Array.isArray(r) ? r.filter((x) => x?.error) : r?.error ? [r] : [];
-  if (errs.some((x) => x.error.code === 429)) { backOff(cluster); throw new OutOfTime(); }
+  const all = Array.isArray(r) ? r : [r], refused = all.filter((x) => x?.error?.code === 429).length;
+  if (refused) backOff(cluster);
+  if (refused && refused === all.length) throw new OutOfTime();
   return r;
 }
 const one = (method, params) => ({ jsonrpc: "2.0", id: 1, method, params });
@@ -105,9 +114,11 @@ const fresh = (mint) => ({
   mint, list: listing(null), newest: null, listedAt: 0, queue: [], beyond: false, fetched: 0, read: 0,
   launch: null, buyers: [], settled: false, tooOld: false, done: false,
 });
-/** Nothing more is read for buyers: the window is read, or the FIRST buyers are in (and their seats settled). */
-const stopped = (st) => st.read >= OLDEST || st.fetched >= FETCH || (!st.queue.length && st.beyond)
-  || (st.buyers.length >= FIRST && (st.settled || !st.buyers.some((b) => b.batch)));
+/** One of the first buyers has a seat in the batch and the settle was not read yet: the seats are followed on. */
+const seated = (st) => !st.settled && st.buyers.some((b) => b.batch);
+/** Nothing more is read for buyers: FETCH fetched, or the window read or the FIRST buyers in, with no seat to follow. */
+const stopped = (st) => st.fetched >= FETCH || (!st.queue.length && st.beyond)
+  || (!seated(st) && (st.read >= OLDEST || st.buyers.length >= FIRST));
 /** There are transactions after the ones read that were not looked at. */
 const more = (st) => st.tooOld || st.queue.length > 0 || st.beyond || !!(st.list && (st.list.got.length || st.list.cut));
 /** It will not change: nothing more is read, and what comes after it is known to be there. */
@@ -129,7 +140,8 @@ function take(st, pool, signature, tx, program) {
         if (inLaunch() && e.owner === st.launch.creator) st.launch.firstBuy = { sol: sol(e.sol), batch: true };
         if (!b && st.buyers.length < FIRST) st.buyers.push(b = { wallet: e.owner, ...at, sol: sol(e.sol), creator: false, funding: null, batch: true, seat: { sol: 0, out: false } });
       }
-      if (b?.seat && !st.settled) { b.seat.sol = sol(e.seatSol); if (e.kind === "withdraw" && e.seatSol === 0n) b.seat.out = true; }
+      // withdrawing all of it closes the seat (out); a commit after it takes a seat again (the program makes it anew)
+      if (b?.seat && !st.settled) { b.seat.sol = sol(e.seatSol); b.seat.out = e.kind === "commit" ? false : b.seat.out || e.seatSol === 0n; }
     }
     if (e.kind === "trade" && e.buy && e.trader !== pool) {          // the batch's own buy (by the pool) is its seats'
       if (inLaunch() && e.trader === st.launch.creator) st.launch.firstBuy = { sol: sol(e.sol), tokens: Number(e.tokens) / 1e6 };
@@ -195,7 +207,7 @@ async function advance(cluster, pool, st, until) {
     b.funding ??= { none: true };
     delete b.look;
   }
-  if (!unread) st.done = true;
+  if (!unread && !st.list) st.done = true;              // a listing opened meanwhile is read first
 }
 
 const view = (st) => ({
@@ -223,7 +235,7 @@ export async function handleBirth(request, env = {}) {
     else {
       let mint;
       try { mint = await poolMint(cluster, pool, until); } catch (err) {
-        if (!(err instanceof OutOfTime)) throw err;      // the public node's turn comes later: nothing read yet, ask again
+        if (!(err instanceof OutOfTime)) throw err;      // the node's turn comes later (or a 429): nothing read yet, ask again
         return json(view(fresh(null)), 200, { "cache-control": "public, max-age=0, s-maxage=1" });
       }
       if (!mint) return json({ error: "Not a pool of this program" }, 404, { "cache-control": "public, s-maxage=60" });
@@ -233,7 +245,8 @@ export async function handleBirth(request, env = {}) {
     }
     if (!job.view) {
       const st = job.state;
-      if (!st.list && Date.now() - st.listedAt >= YOUNG_MS) { st.done = false; st.list = listing(st.newest); }   // anything new?
+      // anything new? Not under a run still going: it is past its listing, and would end done with this one unread
+      if (!job.running && !st.list && Date.now() - st.listedAt >= YOUNG_MS) { st.done = false; st.list = listing(st.newest); }
       if (!st.done) {
         job.running ??= advance(cluster, pool, st, until)
           .catch((err) => { if (!(err instanceof OutOfTime)) console.error("birth:", err); })

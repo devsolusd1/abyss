@@ -533,7 +533,12 @@ let historyDownUntil = 0;
 async function fromServer(pool, limit, signal, at) {
   const mark = at ? `&at=${encodeURIComponent(String(at).slice(0, 120))}` : "";
   const res = await bounded(fetch(`${NET.historyUrl}&pool=${encodeURIComponent(pool)}&limit=${limit}${mark}`, { signal, cache: "no-store" }), 15_000, signal);
-  if (!res.ok) throw new Error(`The history server answered ${res.status}`);
+  if (!res.ok) {
+    const err = new Error(`The history server answered ${res.status}`);
+    // a busy public node: the server asks to be asked again in a few seconds, not to be left for a minute
+    if (res.status === 503 && Number(res.headers.get("retry-after")) > 0) err.retryMs = Math.min(15, Number(res.headers.get("retry-after"))) * 1000;
+    throw err;
+  }
   const body = await res.json();
   if (!body || !Array.isArray(body.signatures) || !body.txs || typeof body.txs !== "object") throw new Error("Not a history");
   const signatures = body.signatures
@@ -553,7 +558,8 @@ async function fromServer(pool, limit, signal, at) {
 /**
  * The pool's recent history, read from the program's own logs (it needs nothing but an RPC), at the pace above.
  * With the site's server (NET.historyUrl) it is one call that brings the signatures and every transaction the server
- * has; without it, or when it fails (then for a minute), the signatures and transactions are read here. `at` marks the
+ * has; without it, or when it fails (then for a minute, or for the few seconds a busy one asks), the signatures and
+ * transactions are read here. `at` marks the
  * pool's state as the page last read it (its volume and paid fees, say): the server reads the list again for a new mark.
  * Looks back over the last `limit` transactions on the pool and fetches the ones not kept yet, until all are in,
  * `budgetMs` has passed, or `signal` aborts; `onProgress(result)` hears whenever what it would return changes.
@@ -580,7 +586,7 @@ export async function readHistory(mint, { limit = 100, budgetMs = Infinity, sign
   let sigs = null, served = null;
   if (NET.historyUrl && Date.now() >= historyDownUntil) {
     try { served = await fromServer(pool, limit, signal, at); sigs = served.signatures; }
-    catch (err) { if (signal?.aborted) throw err; historyDownUntil = Date.now() + 60_000; }
+    catch (err) { if (signal?.aborted) throw err; historyDownUntil = Date.now() + (err.retryMs ?? 60_000); }
   }
   if (!sigs) sigs = await bounded(conn().getSignaturesForAddress(new PublicKey(pool), { limit }), 20_000, signal);
   const ok = sigs.filter((s) => !s.err);
@@ -731,7 +737,7 @@ export async function buildBuy({ pool, owner, sol, slippageBps = 100 }) {
   const quote = quoteBuy(pool, lamports, pool.feeBps);
   const minOut = minus(quote.tokensOut, slippageBps);
   const tx = new Transaction().add(
-    ComputeBudgetProgram.setComputeUnitLimit({ units: 60_000 }),
+    ComputeBudgetProgram.setComputeUnitLimit({ units: 80_000 }),   // a first buy that opens the account and graduates took up to 61k
     openAccount(owner, owner, pool.mint),
     await ix("buy", swapKeys(pool, owner), u64(lamports), u64(minOut)),
   );
@@ -802,8 +808,8 @@ export async function buildWithdraw({ pool, owner, sol }) {
 
 /**
  * A seat's claim, after its token account is opened (idempotent) when the batch bought (`bought`). On a refund the
- * account is not opened and the program does not touch it, but it is still passed, writable: the owner itself in its
- * place would be the same writable account twice, which Anchor refuses.
+ * account is not opened and the program does not touch it, but it is still passed, writable, in its place in the
+ * claim's accounts.
  */
 async function seatClaimIxs(pool, owner, bought) {
   const claim = await ix("claim_seat", [
@@ -815,20 +821,36 @@ async function seatClaimIxs(pool, owner, bought) {
 }
 
 /**
+ * Whether a settle of the pool is sure to buy nothing, from the pool and the cluster's clock read again together (one
+ * call, so one slot): its batch still open with less than OPENING.minBatch in it, read in the window's last minute or
+ * after, when SOL only comes out of the seats. Anything else, a failed read included, is not sure.
+ */
+async function refundsForSure(pool) {
+  try {
+    const [info, clock] = await conn().getMultipleAccountsInfo([new PublicKey(pool.address), CLOCK]);
+    if (!info || !clock || clock.data.length < 40) return false;
+    const o = parsePool(new PublicKey(pool.address), info.data).opening, now = Number(new Reader(clock.data, 32).i64());
+    return !!o && o.state === "open" && now >= o.opensAt - OPENING.lockSecs && o.sol < OPENING.minBatch;
+  } catch { return false; }
+}
+
+/**
  * Ends a batch whose window is over; whoever sends it only pays the network fee. With `claimFor` (a wallet with a seat,
- * which then signs), the same transaction claims that seat too, its token account opened first when the batch is
- * going to buy (OPENING.minBatch or more in it: the window is over, so `pool.opening.sol` is the batch's final SOL).
+ * which then signs), the same transaction claims that seat too, its token account opened first (idempotent) unless the
+ * settle is sure to buy nothing (refundsForSure, read here). `pool` does not decide it: it may have been read before
+ * the last SOL went in or out. When the read is not sure the account is opened, for nothing on a refund (it stays the
+ * owner's).
  */
 export async function buildSettle({ pool, claimFor }) {
   const settle = await ix("settle", [
     meta(pool.address, { writable: true }), meta(pool.mint, { writable: true }), meta(pool.vault, { writable: true }), meta(TOKEN_2022),
   ]);
   if (!claimFor) return { tx: new Transaction().add(ComputeBudgetProgram.setComputeUnitLimit({ units: SETTLE_UNITS }), settle), signers: [] };
-  const buys = (pool.opening ? pool.opening.sol : 0n) >= OPENING.minBatch;
+  // the seat claim's units cover its token account's opening, so the sum covers a settle with a claim either way
   const tx = new Transaction().add(
     ComputeBudgetProgram.setComputeUnitLimit({ units: SETTLE_UNITS + SEAT_CLAIM_UNITS }),
     settle,
-    ...(await seatClaimIxs(pool, new PublicKey(claimFor), buys)),
+    ...(await seatClaimIxs(pool, new PublicKey(claimFor), !(await refundsForSure(pool)))),
   );
   return { tx, signers: [] };
 }
@@ -970,7 +992,7 @@ export async function simulate(built, feePayer) {
   await prepare(built, feePayer);
   // Signatures are not checked in a simulation, so the wallet's missing one does not matter.
   const sim = await conn().simulateTransaction(built.tx);
-  return { ok: !sim.value.err, logs: sim.value.logs ?? [], units: sim.value.unitsConsumed, error: sim.value.err && explain(sim.value) };
+  return { ok: !sim.value.err, logs: sim.value.logs ?? [], units: sim.value.unitsConsumed, error: sim.value.err && explain(sim.value, built.tx) };
 }
 
 /** Has the wallet sign, sends, and waits for confirmation. Returns the signature. */
@@ -988,23 +1010,33 @@ export async function send(built, wallet) {
     // (the page explains the program's error), a 4xx from the site's server
     if (!/already been processed/i.test(m) && !/^5\d\d\b|fetch|network|timed? ?out|ECONN|socket|aborted/i.test(m)) throw err;
   }
-  await confirm(signature, height, raw);
+  await confirm(signature, height, raw, built.tx);
   return signature;
 }
 
 /**
  * Waits for a sent transaction by asking for its status once a second (no websocket: the site's server is plain HTTP).
- * It is sent again, up to three times, while it has not landed, and given up once its blockhash has expired.
+ * It is sent again, up to three times, while it has not landed, and given up once its blockhash has expired. One that
+ * landed and failed throws with the program's reason in words (`reason`): the node's own check passed it before it was
+ * sent, so it lost a race on the way (the batch's clock edges, a settle someone else sent first).
  */
-async function confirm(signature, lastValidBlockHeight, raw) {
-  const failed = () => Object.assign(new Error("The transaction failed on chain"), { signature });
+async function confirm(signature, lastValidBlockHeight, raw, tx) {
+  const failed = (err) => {
+    let reason = explain({ err }, tx);
+    // explain's last word speaks of a simulation, and this one landed: name the network's own error instead
+    if (reason === "The transaction would fail") {
+      const name = typeof err === "string" ? err : typeof err?.InstructionError?.[1] === "string" ? err.InstructionError[1] : null;
+      reason = name ? `The network refused it (${name})` : "The network refused it";
+    }
+    return Object.assign(new Error(`The transaction failed on chain: ${reason}`), { signature, reason });
+  };
   const landed = (st) => st && (st.confirmationStatus === "confirmed" || st.confirmationStatus === "finalized");
   let resent = 0;
   for (let i = 1; ; i++) {
     await sleep(1000);
     let st = null;
     try { st = (await conn().getSignatureStatuses([signature])).value[0]; } catch { /* asked again in a second */ }
-    if (st?.err) throw failed();
+    if (st?.err) throw failed(st.err);
     if (landed(st)) return;
     if (i % 4 !== 0) continue;
     let height = 0;
@@ -1012,7 +1044,7 @@ async function confirm(signature, lastValidBlockHeight, raw) {
     if (height > lastValidBlockHeight) {
       // one last look, in the node's history too, before calling it lost
       try { st = (await conn().getSignatureStatuses([signature], { searchTransactionHistory: true })).value[0]; } catch { st = null; }
-      if (st?.err) throw failed();
+      if (st?.err) throw failed(st.err);
       if (landed(st)) return;
       throw Object.assign(new Error("The transaction expired before it landed"), { signature });
     }
@@ -1022,43 +1054,68 @@ async function confirm(signature, lastValidBlockHeight, raw) {
 
 /* ---------------- Errors in plain words ---------------- */
 
-const POOL_ERRORS = [
-  "Only the program's upgrade authority can create the config",
-  "Launches are open to the team only for now",
-  "A number is outside what the program allows",
-  "The launch fee changed; try again",
-  "Name, symbol or link is too long",
-  "That coin address is taken; try again",
-  "The new coin did not come out as expected",
-  "An account is not the one this pool expects",
-  "The price moved past your limit",
-  "Too small to trade",
-  "Arithmetic overflow",
-  "Tokens can't be bought into the pool's own account",
-  "Nothing to claim",
-  "The pool would hold less SOL than it owes",
-  "That token account can't receive this coin; use a fresh wallet account",
-  "The treasury must be a funded wallet",
-  "The opening window must be 2 to 15 minutes, or none",
-  "This coin has no opening batch going on",
-  "The opening batch has closed",
-  "Seats close in the opening batch's last minute",
-  "The opening batch is still open",
-  "Buying opens once the opening batch is settled",
+/**
+ * The program's errors (PoolError in lib.rs, numbered from 7000), in order, each by its name there and in the site's
+ * words. check-opening.mjs holds the names and their order against lib.rs.
+ */
+export const POOL_ERRORS = [
+  ["NotUpgradeAuthority", "Only the program's upgrade authority can create the config"],
+  ["LaunchesClosed", "Launches are open to the team only for now"],
+  ["OutOfBounds", "A number is outside what the program allows"],
+  ["LaunchFeeTooHigh", "The launch fee changed; try again"],
+  ["MetadataTooLong", "Name, symbol or link is too long"],
+  ["MintTaken", "That coin address is taken; try again"],
+  ["MintMismatch", "The new coin did not come out as expected"],
+  ["WrongAccount", "An account is not the one this pool expects"],
+  ["Slippage", "The price moved past your limit"],
+  ["ZeroAmount", "Too small to trade"],
+  ["MathOverflow", "Arithmetic overflow"],
+  ["PoolAsBuyer", "Tokens can't be bought into the pool's own account"],
+  ["NothingToClaim", "Nothing to claim"],
+  ["Insolvent", "The pool would hold less SOL than it owes"],
+  ["UnsafeBuyerAccount", "That token account can't receive this coin; use a fresh wallet account"],
+  ["UnusableTreasury", "The treasury must be a funded wallet"],
+  ["BadOpening", "The opening window must be 2 to 15 minutes, or none"],
+  // a commit, a withdrawal or a settle after the settle, or any of them on a coin that opened at once
+  ["NoOpening", "The opening batch was settled already, or this coin never had one"],
+  ["OpeningClosed", "The opening batch has closed"],
+  ["OpeningLocked", "Seats close in the opening batch's last minute"],
+  ["OpeningNotOver", "The opening batch is still open"],
+  ["NotOpenYet", "Buying opens once the opening batch is settled"],
 ];
 
-export function explain(errorOrSim) {
+/** Whether instruction `i` of `tx` is the pool's sell (its tag is cached once a sell was built). */
+function isSell(tx, i) {
+  const ins = tx?.instructions?.[i], tag = discCache.get("global:sell");
+  try { return !!(ins && tag && ins.programId.equals(program()) && tag.every((x, k) => ins.data[k] === x)); } catch { return false; }
+}
+
+/**
+ * A failure in plain words: a simulation's value (its err and logs), { err } (a landed transaction's status), or an
+ * error's text. `tx`, the transaction that failed, tells what a shortfall was of when no logs say it.
+ */
+export function explain(errorOrSim, tx) {
   const text = JSON.stringify(errorOrSim?.err ?? errorOrSim ?? "");
+  const logs = Array.isArray(errorOrSim?.logs) ? errorOrSim.logs.join("\n") : "";
   const custom = text.match(/"Custom":(\d+)/);
   if (custom) {
-    const code = Number(custom[1]);
-    if (code >= 7000 && code < 7000 + POOL_ERRORS.length) return POOL_ERRORS[code - 7000];
+    const code = Number(custom[1]), at = Number((text.match(/"InstructionError":\[(\d+)/) ?? [])[1]);
+    if (code >= 7000 && code < 7000 + POOL_ERRORS.length) return POOL_ERRORS[code - 7000][1];
     // Anchor's: arguments it could not read (102), a signer or seeds it did not expect (2002, 2006). From this site
     // they mean the page and the program are not the same version (an open tab from before an upgrade, say)
     if (code === 102 || code === 2002 || code === 2006) return "The site and the program are on different versions: reload the page";
+    // 1: the System Program ran out of the wallet's lamports, or Token-2022 out of its tokens, inside whichever
+    // instruction called it. Of this site's transactions only a sell moves the wallet's own tokens
+    if (code === 1) return /insufficient funds/i.test(logs) || (!/insufficient lamports/i.test(logs) && isSell(tx, at)) ? "Not enough tokens" : "Not enough SOL";
+    // Anchor's AccountNotInitialized: in this site's transactions only a seat can be missing (a withdrawal or a claim
+    // after the seat closed)
+    if (code === 3012 && (!/caused by account: /.test(logs) || /caused by account: seat\b/.test(logs))) {
+      return "This wallet has no seat in the batch: it was claimed or emptied already, or never taken";
+    }
     return `Program error ${code}`;
   }
-  if (text.includes("InsufficientFunds") || text.includes("insufficient lamports")) return "Not enough SOL";
+  if (text.includes("InsufficientFunds") || /insufficient lamports/i.test(text + logs)) return "Not enough SOL";
+  if (text.includes("ComputationalBudgetExceeded")) return "It needs more compute than this site set aside for it";
   // a fee payer with no lamports has no account at all
   if (text.includes("AccountNotFound")) return "This wallet has no SOL yet, and it needs a little for the network fee";
   return "The transaction would fail";

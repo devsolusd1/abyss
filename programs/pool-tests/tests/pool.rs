@@ -8,13 +8,14 @@ use {
     dex::{
         math,
         state::{
-            Pool, CONFIG_SEED, MINT_SEED, MIN_OPENING_SECS, OPENING_LOCK_SECS, OPENING_REFUND, OPENING_SETTLED, POOL_SEED, SEAT_SEED,
-            SUPPLY,
+            Pool, CONFIG_SEED, MAX_OPENING_SECS, MINT_SEED, MIN_BATCH, MIN_COMMIT, MIN_OPENING_SECS, OPENING_LOCK_SECS,
+            OPENING_REFUND, OPENING_SETTLED, POOL_SEED, SEAT_SEED, SUPPLY,
         },
         token::{ATA_PROGRAM, TOKEN_2022},
         ConfigArgs, LaunchArgs, PoolError,
     },
     litesvm::{types::{TransactionMetadata, TransactionResult}, LiteSVM},
+    solana_account::Account,
     solana_address::Address,
     solana_clock::Clock,
     solana_instruction::{account_meta::AccountMeta, Instruction},
@@ -61,6 +62,8 @@ fn fresh_salt() -> u64 {
 
 /// Anchor's "a seeds constraint was violated" (ConstraintSeeds).
 const WRONG_SEEDS: InstructionError = InstructionError::Custom(2006);
+/// Anchor's "the account is not initialized" (AccountNotInitialized): here, a seat that does not exist.
+const NO_SEAT: InstructionError = InstructionError::Custom(3012);
 
 fn config_address() -> Address {
     Address::find_program_address(&[CONFIG_SEED], &dex::ID).0
@@ -338,25 +341,54 @@ impl Env {
         Some(u64::from_le_bytes(account.data[72..80].try_into().unwrap()))
     }
 
+    fn settle_accounts(coin: &Coin) -> dex::accounts::Settle {
+        dex::accounts::Settle { pool: coin.pool, mint: coin.mint, vault: coin.vault, token_program: TOKEN_2022 }
+    }
+
     fn settle(&mut self, coin: &Coin, caller: &Keypair) -> TransactionResult {
-        let accounts = dex::accounts::Settle { pool: coin.pool, mint: coin.mint, vault: coin.vault, token_program: TOKEN_2022 };
-        let ix = Instruction { program_id: dex::ID, accounts: accounts.to_account_metas(None), data: dex::instruction::Settle {}.data() };
+        let ix = pool_ix(Env::settle_accounts(coin), dex::instruction::Settle {});
         self.send(caller, vec![ix], &[])
+    }
+
+    /// The accounts of `owner`'s claim on their seat in `coin`, paid into their own token account.
+    fn claim_seat_accounts(coin: &Coin, owner: &Address) -> dex::accounts::ClaimSeat {
+        dex::accounts::ClaimSeat {
+            owner: *owner, pool: coin.pool, seat: Env::seat_of(coin, owner), mint: coin.mint, vault: coin.vault,
+            owner_tokens: ata(owner, &coin.mint), token_program: TOKEN_2022,
+        }
+    }
+
+    /// A seat's claim, after the owner's token account is opened when `open_account`.
+    fn claim_seat_ixs(coin: &Coin, owner: &Address, open_account: bool) -> Vec<Instruction> {
+        let mut ixs = vec![];
+        if open_account {
+            ixs.push(Env::open_account_ix(owner, owner, &coin.mint));
+        }
+        ixs.push(pool_ix(Env::claim_seat_accounts(coin, owner), dex::instruction::ClaimSeat {}));
+        ixs
     }
 
     /// The seat's tokens into the owner's account (opened in the same transaction), or its SOL back.
     fn claim_seat(&mut self, coin: &Coin, owner: &Keypair, open_account: bool) -> TransactionResult {
-        let who = owner.pubkey();
-        let accounts = dex::accounts::ClaimSeat {
-            owner: who, pool: coin.pool, seat: Env::seat_of(coin, &who), mint: coin.mint, vault: coin.vault,
-            owner_tokens: ata(&who, &coin.mint), token_program: TOKEN_2022,
-        };
-        let mut ixs = vec![];
-        if open_account {
-            ixs.push(Env::open_account_ix(&who, &who, &coin.mint));
-        }
-        ixs.push(Instruction { program_id: dex::ID, accounts: accounts.to_account_metas(None), data: dex::instruction::ClaimSeat {}.data() });
+        let ixs = Env::claim_seat_ixs(coin, &owner.pubkey(), open_account);
         self.send(owner, ixs, &[])
+    }
+
+    /// A new wallet holding `sol`.
+    fn wallet(&mut self, sol: u64) -> Keypair {
+        let key = Keypair::new();
+        self.svm.airdrop(&key.pubkey(), sol).unwrap();
+        key
+    }
+
+    /// The rent a seat holds, which goes back to its owner when it closes.
+    fn seat_rent(&self) -> u64 {
+        self.svm.minimum_balance_for_rent_exemption(8 + 32 + 32 + 8 + 1)
+    }
+
+    /// The accounts at these addresses as they are now, to show that a refused call moved nothing.
+    fn snapshot(&self, addresses: &[Address]) -> Vec<Option<Account>> {
+        addresses.iter().map(|a| self.svm.get_account(a)).collect()
     }
 
     fn warp(&mut self, to: i64) {
@@ -407,6 +439,11 @@ impl Env {
     }
 }
 
+/// One of the pool's instructions, from its accounts (which a test may have swapped) and its data.
+fn pool_ix(accounts: impl ToAccountMetas, data: impl InstructionData) -> Instruction {
+    Instruction { program_id: dex::ID, accounts: accounts.to_account_metas(None), data: data.data() }
+}
+
 /// The instruction error a failed transaction ended with.
 fn error(result: TransactionResult) -> InstructionError {
     match result.expect_err("transaction should have failed").err {
@@ -425,8 +462,9 @@ fn units(result: TransactionResult) -> u64 {
     result.unwrap().compute_units_consumed
 }
 
-/// Calls the pool made to the System Program in a transaction, read off its logs: a `commit` makes two when it creates
-/// the seat (create_account, then the transfer) and one when the seat was already there.
+/// Calls a transaction's instructions made to the System Program, read off its logs: a `commit` makes two when it
+/// creates the seat (create_account, then the transfer) and one when the seat was already there. Opening an account at
+/// an address already sent SOL takes three calls instead of create_account: the rest of the rent, allocate, assign.
 fn system_calls(meta: &TransactionMetadata) -> usize {
     meta.logs.iter().filter(|l| *l == "Program 11111111111111111111111111111111 invoke [2]").count()
 }
@@ -866,7 +904,7 @@ fn random_trading_keeps_every_book_straight() {
 }
 
 /// What each step costs, so the site can ask for the right compute limit. Printed, and held
-/// under limits with room to spare.
+/// under the limits the site asks for.
 #[test]
 fn compute_units() {
     let mut env = Env::new();
@@ -892,8 +930,11 @@ fn compute_units() {
         "compute units: launch {usual} (longest metadata {long}); first buy with account creation {first_buy}, \
          buy {buy}, sell {sell}, graduating buy {graduating}, buy after graduation {after}"
     );
-    assert!(usual.max(long) < 300_000);
-    assert!(first_buy.max(buy).max(sell).max(graduating).max(after) < 120_000);
+    // under the limits the site's package asks for (site/chain/src/index.mjs); a_first_buy_fits_the_compute_the_site_asks_for
+    // and a_launch_fits_the_compute_the_site_asks_for take them at their dearest
+    assert!(usual.max(long) < 200_000);
+    assert!(first_buy.max(buy).max(graduating).max(after) < 80_000);
+    assert!(sell < 40_000);
 
     // The opening batch, held under the limits the site's package asks for (site/chain/src/index.mjs).
     let launch_batch = |env: &mut Env| {
@@ -1179,6 +1220,76 @@ fn base64(s: &str) -> Vec<u8> {
     out
 }
 
+/// Every event of type `E` in a transaction's logs, in order, once each of the pool's events in them has been read
+/// where the site reads it (check_wire).
+fn events<E: anchor_lang::Event>(meta: &TransactionMetadata) -> Vec<E> {
+    check_wire(meta);
+    meta.logs.iter().filter_map(|l| l.strip_prefix("Program data: ")).map(base64).filter_map(|b| decoded::<E>(&b)).collect()
+}
+
+/// The event of type `E` in one "Program data:" line, its tag included, or None if the line holds another kind.
+fn decoded<E: anchor_lang::Event>(bytes: &[u8]) -> Option<E> {
+    let tag = <E as anchor_lang::Discriminator>::DISCRIMINATOR;
+    bytes.strip_prefix(tag).map(|mut rest| <E as anchor_lang::AnchorDeserialize>::deserialize(&mut rest).unwrap())
+}
+
+/// Each of the pool's events in a transaction's logs, read at the places the site reads it (by the position of its
+/// bytes, tag included: server/birth.mjs, and site/chain/src/index.mjs in order) and held against the event as the
+/// program wrote it, with its length. A field moved, added or taken out fails here, and not only on the site.
+fn check_wire(meta: &TransactionMetadata) {
+    let key = |b: &[u8], at: usize| Address::new_from_array(b[at..at + 32].try_into().unwrap());
+    let num = |b: &[u8], at: usize| u64::from_le_bytes(b[at..at + 8].try_into().unwrap());
+    let flag = |b: &[u8], at: usize| match b[at] {
+        0 => false,
+        1 => true,
+        other => panic!("a bool byte of {other}"),
+    };
+    for b in meta.logs.iter().filter_map(|l| l.strip_prefix("Program data: ")).map(base64) {
+        if let Some(e) = decoded::<dex::TradeEvent>(&b) {
+            assert_eq!(b.len(), 147, "TradeEvent's length");
+            assert_eq!((key(&b, 8), key(&b, 40), key(&b, 72), flag(&b, 104)), (e.mint, e.trader, e.recipient, e.buy));
+            let amounts = [num(&b, 105), num(&b, 113), num(&b, 121), num(&b, 129), num(&b, 137)];
+            assert_eq!(amounts, [e.sol, e.tokens, e.fee, e.real_sol, e.token_reserve]);
+            assert_eq!((flag(&b, 145), flag(&b, 146)), (e.graduated, e.by_creator));
+        } else if let Some(e) = decoded::<dex::Launched>(&b) {
+            assert_eq!(b.len(), 130, "Launched's length");
+            assert_eq!((key(&b, 8), key(&b, 40), key(&b, 72)), (e.mint, e.creator, e.hook_program));
+            let fee_bps = u16::from_le_bytes(b[120..122].try_into().unwrap());
+            let opens_at = i64::from_le_bytes(b[122..130].try_into().unwrap());
+            assert_eq!((num(&b, 104), num(&b, 112), fee_bps, opens_at), (e.virtual_sol, e.graduation_sol, e.fee_bps, e.opens_at));
+        } else if let Some(e) = decoded::<dex::Committed>(&b) {
+            assert_eq!(b.len(), 96, "Committed's length");
+            assert_eq!((key(&b, 8), key(&b, 40), [num(&b, 72), num(&b, 80), num(&b, 88)]), (e.mint, e.owner, [e.sol, e.seat_sol, e.total]));
+        } else if let Some(e) = decoded::<dex::Withdrawn>(&b) {
+            assert_eq!(b.len(), 96, "Withdrawn's length");
+            assert_eq!((key(&b, 8), key(&b, 40), [num(&b, 72), num(&b, 80), num(&b, 88)]), (e.mint, e.owner, [e.sol, e.seat_sol, e.total]));
+        } else if let Some(e) = decoded::<dex::Settled>(&b) {
+            assert_eq!(b.len(), 61, "Settled's length");
+            let seats = u32::from_le_bytes(b[56..60].try_into().unwrap());
+            assert_eq!((key(&b, 8), num(&b, 40), num(&b, 48), seats, flag(&b, 60)), (e.mint, e.sol, e.tokens, e.seats, e.refund));
+        } else if let Some(e) = decoded::<dex::SeatClaimed>(&b) {
+            assert_eq!(b.len(), 89, "SeatClaimed's length");
+            assert_eq!((key(&b, 8), key(&b, 40), num(&b, 72), num(&b, 80), flag(&b, 88)), (e.mint, e.owner, e.sol, e.tokens, e.refund));
+        } else if let Some(e) = decoded::<dex::Graduated>(&b) {
+            assert_eq!(b.len(), 64, "Graduated's length");
+            assert_eq!((key(&b, 8), num(&b, 40), num(&b, 48), num(&b, 56)), (e.mint, e.real_sol, e.token_reserve, e.burned));
+        } else if let Some(e) = decoded::<dex::FeesClaimed>(&b) {
+            assert_eq!(b.len(), 81, "FeesClaimed's length");
+            assert_eq!((key(&b, 8), key(&b, 40), num(&b, 72), flag(&b, 80)), (e.mint, e.to, e.amount, e.creator));
+        } else if let Some(e) = decoded::<dex::CreatorChanged>(&b) {
+            assert_eq!(b.len(), 112, "CreatorChanged's length");
+            assert_eq!((key(&b, 8), key(&b, 40), key(&b, 72), num(&b, 104)), (e.mint, e.from, e.to, e.settled));
+        }
+    }
+}
+
+/// The one event of type `E` in a transaction's logs.
+fn event<E: anchor_lang::Event>(meta: &TransactionMetadata) -> E {
+    let mut all = events::<E>(meta);
+    assert_eq!(all.len(), 1, "one event of the kind");
+    all.pop().unwrap()
+}
+
 #[test]
 fn every_trade_says_whether_the_creator_made_it() {
     let mut env = Env::new();
@@ -1188,5 +1299,837 @@ fn every_trade_says_whether_the_creator_made_it() {
     assert_eq!(traded_by_creator(&env.buy(&coin, &alice, SOL).unwrap()), Some(false));
     assert_eq!(traded_by_creator(&env.sell(&coin, &admin, 1_000 * TOKEN).unwrap()), Some(true));
     assert_eq!(traded_by_creator(&env.sell(&coin, &alice, 1_000 * TOKEN).unwrap()), Some(false));
+}
+
+/// Once the batch is settled a seat's SOL is spent, or owed back: no withdrawal takes it out and no commitment adds to
+/// it, so a seat can never take its SOL back and its tokens too. After a refund only the claim gives the SOL back.
+#[test]
+fn after_the_settle_a_seat_can_only_be_claimed() {
+    let mut env = Env::new();
+    let (alice, bob) = (env.alice.insecure_clone(), env.bob.insecure_clone());
+    let carol = env.wallet(10 * SOL);
+    let (who, rent) = (bob.pubkey(), env.seat_rent());
+    // a batch that buys, and one under the smallest batch, which gives the SOL back
+    for (alice_sol, bob_sol) in [(2 * SOL, SOL), (2 * MIN_COMMIT, MIN_COMMIT)] {
+        let coin = launch_with_batch(&mut env, 300, 0);
+        let opens = env.pool(&coin).opens_at;
+        env.commit(&coin, &alice, alice_sol).unwrap();
+        env.commit(&coin, &bob, bob_sol).unwrap();
+        env.warp(opens);
+        env.settle(&coin, &carol).unwrap();
+        let p = env.pool(&coin);
+        let bought = bob_sol == SOL;
+        assert_eq!(p.opening_state, if bought { OPENING_SETTLED } else { OPENING_REFUND });
+
+        let watched = [coin.pool, coin.vault, Env::seat_of(&coin, &who), ata(&who, &coin.mint), Env::seat_of(&coin, &carol.pubkey())];
+        let before = env.snapshot(&watched);
+        // at the settle's own second, and long after
+        for at in [opens, opens + 3_600] {
+            env.warp(at);
+            for sol in [bob_sol / 2, bob_sol] {
+                assert_eq!(error(env.withdraw(&coin, &bob, sol)), pool_error(PoolError::NoOpening));
+            }
+            // more than the seat holds is refused first, before the batch is read
+            assert_eq!(error(env.withdraw(&coin, &bob, bob_sol + 1)), pool_error(PoolError::OutOfBounds));
+            assert_eq!(error(env.commit(&coin, &bob, SOL)), pool_error(PoolError::NoOpening));
+            assert_eq!(error(env.commit(&coin, &carol, SOL)), pool_error(PoolError::NoOpening), "nor into a new seat");
+            // a withdrawal next to the claim, before it or after it, fails the whole transaction
+            let mut ixs = vec![Env::withdraw_ix(&coin, &who, bob_sol)];
+            ixs.extend(Env::claim_seat_ixs(&coin, &who, bought));
+            assert_eq!(error(env.send(&bob, ixs, &[])), pool_error(PoolError::NoOpening));
+            let mut ixs = Env::claim_seat_ixs(&coin, &who, bought);
+            ixs.push(Env::withdraw_ix(&coin, &who, bob_sol));
+            assert_eq!(error(env.send(&bob, ixs, &[])), NO_SEAT, "the claim closed the seat");
+            assert_eq!(env.snapshot(&watched), before, "the refused calls moved nothing");
+        }
+
+        // the claim pays the seat as the settle left it
+        let lamports = env.lamports(&who);
+        env.claim_seat(&coin, &bob, bought).unwrap();
+        if bought {
+            let share = (p.opening_tokens as u128 * bob_sol as u128 / p.opening_total_sol as u128) as u64;
+            assert_eq!(env.tokens(&who, &coin), share);
+        } else {
+            assert_eq!(env.lamports(&who), lamports + bob_sol + rent - 5_000, "the SOL and the seat's rent back, less the network fee");
+        }
+        env.claim_seat(&coin, &alice, bought).unwrap();
+        let p = env.pool(&coin);
+        assert_eq!((p.opening_seats, p.opening_sol), (0, 0));
+        env.check_books(&coin);
+    }
+}
+
+/// A batch under the smallest that buys, with four seats, one of them partly taken back, and trades and fee claims
+/// before anyone takes their SOL back: every seat gets exactly its SOL back, in any order, and nothing else reaches it.
+#[test]
+fn a_refused_batch_gives_every_seat_its_sol_back_whatever_comes_first() {
+    let mut env = Env::new();
+    let admin = env.admin.insecure_clone();
+    let coin = launch_with_batch(&mut env, 120, 0);
+    let wallets: Vec<Keypair> = (0..4).map(|_| env.wallet(10 * SOL)).collect();
+    let (caller, trader) = (env.wallet(SOL), env.wallet(10 * SOL));
+    let seats = [2 * MIN_COMMIT, 3 * MIN_COMMIT, MIN_COMMIT, 3 * MIN_COMMIT];
+    for (i, (w, sol)) in wallets.iter().zip(seats).enumerate() {
+        if i == 1 {
+            // this one puts in 0.005 SOL and takes 0.002 back
+            env.commit(&coin, w, sol + 2 * MIN_COMMIT).unwrap();
+            env.withdraw(&coin, w, 2 * MIN_COMMIT).unwrap();
+        } else {
+            env.commit(&coin, w, sol).unwrap();
+        }
+        env.check_books(&coin);
+    }
+    let total: u64 = seats.iter().sum();
+    assert!(total < MIN_BATCH);
+    env.warp(env.pool(&coin).opens_at);
+    env.settle(&coin, &caller).unwrap();
+    let p = env.pool(&coin);
+    assert_eq!((p.opening_state, p.opening_total_sol, p.opening_sol, p.opening_seats), (OPENING_REFUND, total, total, 4));
+    assert_eq!((p.real_sol, p.token_reserve, p.opening_tokens), (0, SUPPLY, 0));
+    env.check_books(&coin);
+
+    // the coin trades before anyone takes the SOL back, and both fees are claimed
+    env.buy(&coin, &trader, SOL).unwrap();
+    env.check_books(&coin);
+    let held = env.tokens(&trader.pubkey(), &coin);
+    env.sell(&coin, &trader, held / 2).unwrap();
+    env.check_books(&coin);
+    env.claim_creator(&coin, &admin).unwrap();
+    env.claim_treasury(&coin, &caller).unwrap();
+    assert_eq!(env.pool(&coin).opening_sol, total);
+    env.check_books(&coin);
+
+    // each seat its SOL and its rent back, in another order than they came in
+    let rent = env.seat_rent();
+    for i in [3, 0, 2, 1] {
+        let (w, sol) = (&wallets[i], seats[i]);
+        let before = env.lamports(&w.pubkey());
+        env.claim_seat(&coin, w, false).unwrap();
+        assert_eq!(env.lamports(&w.pubkey()), before + sol + rent - 5_000, "seat {i}");
+        assert_eq!((env.seat_sol(&coin, &w.pubkey()), env.tokens(&w.pubkey(), &coin)), (None, 0), "seat {i}");
+        env.check_books(&coin);
+    }
+    let p = env.pool(&coin);
+    assert_eq!((p.opening_sol, p.opening_seats), (0, 0));
+    // and the trader can still leave
+    let held = env.tokens(&trader.pubkey(), &coin);
+    env.sell(&coin, &trader, held).unwrap();
+    env.check_books(&coin);
+}
+
+/// A batch over the smallest that buys falls under it when a seat leaves in the last second, when no commitment can top
+/// it up any more: it buys nothing, and the seat left takes its SOL back.
+#[test]
+fn a_batch_that_falls_under_the_minimum_at_the_last_second_gives_the_sol_back() {
+    let mut env = Env::new();
+    let (alice, bob) = (env.alice.insecure_clone(), env.bob.insecure_clone());
+    let coin = launch_with_batch(&mut env, 120, 0);
+    let opens = env.pool(&coin).opens_at;
+    env.commit(&coin, &alice, 6 * MIN_COMMIT).unwrap();
+    env.commit(&coin, &bob, 5 * MIN_COMMIT).unwrap();
+    assert!(env.pool(&coin).opening_sol >= MIN_BATCH);
+    env.warp(opens - 1);
+    env.withdraw(&coin, &bob, 5 * MIN_COMMIT).unwrap();
+    assert_eq!(error(env.commit(&coin, &alice, 4 * MIN_COMMIT)), pool_error(PoolError::OpeningLocked));
+    env.warp(opens);
+    env.settle(&coin, &bob).unwrap();
+    let p = env.pool(&coin);
+    assert_eq!((p.opening_state, p.opening_sol, p.opening_seats), (OPENING_REFUND, 6 * MIN_COMMIT, 1));
+    env.check_books(&coin);
+    let before = env.lamports(&alice.pubkey());
+    env.claim_seat(&coin, &alice, false).unwrap();
+    assert_eq!(env.lamports(&alice.pubkey()), before + 6 * MIN_COMMIT + env.seat_rent() - 5_000);
+    assert_eq!(error(env.claim_seat(&coin, &bob, false)), NO_SEAT, "the seat that left has nothing to claim");
+    assert_eq!(env.pool(&coin).opening_sol, 0);
+    env.check_books(&coin);
+}
+
+/// The batch's instructions take only their own accounts. Another wallet's seat, another coin's seat, mint or vault,
+/// another token program, a token account that is not the owner's for this coin, or a coin with no batch: the call is
+/// refused, and nothing moves.
+#[test]
+fn the_batch_is_not_fooled() {
+    const LEGACY_TOKEN: Address = Address::from_str_const("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+    let mut env = Env::new();
+    let (alice, bob) = (env.alice.insecure_clone(), env.bob.insecure_clone());
+    let (al, bo) = (alice.pubkey(), bob.pubkey());
+    let (a, b) = (launch_with_batch(&mut env, 300, 0), launch_with_batch(&mut env, 300, 0));
+    let plain = env.launch();
+    for coin in [&a, &b] {
+        env.commit(coin, &alice, 2 * SOL).unwrap();
+        env.commit(coin, &bob, SOL).unwrap();
+    }
+    let watched = [
+        a.pool, b.pool, a.vault, b.vault, Env::seat_of(&a, &al), Env::seat_of(&a, &bo), Env::seat_of(&b, &al),
+        Env::seat_of(&b, &bo), Env::seat_of(&plain, &bo),
+    ];
+    let before = env.snapshot(&watched);
+
+    // while the batch is open, bob names alice's seat, or his own seat in the other coin
+    let commit = |owner: Address, pool: Address, seat: Address| {
+        pool_ix(dex::accounts::Commit { owner, pool, seat, system_program: SYSTEM_PROGRAM }, dex::instruction::Commit { sol: SOL })
+    };
+    let withdraw = |owner: Address, pool: Address, seat: Address| {
+        pool_ix(dex::accounts::Withdraw { owner, pool, seat }, dex::instruction::Withdraw { sol: SOL })
+    };
+    for seat in [Env::seat_of(&a, &al), Env::seat_of(&b, &bo)] {
+        assert_eq!(error(env.send(&bob, vec![commit(bo, a.pool, seat)], &[])), WRONG_SEEDS);
+        assert_eq!(error(env.send(&bob, vec![withdraw(bo, a.pool, seat)], &[])), WRONG_SEEDS);
+    }
+    // a coin with no batch takes no seat: the refused commitment leaves none behind
+    assert_eq!(error(env.commit(&plain, &bob, SOL)), pool_error(PoolError::NoOpening));
+    assert_eq!(error(env.withdraw(&plain, &bob, SOL)), NO_SEAT);
+    assert_eq!(error(env.settle(&plain, &bob)), pool_error(PoolError::NoOpening));
+    assert_eq!(error(env.claim_seat(&plain, &bob, true)), NO_SEAT);
+    assert_eq!(env.snapshot(&watched), before);
+
+    // the settle: another coin's mint or vault, or another token program, can't stand in for the batch's own
+    env.warp(env.pool(&a).opens_at);
+    let mixed = [
+        dex::accounts::Settle { mint: b.mint, ..Env::settle_accounts(&a) },
+        dex::accounts::Settle { vault: b.vault, ..Env::settle_accounts(&a) },
+        dex::accounts::Settle { token_program: LEGACY_TOKEN, ..Env::settle_accounts(&a) },
+    ];
+    for accounts in mixed {
+        let ix = pool_ix(accounts, dex::instruction::Settle {});
+        assert_eq!(error(env.send(&bob, vec![ix], &[])), pool_error(PoolError::WrongAccount));
+    }
+    assert_eq!(env.snapshot(&watched), before);
+    env.settle(&a, &bob).unwrap();
+    env.settle(&b, &bob).unwrap();
+    let before = env.snapshot(&watched);
+
+    // the claim: with no token account of his own for the coin yet, bob's claim fails and his seat stays
+    let claim = |accounts: dex::accounts::ClaimSeat| pool_ix(accounts, dex::instruction::ClaimSeat {});
+    let bobs = || Env::claim_seat_accounts(&a, &bo);
+    assert_eq!(error(env.send(&bob, vec![claim(bobs())], &[])), pool_error(PoolError::WrongAccount));
+    env.send(&bob, vec![Env::open_account_ix(&bo, &bo, &a.mint), Env::open_account_ix(&bo, &bo, &b.mint)], &[]).unwrap();
+    let mixed = [
+        (dex::accounts::ClaimSeat { seat: Env::seat_of(&a, &al), ..bobs() }, WRONG_SEEDS),
+        (dex::accounts::ClaimSeat { seat: Env::seat_of(&b, &bo), ..bobs() }, WRONG_SEEDS),
+        (dex::accounts::ClaimSeat { mint: b.mint, ..bobs() }, pool_error(PoolError::WrongAccount)),
+        (dex::accounts::ClaimSeat { vault: b.vault, ..bobs() }, pool_error(PoolError::WrongAccount)),
+        (dex::accounts::ClaimSeat { token_program: LEGACY_TOKEN, ..bobs() }, pool_error(PoolError::WrongAccount)),
+        // the pool's own vault, and bob's account for the other coin
+        (dex::accounts::ClaimSeat { owner_tokens: a.vault, ..bobs() }, pool_error(PoolError::PoolAsBuyer)),
+        (dex::accounts::ClaimSeat { owner_tokens: ata(&bo, &b.mint), ..bobs() }, pool_error(PoolError::WrongAccount)),
+    ];
+    for (accounts, expected) in mixed {
+        assert_eq!(error(env.send(&bob, vec![claim(accounts)], &[])), expected);
+    }
+    assert_eq!(env.snapshot(&watched), before);
+    assert_eq!(env.tokens(&bo, &a) + env.tokens(&bo, &b), 0);
+
+    // each seat claims its own, once
+    for coin in [&a, &b] {
+        let p = env.pool(coin);
+        for (who, sol) in [(&alice, 2 * SOL), (&bob, SOL)] {
+            env.claim_seat(coin, who, true).unwrap();
+            assert_eq!(env.tokens(&who.pubkey(), coin), (p.opening_tokens as u128 * sol as u128 / (3 * SOL) as u128) as u64);
+        }
+        assert_eq!(env.pool(coin).opening_seats, 0);
+        env.check_books(coin);
+    }
+}
+
+/// A random walk through a batch, with a fixed seed: commitments and withdrawals across the window, seats closed and
+/// opened again, the lock, the settle at a random time, then the claims in a random order among buys and sells, the
+/// buy that graduates among them. The books are checked at every step.
+#[test]
+fn random_batches_keep_every_book_straight() {
+    let mut env = Env::new();
+    let coin = launch_with_batch(&mut env, MAX_OPENING_SECS, 0);
+    let opens = env.pool(&coin).opens_at;
+    let wallets: Vec<Keypair> = (0..8).map(|_| env.wallet(1_000 * SOL)).collect();
+    let mut seed = 0x2545_f491_4f6c_dd1du64;
+    let mut next = move |n: u64| {
+        seed ^= seed << 13;
+        seed ^= seed >> 7;
+        seed ^= seed << 17;
+        seed % n.max(1)
+    };
+
+    // the window, with what each seat should hold
+    let mut seats = [0u64; 8];
+    let mut closed = [false; 8];
+    let (mut reopened, mut locked, mut last_minute, mut step) = (0u32, 0u32, 0u32, 0u32);
+    let mut now = T0;
+    loop {
+        now += next(12) as i64;
+        if now >= opens {
+            break;
+        }
+        env.warp(now);
+        let i = next(8) as usize;
+        let w = &wallets[i];
+        let lock = now >= opens - OPENING_LOCK_SECS;
+        if next(10) == 0 {
+            // nobody buys or settles while the window is open
+            assert_eq!(error(env.buy(&coin, w, SOL)), pool_error(PoolError::NotOpenYet), "step {step}");
+            assert_eq!(error(env.settle(&coin, w)), pool_error(PoolError::OpeningNotOver), "step {step}");
+        } else if seats[i] == 0 || next(2) == 0 {
+            let sol = next(3 * SOL) + MIN_COMMIT;
+            if lock {
+                assert_eq!(error(env.commit(&coin, w, sol)), pool_error(PoolError::OpeningLocked), "step {step}");
+                locked += 1;
+            } else {
+                env.commit(&coin, w, sol).unwrap();
+                reopened += (seats[i] == 0 && closed[i]) as u32;
+                seats[i] += sol;
+            }
+        } else {
+            // all of it a third of the time, which closes the seat
+            let sol = if next(3) == 0 { seats[i] } else { next(seats[i]) + 1 };
+            env.withdraw(&coin, w, sol).unwrap();
+            seats[i] -= sol;
+            closed[i] |= seats[i] == 0;
+            last_minute += lock as u32;
+        }
+        env.check_books(&coin);
+        let p = env.pool(&coin);
+        assert_eq!(p.opening_sol, seats.iter().sum::<u64>(), "step {step}");
+        assert_eq!(p.opening_seats as usize, seats.iter().filter(|&&sol| sol > 0).count(), "step {step}");
+        for (w, &sol) in wallets.iter().zip(&seats) {
+            assert_eq!(env.seat_sol(&coin, &w.pubkey()), (sol > 0).then_some(sol), "step {step}");
+        }
+        step += 1;
+    }
+    assert!(
+        reopened > 0 && locked > 0 && last_minute > 0,
+        "the walk should open a closed seat again ({reopened}), meet the lock ({locked}) and leave in the last minute ({last_minute})"
+    );
+
+    // settled some time after the window, by a wallet with no seat
+    env.warp(opens + next(600) as i64);
+    let total: u64 = seats.iter().sum();
+    assert!(total >= MIN_BATCH);
+    let batch = math::buy(opening_reserves(), total, FEE_BPS).unwrap();
+    let stranger = env.wallet(SOL);
+    env.settle(&coin, &stranger).unwrap();
+    let p = env.pool(&coin);
+    assert_eq!((p.opening_state, p.opening_total_sol, p.opening_tokens), (OPENING_SETTLED, total, batch.tokens_out));
+    env.check_books(&coin);
+    let share = |sol: u64| (batch.tokens_out as u128 * sol as u128 / total as u128) as u64;
+
+    // then the claims, in a random order, among buys and sells
+    let mut unclaimed: Vec<usize> = (0..8).filter(|&i| seats[i] > 0).collect();
+    let seated = unclaimed.len();
+    let (mut sold_before_a_claim, mut claimed_after_graduation, mut step) = (false, false, 0u32);
+    while !unclaimed.is_empty() || step < 200 {
+        let w = &wallets[next(8) as usize];
+        let held = env.tokens(&w.pubkey(), &coin);
+        let before = reserves(&env.pool(&coin));
+        if !unclaimed.is_empty() && next(16) == 0 {
+            let j = unclaimed.swap_remove(next(unclaimed.len() as u64) as usize);
+            let owner = &wallets[j];
+            let held = env.tokens(&owner.pubkey(), &coin);
+            claimed_after_graduation |= before.graduated;
+            env.claim_seat(&coin, owner, true).unwrap();
+            assert_eq!(env.tokens(&owner.pubkey(), &coin), held + share(seats[j]), "step {step}");
+            assert_eq!(env.seat_sol(&coin, &owner.pubkey()), None, "step {step}");
+        } else if held == 0 || next(3) > 0 {
+            let sol_in = next(8 * SOL) + 1_000_000;
+            let expected = math::buy(before, sol_in, FEE_BPS).unwrap();
+            env.buy(&coin, w, sol_in).unwrap();
+            assert_eq!(env.tokens(&w.pubkey(), &coin), held + expected.tokens_out, "step {step}");
+        } else {
+            let amount = next(held) + 1;
+            if math::sell(before, amount, FEE_BPS).is_err() {
+                continue;
+            }
+            env.sell(&coin, w, amount).unwrap();
+            assert_eq!(env.tokens(&w.pubkey(), &coin), held - amount, "step {step}");
+            sold_before_a_claim |= !unclaimed.is_empty();
+        }
+        env.check_books(&coin);
+        let p = env.pool(&coin);
+        let holders: u64 = wallets.iter().map(|w| env.tokens(&w.pubkey(), &coin)).sum();
+        assert_eq!(holders + p.token_reserve + p.opening_tokens_left + p.burned, SUPPLY, "step {step}");
+        assert_eq!(p.opening_seats as usize, unclaimed.len(), "step {step}");
+        step += 1;
+    }
+    assert!(sold_before_a_claim && claimed_after_graduation, "the walk should sell, and graduate, before the last claim");
+
+    // everyone sells out at the end, and the pool still owes nothing it doesn't hold
+    for w in &wallets {
+        let held = env.tokens(&w.pubkey(), &coin);
+        if held > 0 {
+            env.sell(&coin, w, held).unwrap();
+        }
+    }
+    env.check_books(&coin);
+    let p = env.pool(&coin);
+    assert_eq!(p.opening_seats, 0);
+    assert!(p.opening_tokens_left < seated as u64, "only the rounding dust stays in the vault");
+}
+
+/// The coin trades, and graduates, while the seats' tokens still wait in the vault: buys and the burn come out of the
+/// reserve alone, every seat still gets the share the settle gave it, and everyone can sell out after, as the math says.
+#[test]
+fn the_coin_trades_and_graduates_before_the_seats_claim() {
+    let mut env = Env::new();
+    let (admin, alice, bob) = (env.admin.insecure_clone(), env.alice.insecure_clone(), env.bob.insecure_clone());
+    let carol = env.wallet(1_000 * SOL);
+    let coin = launch_with_batch(&mut env, 300, SOL);
+    env.commit(&coin, &alice, 2 * SOL).unwrap();
+    env.commit(&coin, &bob, SOL).unwrap();
+    env.warp(env.pool(&coin).opens_at);
+    env.settle(&coin, &carol).unwrap();
+    let batch = math::buy(opening_reserves(), 4 * SOL, FEE_BPS).unwrap();
+    let share = |sol: u64| (batch.tokens_out as u128 * sol as u128 / (4 * SOL) as u128) as u64;
+    assert_eq!(env.pool(&coin).opening_tokens_left, batch.tokens_out);
+
+    // a buy and a sell before any claim, priced on the reserve alone
+    let quote = math::buy(reserves(&env.pool(&coin)), SOL, FEE_BPS).unwrap();
+    env.buy(&coin, &carol, SOL).unwrap();
+    assert_eq!(env.tokens(&carol.pubkey(), &coin), quote.tokens_out);
+    env.check_books(&coin);
+    let half = quote.tokens_out / 2;
+    let quote = math::sell(reserves(&env.pool(&coin)), half, FEE_BPS).unwrap();
+    env.sell(&coin, &carol, half).unwrap();
+    assert_eq!(reserves(&env.pool(&coin)), quote.after);
+    env.check_books(&coin);
+
+    // the buy that graduates burns from the same vault, out of the reserve
+    let quote = math::buy(reserves(&env.pool(&coin)), 200 * SOL, FEE_BPS).unwrap();
+    env.buy(&coin, &carol, 200 * SOL).unwrap();
+    let p = env.pool(&coin);
+    assert!(p.graduated == 1 && quote.burned > 0);
+    assert_eq!((p.burned, p.opening_tokens_left), (quote.burned, batch.tokens_out));
+    env.check_books(&coin);
+
+    // only now do the seats claim, each the share the settle gave it
+    for (who, sol) in [(&bob, SOL), (&admin, SOL), (&alice, 2 * SOL)] {
+        env.claim_seat(&coin, who, true).unwrap();
+        assert_eq!(env.tokens(&who.pubkey(), &coin), share(sol));
+        env.check_books(&coin);
+    }
+    let p = env.pool(&coin);
+    assert_eq!(p.opening_seats, 0);
+    assert!(p.opening_tokens_left < 3, "only the rounding dust stays in the vault");
+
+    // everyone sells out, each sale as the math says, down to the pool's floor
+    for who in [&alice, &carol, &bob, &admin] {
+        let held = env.tokens(&who.pubkey(), &coin);
+        let quote = math::sell(reserves(&env.pool(&coin)), held, FEE_BPS).unwrap();
+        env.sell(&coin, who, held).unwrap();
+        assert_eq!(reserves(&env.pool(&coin)), quote.after);
+        env.check_books(&coin);
+    }
+    let p = env.pool(&coin);
+    assert_eq!(p.token_reserve + p.opening_tokens_left + p.burned, SUPPLY, "every token back in the pool, or burned");
+}
+
+/// The edges of the batch's numbers: the smallest commitment, the smallest batch that buys, the last second before the
+/// settle, and a batch everyone left.
+#[test]
+fn the_batch_limits_sit_where_they_say() {
+    let mut env = Env::new();
+    let (alice, bob) = (env.alice.insecure_clone(), env.bob.insecure_clone());
+
+    // the smallest commitment is taken, a lamport less is not
+    let coin = launch_with_batch(&mut env, 120, 0);
+    assert_eq!(error(env.commit(&coin, &alice, MIN_COMMIT - 1)), pool_error(PoolError::ZeroAmount));
+    assert_eq!(env.seat_sol(&coin, &alice.pubkey()), None);
+    env.commit(&coin, &alice, MIN_COMMIT).unwrap();
+    assert_eq!(env.seat_sol(&coin, &alice.pubkey()), Some(MIN_COMMIT));
+
+    // the smallest batch buys, a lamport less gives the SOL back; neither settles a second before the window ends
+    let (exact, short) = (launch_with_batch(&mut env, 120, 0), launch_with_batch(&mut env, 120, 0));
+    env.commit(&exact, &alice, MIN_BATCH).unwrap();
+    env.commit(&short, &alice, MIN_BATCH - 1).unwrap();
+    let opens = env.pool(&exact).opens_at;
+    env.warp(opens - 1);
+    for coin in [&exact, &short] {
+        assert_eq!(error(env.settle(coin, &bob)), pool_error(PoolError::OpeningNotOver));
+    }
+    env.warp(opens);
+    env.settle(&exact, &bob).unwrap();
+    env.settle(&short, &bob).unwrap();
+    let expected = math::buy(opening_reserves(), MIN_BATCH, FEE_BPS).unwrap();
+    let p = env.pool(&exact);
+    assert_eq!((p.opening_state, p.opening_total_sol, p.opening_tokens), (OPENING_SETTLED, MIN_BATCH, expected.tokens_out));
+    let p = env.pool(&short);
+    assert_eq!((p.opening_state, p.opening_sol, p.token_reserve), (OPENING_REFUND, MIN_BATCH - 1, SUPPLY));
+    env.claim_seat(&exact, &alice, true).unwrap();
+    assert_eq!(env.tokens(&alice.pubkey(), &exact), expected.tokens_out, "the only seat takes every token");
+    let before = env.lamports(&alice.pubkey());
+    env.claim_seat(&short, &alice, false).unwrap();
+    assert_eq!(env.lamports(&alice.pubkey()), before + MIN_BATCH - 1 + env.seat_rent() - 5_000);
+    env.check_books(&exact);
+    env.check_books(&short);
+
+    // a batch everyone left has nothing to buy with: settled, no trade, and the coin opens as it was launched
+    let empty = launch_with_batch(&mut env, 120, 0);
+    env.commit(&empty, &alice, SOL).unwrap();
+    env.withdraw(&empty, &alice, SOL).unwrap();
+    env.warp(env.pool(&empty).opens_at);
+    let settled = env.settle(&empty, &bob).unwrap();
+    assert!(events::<dex::TradeEvent>(&settled).is_empty(), "no buy, so no trade");
+    let s = event::<dex::Settled>(&settled);
+    assert_eq!((s.sol, s.tokens, s.seats, s.refund), (0, 0, 0, false));
+    let p = env.pool(&empty);
+    assert_eq!((p.opening_state, p.opening_total_sol, p.opening_tokens, p.opening_seats), (OPENING_SETTLED, 0, 0, 0));
+    assert_eq!((p.real_sol, p.token_reserve, p.creator_fees + p.treasury_fees), (0, SUPPLY, 0));
+    env.check_books(&empty);
+    assert_eq!(error(env.claim_seat(&empty, &alice, false)), NO_SEAT);
+    let quote = math::buy(opening_reserves(), SOL, FEE_BPS).unwrap();
+    env.buy(&empty, &bob, SOL).unwrap();
+    assert_eq!(env.tokens(&bob.pubkey(), &empty), quote.tokens_out, "priced as a coin that opened at once");
+    env.check_books(&empty);
+}
+
+/// What the batch's events say: each commitment, withdrawal, settle and claim, and the batch's buy as a trade by the
+/// pool itself, never by the creator. Every event decoded here is also read where the site reads it (check_wire).
+#[test]
+fn the_batch_events_say_what_happened() {
+    let mut env = Env::new();
+    let (admin, alice, bob) = (env.admin.insecure_clone(), env.alice.insecure_clone(), env.bob.insecure_clone());
+    let carol = env.wallet(10 * SOL);
+    let creator = admin.pubkey();
+    let salt = fresh_salt();
+    let coin = Coin::of(mint_for(&creator, salt));
+    let ixs = vec![
+        env.launch_ix(&creator, &coin.mint, LaunchArgs { salt, opening_secs: 300, ..env.args() }),
+        Env::commit_ix(&coin, &creator, SOL),
+    ];
+    let launched = env.send(&admin, ixs, &[]).unwrap();
+    let l = event::<dex::Launched>(&launched);
+    assert_eq!((l.mint, l.creator, l.opens_at), (coin.mint, creator, T0 + 300));
+    let c = event::<dex::Committed>(&launched);
+    assert_eq!((c.mint, c.owner, c.sol, c.seat_sol, c.total), (coin.mint, creator, SOL, SOL, SOL));
+
+    // each commitment and withdrawal: what moved, the seat after it, and the batch after it
+    let c = event::<dex::Committed>(&env.commit(&coin, &alice, 2 * SOL).unwrap());
+    assert_eq!((c.mint, c.owner, c.sol, c.seat_sol, c.total), (coin.mint, alice.pubkey(), 2 * SOL, 2 * SOL, 3 * SOL));
+    let c = event::<dex::Committed>(&env.commit(&coin, &alice, SOL).unwrap());
+    assert_eq!((c.sol, c.seat_sol, c.total), (SOL, 3 * SOL, 4 * SOL));
+    let w = event::<dex::Withdrawn>(&env.withdraw(&coin, &alice, SOL).unwrap());
+    assert_eq!((w.mint, w.owner, w.sol, w.seat_sol, w.total), (coin.mint, alice.pubkey(), SOL, 2 * SOL, 3 * SOL));
+    let c = event::<dex::Committed>(&env.commit(&coin, &bob, SOL).unwrap());
+    assert_eq!((c.owner, c.sol, c.seat_sol, c.total), (bob.pubkey(), SOL, SOL, 4 * SOL));
+    env.commit(&coin, &carol, SOL).unwrap();
+    let w = event::<dex::Withdrawn>(&env.withdraw(&coin, &carol, SOL).unwrap());
+    assert_eq!((w.owner, w.sol, w.seat_sol, w.total), (carol.pubkey(), SOL, 0, 4 * SOL), "a seat emptied");
+
+    // the settle: the batch, and its buy as the pool's own trade, though the creator holds a seat
+    env.warp(env.pool(&coin).opens_at);
+    let settled = env.settle(&coin, &bob).unwrap();
+    let batch = math::buy(opening_reserves(), 4 * SOL, FEE_BPS).unwrap();
+    let s = event::<dex::Settled>(&settled);
+    assert_eq!((s.mint, s.sol, s.tokens, s.seats, s.refund), (coin.mint, 4 * SOL, batch.tokens_out, 3, false));
+    let t = event::<dex::TradeEvent>(&settled);
+    assert_eq!((t.mint, t.trader, t.recipient, t.buy), (coin.mint, coin.pool, coin.pool, true));
+    assert_eq!((t.sol, t.tokens, t.fee), (4 * SOL, batch.tokens_out, batch.fee));
+    assert_eq!((t.real_sol, t.token_reserve, t.graduated, t.by_creator), (batch.after.real_sol, batch.after.tokens, false, false));
+    assert!(events::<dex::Graduated>(&settled).is_empty());
+    for (who, sol) in [(&admin, SOL), (&alice, 2 * SOL), (&bob, SOL)] {
+        let k = event::<dex::SeatClaimed>(&env.claim_seat(&coin, who, true).unwrap());
+        let share = (batch.tokens_out as u128 * sol as u128 / (4 * SOL) as u128) as u64;
+        assert_eq!((k.mint, k.owner, k.sol, k.tokens, k.refund), (coin.mint, who.pubkey(), sol, share, false));
+    }
+
+    // a batch that graduates says so, in the trade and in its own event
+    let big = launch_with_batch(&mut env, 120, 0);
+    env.commit(&big, &alice, 100 * SOL).unwrap();
+    env.warp(env.pool(&big).opens_at);
+    let settled = env.settle(&big, &alice).unwrap();
+    let batch = math::buy(opening_reserves(), 100 * SOL, FEE_BPS).unwrap();
+    let g = event::<dex::Graduated>(&settled);
+    assert_eq!((g.mint, g.real_sol, g.token_reserve, g.burned), (big.mint, batch.after.graduation_sol, batch.after.tokens, batch.burned));
+    let t = event::<dex::TradeEvent>(&settled);
+    assert_eq!((t.trader, t.real_sol, t.graduated, t.by_creator), (big.pool, batch.after.real_sol, true, false));
+
+    // a refused batch and an empty one make no trade
+    let small = launch_with_batch(&mut env, 120, 0);
+    let empty = launch_with_batch(&mut env, 120, 0);
+    env.commit(&small, &alice, 3 * MIN_COMMIT).unwrap();
+    env.commit(&small, &bob, 2 * MIN_COMMIT).unwrap();
+    env.warp(env.pool(&small).opens_at);
+    let settled = env.settle(&small, &bob).unwrap();
+    let s = event::<dex::Settled>(&settled);
+    assert_eq!((s.mint, s.sol, s.tokens, s.seats, s.refund), (small.mint, 5 * MIN_COMMIT, 0, 2, true));
+    assert!(events::<dex::TradeEvent>(&settled).is_empty(), "a refund buys nothing");
+    let k = event::<dex::SeatClaimed>(&env.claim_seat(&small, &alice, false).unwrap());
+    assert_eq!((k.owner, k.sol, k.tokens, k.refund), (alice.pubkey(), 3 * MIN_COMMIT, 0, true));
+    let settled = env.settle(&empty, &bob).unwrap();
+    let s = event::<dex::Settled>(&settled);
+    assert_eq!((s.sol, s.tokens, s.seats, s.refund), (0, 0, 0, false));
+    assert!(events::<dex::TradeEvent>(&settled).is_empty(), "nobody joined");
+
+    // once the creator hands the coin over, the old creator's trades are no longer the creator's, the new one's are
+    let hand_over = pool_ix(dex::accounts::SetCreator { creator, pool: coin.pool }, dex::instruction::SetCreator { new_creator: bob.pubkey() });
+    let owed = env.pool(&coin).creator_fees;
+    let h = event::<dex::CreatorChanged>(&env.send(&admin, vec![hand_over], &[]).unwrap());
+    assert_eq!((h.mint, h.from, h.to, h.settled), (coin.mint, creator, bob.pubkey(), owed), "the old creator paid their share of the batch's fee");
+    assert_eq!(traded_by_creator(&env.buy(&coin, &admin, SOL).unwrap()), Some(false));
+    assert_eq!(traded_by_creator(&env.buy(&coin, &bob, SOL).unwrap()), Some(true));
+    assert_eq!(traded_by_creator(&env.sell(&coin, &bob, 1_000 * TOKEN).unwrap()), Some(true));
+    // and the creator's buy into another wallet's account is still the creator's, the tokens that wallet's
+    let data = dex::instruction::Buy { sol_in: SOL, min_tokens_out: 0 }.data();
+    let ixs = vec![
+        Env::open_account_ix(&bob.pubkey(), &carol.pubkey(), &coin.mint),
+        Env::swap_ix(&coin, &bob.pubkey(), ata(&carol.pubkey(), &coin.mint), data),
+    ];
+    let t = event::<dex::TradeEvent>(&env.send(&bob, ixs, &[]).unwrap());
+    assert_eq!((t.trader, t.recipient, t.buy, t.by_creator), (bob.pubkey(), carol.pubkey(), true, true));
+    assert_eq!(env.tokens(&carol.pubkey(), &coin), t.tokens);
+    // and the fees earned since go to the new creator
+    let owed = env.pool(&coin).creator_fees;
+    let f = event::<dex::FeesClaimed>(&env.claim_creator(&coin, &bob).unwrap());
+    assert_eq!((f.mint, f.to, f.amount, f.creator), (coin.mint, bob.pubkey(), owed, true));
+}
+
+/// Tries `find_program_address` makes for these seeds: one for each bump from 255 down to the one it returns.
+fn tries(seeds: &[&[u8]], program: &Address) -> u64 {
+    256 - Address::find_program_address(seeds, program).1 as u64
+}
+
+/// Tries for `owner`'s seat in `coin`, which every commitment makes.
+fn seat_tries(owner: &Address, coin: &Coin) -> u64 {
+    tries(&[SEAT_SEED, coin.pool.as_ref(), owner.as_ref()], &dex::ID)
+}
+
+/// Tries for `owner`'s token account of `coin`, which the associated token program makes when it opens it.
+fn account_tries(owner: &Address, coin: &Coin) -> u64 {
+    tries(&[owner.as_ref(), TOKEN_2022.as_ref(), coin.mint.as_ref()], &ATA_PROGRAM)
+}
+
+/// 2,048 wallets, the same in every run, to find the ones whose addresses take the most tries or the fewest. Each is
+/// handed out once, so no two roles share a wallet.
+struct Wallets {
+    all: Vec<Keypair>,
+    taken: Vec<Address>,
+}
+
+impl Wallets {
+    fn new() -> Self {
+        let all = (0..2_048u64)
+            .map(|i| {
+                let mut secret = [0u8; 32];
+                secret[..8].copy_from_slice(&i.to_le_bytes());
+                Keypair::new_from_array(secret)
+            })
+            .collect();
+        Wallets { all, taken: vec![] }
+    }
+
+    /// The wallet not handed out yet that `score` puts highest.
+    fn most<K: Ord>(&mut self, score: impl Fn(&Address) -> K) -> Keypair {
+        let free = self.all.iter().filter(|w| !self.taken.contains(&w.pubkey()));
+        let wallet = free.max_by_key(|w| score(&w.pubkey())).unwrap().insecure_clone();
+        self.taken.push(wallet.pubkey());
+        wallet
+    }
+
+    /// The wallet not handed out yet that `score` puts lowest.
+    fn fewest(&mut self, score: impl Fn(&Address) -> u64) -> Keypair {
+        self.most(|w| std::cmp::Reverse(score(w)))
+    }
+}
+
+/// The opening batch's steps at their dearest, held under the limits the site's package asks for
+/// (site/chain/src/index.mjs). A commitment looks for its seat's bump, and the associated token program for the token
+/// account's when a claim opens it, at 1,500 units a try, and the tries depend on the wallet: the wallets here are the
+/// ones that take the most tries, out of 2,048, for these coins. Anyone may send SOL to a seat's or an account's
+/// address before it opens, which makes opening it dearer: the SOL topped up, the space allocated and the owner
+/// assigned, three calls instead of one. So each opening is measured both ways, and the batches that settle with a
+/// claim graduate, which is the dearest settle. Each limit must also cover 20 tries: a wallet needs more about once
+/// in a million.
+#[test]
+fn the_opening_batch_fits_the_compute_the_site_asks_for() {
+    let mut env = Env::new();
+    let (alice, bob) = (env.alice.insecure_clone(), env.bob.insecure_clone());
+    // one batch measured step by step, one that settles with a claim, one that buys without graduating, one refused
+    let (a, b) = (launch_with_batch(&mut env, 300, 0), launch_with_batch(&mut env, 300, 0));
+    let (small, refused) = (launch_with_batch(&mut env, 300, 0), launch_with_batch(&mut env, 300, 0));
+
+    let mut wallets = Wallets::new();
+    let seat_worst = wallets.most(|w| seat_tries(w, &a));
+    let seat_best = wallets.fewest(|w| seat_tries(w, &a));
+    let claim_worst = wallets.most(|w| account_tries(w, &a));
+    let claim_best = wallets.fewest(|w| account_tries(w, &a));
+    // the worst left, whose token account is sent SOL before the claim
+    let funded_claim_worst = wallets.most(|w| account_tries(w, &a));
+    let settle_claim_worst = wallets.most(|w| account_tries(w, &b));
+    for w in [&seat_worst, &seat_best, &claim_worst, &claim_best, &funded_claim_worst, &settle_claim_worst] {
+        env.svm.airdrop(&w.pubkey(), 10 * SOL).unwrap();
+    }
+    // the least SOL an address can be sent: the rent of an empty account
+    let empty = env.svm.minimum_balance_for_rent_exemption(0);
+
+    let new_seat_best = units(env.commit(&a, &seat_best, SOL));
+    let opened = env.commit(&a, &seat_worst, SOL).unwrap();
+    let same_seat = units(env.commit(&a, &seat_worst, SOL));
+    let part = units(env.withdraw(&a, &seat_worst, SOL));
+    let all = units(env.withdraw(&a, &seat_worst, SOL));
+    // the seat closed; SOL sent to its address, then the seat opened again
+    env.svm.airdrop(&Env::seat_of(&a, &seat_worst.pubkey()), empty).unwrap();
+    let reopened = env.commit(&a, &seat_worst, SOL).unwrap();
+    assert_eq!(system_calls(&reopened), system_calls(&opened) + 2, "the seat topped up, allocated and assigned");
+    let (new_seat, funded_seat) = (opened.compute_units_consumed, reopened.compute_units_consumed);
+    for w in [&claim_worst, &claim_best, &funded_claim_worst] {
+        env.commit(&a, w, SOL).unwrap();
+    }
+    env.commit(&b, &settle_claim_worst, SOL).unwrap();
+    for coin in [&a, &b] {
+        env.commit(coin, &alice, 100 * SOL).unwrap();
+    }
+    env.commit(&small, &bob, SOL).unwrap();
+    env.commit(&refused, &bob, 5 * MIN_COMMIT).unwrap();
+    for (w, coin) in [(&funded_claim_worst, &a), (&settle_claim_worst, &b)] {
+        env.svm.airdrop(&ata(&w.pubkey(), &coin.mint), empty).unwrap();
+    }
+
+    env.warp(env.pool(&a).opens_at);
+    let settle = units(env.settle(&small, &bob));
+    let settle_refund = units(env.settle(&refused, &bob));
+    let settle_graduating = units(env.settle(&a, &bob));
+    assert_eq!((env.pool(&small).graduated, env.pool(&a).graduated, env.pool(&refused).opening_state), (0, 1, OPENING_REFUND));
+    let claimed = env.claim_seat(&a, &claim_worst, true).unwrap();
+    let claim_best_units = units(env.claim_seat(&a, &claim_best, true));
+    let funded = env.claim_seat(&a, &funded_claim_worst, true).unwrap();
+    assert_eq!(system_calls(&funded), system_calls(&claimed) + 2, "the token account topped up, allocated and assigned");
+    let (claim, funded_claim) = (claimed.compute_units_consumed, funded.compute_units_consumed);
+    let claim_refund = units(env.claim_seat(&refused, &bob, false));
+    let mut ixs = vec![pool_ix(Env::settle_accounts(&b), dex::instruction::Settle {})];
+    ixs.extend(Env::claim_seat_ixs(&b, &settle_claim_worst.pubkey(), true));
+    let settle_claim = units(env.send(&settle_claim_worst, ixs, &[]));
+    assert_eq!(env.pool(&b).graduated, 1);
+    for (w, coin) in [(&claim_worst, &a), (&funded_claim_worst, &a), (&settle_claim_worst, &b)] {
+        assert!(env.tokens(&w.pubkey(), coin) > 0);
+    }
+
+    let (seat_most, seat_least) = (seat_tries(&seat_worst.pubkey(), &a), seat_tries(&seat_best.pubkey(), &a));
+    let (account_most, account_least) = (account_tries(&claim_worst.pubkey(), &a), account_tries(&claim_best.pubkey(), &a));
+    let account_funded = account_tries(&funded_claim_worst.pubkey(), &a);
+    let account_most_b = account_tries(&settle_claim_worst.pubkey(), &b);
+    println!(
+        "compute units, opening batch at its dearest: commitment into a new seat {new_seat} ({seat_most} tries for the seat; \
+         {new_seat_best} with {seat_least}), at an address sent SOL {funded_seat}, into the same seat {same_seat}; withdrawal \
+         of part {part}, of all {all}; settle {settle}, refused {settle_refund}, graduating {settle_graduating}; seat claim \
+         with account creation {claim} ({account_most} tries for the account; {claim_best_units} with {account_least}), at \
+         an address sent SOL {funded_claim} ({account_funded} tries), refund {claim_refund}; graduating settle with a claim \
+         and account creation at an address sent SOL {settle_claim} ({account_most_b} tries)"
+    );
+    assert!(funded_seat > new_seat, "SOL at the seat's address makes the commitment dearer");
+    let commit = new_seat.max(same_seat).max(funded_seat);
+    assert!(commit < 50_000);
+    assert!(part.max(all) < 20_000);
+    assert!(settle.max(settle_refund).max(settle_graduating) < 60_000);
+    assert!(claim.max(funded_claim).max(claim_refund) < 80_000);
+    assert!(settle_claim < 140_000);
+
+    // what one more try costs, and how many tries each limit leaves room for
+    assert!(seat_most > seat_least && account_most > account_least);
+    let per_seat_try = (new_seat - new_seat_best) / (seat_most - seat_least);
+    let per_account_try = (claim - claim_best_units) / (account_most - account_least);
+    let commit_covers = seat_most + (50_000 - commit) / per_seat_try;
+    let claim_covers = (account_most + (80_000 - claim) / per_account_try).min(account_funded + (80_000 - funded_claim) / per_account_try);
+    let settle_claim_covers = account_most_b + (140_000 - settle_claim) / per_account_try;
+    println!(
+        "a try costs {per_seat_try} units for the seat, {per_account_try} for the account; the limits cover {commit_covers} \
+         tries for a commitment, {claim_covers} for a claim, {settle_claim_covers} for a settle with a claim"
+    );
+    assert!(commit_covers.min(claim_covers).min(settle_claim_covers) >= 20);
+}
+
+/// A first buy and a launch at their dearest, held under the limits the site's package asks for
+/// (site/chain/src/index.mjs): 80,000 units for a buy, which opens the buyer's token account in the same transaction.
+/// The buys here open that account and graduate the coin, the dearest buy, for the wallets out of 2,048 whose account
+/// takes the most tries and the fewest, and with SOL already at the account's address. Like the batch's steps, the
+/// limit must also cover 20 tries.
+#[test]
+fn a_first_buy_fits_the_compute_the_site_asks_for() {
+    let mut env = Env::new();
+    // three coins, each graduated by its first buy
+    let (worst, best, funded) = (env.launch(), env.launch(), env.launch());
+    let mut wallets = Wallets::new();
+    let buyers = [
+        wallets.most(|w| account_tries(w, &worst)),
+        wallets.fewest(|w| account_tries(w, &best)),
+        wallets.most(|w| account_tries(w, &funded)),
+    ];
+    for w in &buyers {
+        env.svm.airdrop(&w.pubkey(), 200 * SOL).unwrap();
+    }
+    // the least SOL an address can be sent: the rent of an empty account
+    let empty = env.svm.minimum_balance_for_rent_exemption(0);
+    env.svm.airdrop(&ata(&buyers[2].pubkey(), &funded.mint), empty).unwrap();
+
+    let opened = env.buy(&worst, &buyers[0], 100 * SOL).unwrap();
+    let buy_best = units(env.buy(&best, &buyers[1], 100 * SOL));
+    let paid_in = env.buy(&funded, &buyers[2], 100 * SOL).unwrap();
+    assert_eq!(system_calls(&paid_in), system_calls(&opened) + 2, "the token account topped up, allocated and assigned");
+    let (buy, buy_funded) = (opened.compute_units_consumed, paid_in.compute_units_consumed);
+    for coin in [&worst, &best, &funded] {
+        assert_eq!(env.pool(coin).graduated, 1);
+        env.check_books(coin);
+    }
+
+    let (most, least) = (account_tries(&buyers[0].pubkey(), &worst), account_tries(&buyers[1].pubkey(), &best));
+    let most_funded = account_tries(&buyers[2].pubkey(), &funded);
+    println!(
+        "compute units, a first buy that opens the account and graduates: {buy} ({most} tries for the account; {buy_best} \
+         with {least}), at an address sent SOL {buy_funded} ({most_funded} tries)"
+    );
+    assert!(buy.max(buy_funded) < 80_000);
+    assert!(most > least);
+    let per_try = (buy - buy_best) / (most - least);
+    let covers = (most + (80_000 - buy) / per_try).min(most_funded + (80_000 - buy_funded) / per_try);
+    println!("a try costs {per_try} units; the limit covers {covers} tries for a first buy");
+    assert!(covers >= 20);
+}
+
+/// A launch at its dearest, held under the 200,000 units the site's package asks for (site/chain/src/index.mjs): the
+/// longest metadata, with the creator's first buy (which opens their token account and graduates the coin) or their
+/// commitment to the batch, at the salt out of 2,048 whose addresses take the most tries in all. The mint's, the
+/// pool's and the vault's bumps are looked for in the launch, the vault's twice (the program finds it, then the
+/// associated token program creates it), and the creator's account's or seat's after it.
+#[test]
+fn a_launch_fits_the_compute_the_site_asks_for() {
+    let mut env = Env::new();
+    let admin = env.admin.insecure_clone();
+    let creator = admin.pubkey();
+    let launch_tries = |salt: u64, last: &dyn Fn(&Coin) -> u64| {
+        let coin = Coin::of(mint_for(&creator, salt));
+        let mint_tries = tries(&[MINT_SEED, creator.as_ref(), &salt.to_le_bytes()], &dex::ID);
+        mint_tries + tries(&[POOL_SEED, coin.mint.as_ref()], &dex::ID) + 2 * account_tries(&coin.pool, &coin) + last(&coin)
+    };
+    let buying = |c: &Coin| account_tries(&creator, c);
+    let committing = |c: &Coin| seat_tries(&creator, c);
+    // salts clear of fresh_salt's
+    let salts = (1u64 << 40)..(1u64 << 40) + 2_048;
+    let buy_salt = salts.clone().max_by_key(|&s| launch_tries(s, &buying)).unwrap();
+    let commit_salt = salts.filter(|&s| s != buy_salt).max_by_key(|&s| launch_tries(s, &committing)).unwrap();
+    let longest = LaunchArgs { name: "n".repeat(32), symbol: "s".repeat(10), uri: "u".repeat(200), ..env.args() };
+
+    let coin = Coin::of(mint_for(&creator, buy_salt));
+    let data = dex::instruction::Buy { sol_in: 100 * SOL, min_tokens_out: 0 }.data();
+    let ixs = vec![
+        env.launch_ix(&creator, &coin.mint, LaunchArgs { salt: buy_salt, ..longest.clone() }),
+        Env::open_account_ix(&creator, &creator, &coin.mint),
+        Env::swap_ix(&coin, &creator, ata(&creator, &coin.mint), data),
+    ];
+    let launch_buy = units(env.send(&admin, ixs, &[]));
+    assert_eq!(env.pool(&coin).graduated, 1);
+    env.check_books(&coin);
+    let batch = Coin::of(mint_for(&creator, commit_salt));
+    let ixs = vec![
+        env.launch_ix(&creator, &batch.mint, LaunchArgs { salt: commit_salt, opening_secs: 300, ..longest }),
+        Env::commit_ix(&batch, &creator, SOL),
+    ];
+    let launch_commit = units(env.send(&admin, ixs, &[]));
+    assert_eq!(env.seat_sol(&batch, &creator), Some(SOL));
+    env.check_books(&batch);
+
+    let (buy_tries, commit_tries) = (launch_tries(buy_salt, &buying), launch_tries(commit_salt, &committing));
+    // a try costs 1,500 units, in this program and in the associated token program
+    let room = (200_000 - launch_buy.max(launch_commit).min(200_000)) / 1_500;
+    println!(
+        "compute units, a launch with the longest metadata: with a first buy that graduates {launch_buy} ({buy_tries} tries \
+         in all), with a commitment {launch_commit} ({commit_tries} tries); the limit leaves room for {room} more tries"
+    );
+    assert!(launch_buy.max(launch_commit) < 200_000);
 }
 

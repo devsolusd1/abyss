@@ -533,24 +533,55 @@ function floorWords(p) {
 /* ================= born: from /api/birth (server/birth.mjs) and the history ================= */
 // The answer: { complete, tooOld, read, more, launch, buyers } (server/birth.mjs). read: the pool's own transactions read
 // from its first; more: there are later ones it did not look at. A batch's entry (batch: true) has seat: { sol, settled,
-// out }, its SOL at the end of what was read, whether the batch's settle is in it, whether it went to 0 before the
-// settle. The server in use may be older and send no read, more or seat: the words fall back to what it does send
+// out }, its SOL at the end of what was read, whether the batch's settle is in it, whether a withdrawal emptied it
+// before the settle with no commitment read after it. The server in use may be older and send no read, more or seat:
+// the words fall back to what it does send
 var BIRTH = null, birthTries = 0, birthT = 0, creatorHold = null, birthPaused = false;
+// a birth that can still change is asked for again while the page is open, every BIRTH_FOLLOW_MS (the edge keeps an
+// answer a minute): while the pool's batch is not settled, seats or none, BIRTH_FOLLOWS times at most; once it is over,
+// while the birth may be from before the settle (beforeSettle), BIRTH_LATE times more, and when this page sees the
+// batch settle, at once and BIRTH_LATE times more. The server lists new transactions a minute after its last listing
+// and the edge keeps that answer another minute, so the settle can take two minutes to reach an answer
+// A complete birth on the page is never swapped for an answer that knows less (a new server instance reading from the
+// start, say): it stays, and the page asks again in a moment, a few times (birthWeak), then goes back to following
+var birthFollows = 0, birthLate = 0, birthWeak = 0, BIRTH_FOLLOWS = 20, BIRTH_LATE = 2, BIRTH_FOLLOW_MS = 65000;
 async function loadBirth() {
   var url = window.NET && NET.birthUrl, mint = POOL && String(POOL.mint);
   if (!url || !POOL) return;
+  function soon(ms) { clearTimeout(birthT); birthT = setTimeout(loadBirth, ms); }
+  function follow() {
+    if (batchOver() ? beforeSettle() && ++birthLate <= BIRTH_LATE : batchOpen() && ++birthFollows <= BIRTH_FOLLOWS) {
+      clearTimeout(birthT); birthT = setTimeout(followBirth, BIRTH_FOLLOW_MS);
+    }
+  }
   function again(ms) {
     // the server reads a birth over a few asks on a slow node: ask again in a moment, a few times, then wait for a reload
-    if (++birthTries <= 10) { clearTimeout(birthT); birthT = setTimeout(loadBirth, ms); }
+    if (BIRTH && BIRTH.complete) { if (++birthWeak <= 10) soon(ms); else { birthWeak = 0; follow(); } }
+    else if (++birthTries <= 10) soon(ms);
     else { birthPaused = true; renderBorn(); }
   }
   try {
     var res = await withTimeout(fetch(url + '&pool=' + encodeURIComponent(String(POOL.address)), { cache: 'no-store' }), 15000);
     var j = res.ok ? await res.json() : null;
     if (!POOL || String(POOL.mint) !== mint) return;
-    if (j && Array.isArray(j.buyers)) { BIRTH = j; renderBorn(); readCreatorHold(); }
-    if (!j || !j.complete) again(3000);
+    if (j && Array.isArray(j.buyers) && !(BIRTH && BIRTH.complete && !j.complete)) {
+      BIRTH = j; birthWeak = 0; if (j.complete) birthPaused = false; renderBorn(); readCreatorHold();
+    }
+    if (!j || !j.complete) again(3000); else follow();
   } catch (e) { if (POOL && String(POOL.mint) === mint) again(5000); }
+}
+function followBirth() { birthTries = 0; birthWeak = 0; loadBirth(); }   // each new ask has its own few tries
+function batchOpen() { var o = POOL && POOL.opening; return !!o && o.state === 'open'; }   // its window, or over and not settled
+function batchOver() { var o = POOL && POOL.opening; return !!o && (o.state === 'settled' || o.state === 'refund'); }
+function unsettledSeat() { return !!BIRTH && BIRTH.buyers.some(function (x) { var s = seatOf(x); return !!s && !s.settled; }); }
+// the birth as read may be from before its batch settled: a seat in it not seen to settle, or no wallet in it at all
+// (before a settle every wallet in a birth has a seat, and a seat read with the settle is settled)
+function beforeSettle() { return !!BIRTH && (unsettledSeat() || !BIRTH.buyers.length); }
+// the page saw its pool's batch settle: a birth that may be from before it is asked for again now, then BIRTH_LATE times
+// more. The first read of a birth that is still going on asks again by itself
+function birthOnSettle() {
+  if (!beforeSettle()) return;
+  birthLate = 0; clearTimeout(birthT); followBirth();
 }
 async function readCreatorHold() {
   if (!BIRTH || !BIRTH.launch || !POOL) return;
@@ -566,17 +597,21 @@ function txCount(n) { return Number(n).toLocaleString('en-US') + (n === 1 ? ' tr
 function seatOf(x) { return x && x.batch && x.seat && typeof x.seat === 'object' ? x.seat : null; }
 function emptied(s) { return !!s.out && !(Number(s.sol) > 0); }   // took all of it back before the close
 // the creator's SOL in the launch: a buy, or the first SOL into its seat in the opening batch, and what became of that
-// seat by the end of what was read. Bought is said only when the read has the settle, the seat never went to 0, and the
-// pool says its batch bought
+// seat by the end of what was read. Bought is said only when the read has the settle, the seat is not out (no
+// withdrawal left it at 0 with no commitment after it), and the pool says its batch bought. Only a read with the settle
+// says how the seat ended; one without the settle of a batch the pool says is over never says "so far": what is in it
+// is as last read, and the seat at the close was not read
 function launchWords(L) {
   var f = L.firstBuy;
   if (!f) return 'no buy' + mute('the creator bought nothing in the launch transaction');
   if (!f.batch) return fSol(f.sol) + ' SOL for ' + fTok(f.tokens) + ' tokens' + mute('bought by the creator in the launch transaction');
   var s = null, o = POOL.opening;
   BIRTH.buyers.forEach(function (x) { if (x.wallet === L.creator && seatOf(x)) s = seatOf(x); });
-  var then = !s ? '' : emptied(s) ? '; it took it all back before the close'
-    : s.settled ? '; ' + fSol(Number(s.sol)) + ' SOL in it at the close' + (!s.out && Number(s.sol) > 0 && o && o.state === 'settled' && o.totalSol > 0n ? ', which bought at the batch\'s one price' : o && o.state === 'refund' ? ', and the batch bought nothing' : '')
-    : '; ' + fSol(Number(s.sol)) + ' SOL in it so far';
+  var then = !s ? ''
+    : s.settled ? (emptied(s) ? '; it took it all back before the close'
+      : '; ' + fSol(Number(s.sol)) + ' SOL in it at the close' + (!s.out && Number(s.sol) > 0 && o && o.state === 'settled' && o.totalSol > 0n ? ', which bought at the batch\'s one price' : o && o.state === 'refund' ? ', and the batch bought nothing' : ''))
+    : batchOver() ? '; ' + fSol(Number(s.sol)) + ' SOL in it as last read; the batch is over, and its seat at the close was not read'
+    : emptied(s) ? '; it has taken it all back so far' : '; ' + fSol(Number(s.sol)) + ' SOL in it so far';
   return fSol(f.sol) + ' SOL into its seat in the opening batch' + mute('the creator\'s seat, taken in the launch transaction' + then);
 }
 function renderBorn() {
@@ -607,7 +642,9 @@ function renderBorn() {
     else if (f.older) from = 'an older wallet' + mute('1,000 or more transactions before ' + it);
     else if (f.none) from = '—' + mute('none of its oldest transactions read before ' + it + ' sent it SOL');
     else from = mute(birthPaused ? 'not read yet' : 'reading…');
-    if (s) solTxt = fSol(Number(s.sol) || 0) + mute(emptied(s) ? 'took a seat, then took it all back' : s.settled ? 'its seat at the close' : 'in its seat so far');
+    if (s) solTxt = fSol(Number(s.sol) || 0) + mute(s.settled ? (emptied(s) ? 'took a seat, then took it all back' : 'its seat at the close')
+      : batchOver() ? 'in its seat as last read; its seat at the close was not read'
+      : emptied(s) ? 'took a seat, and has taken it all back so far' : 'in its seat so far');
     else solTxt = fSol(x.sol) + (x.batch ? mute('first put into its seat in the batch') : '');
     return '<tr><td>' + link('address', x.wallet, esc(shortKey(x.wallet))) + (x.creator ? ' <span class="who">creator</span>' : '') + '</td><td>' + txLink(x.signature, esc(whenTxt)) + '</td><td>' + solTxt + '</td><td>' + from + '</td></tr>';
   }).join('');
@@ -1140,9 +1177,14 @@ function sendError(e) {
   var m = String(e && e.message || e || '');
   if ((e && e.code === 4001) || /reject|denied|declin|cancel/i.test(m)) return 'You did not sign. Nothing was sent.';
   if (m === 'timeout') return Place + ' did not answer in time. Check your wallet\'s activity before trying again.';
+  // it landed and failed (Chain.send says why): a failed transaction changes nothing but pays its network fee
+  if (e && e.signature && e.reason) return 'It reached the chain and failed: ' + e.reason + '. Only the network fee was spent.';
   var hex = m.match(/custom program error: 0x([0-9a-f]+)/i);
-  if (hex) return 'It did not go through: ' + Chain.explain({ err: { InstructionError: [0, { Custom: parseInt(hex[1], 16) }] } }) + '.';
+  // the refusal's text carries the node's logs, which tell a shortfall of SOL from one of tokens
+  if (hex) return 'It did not go through: ' + Chain.explain({ err: { InstructionError: [0, { Custom: parseInt(hex[1], 16) }] }, logs: [m] }) + '.';
   if (/insufficient/i.test(m)) return 'Not enough SOL for it and its network fee.';
+  // sent, and resent, but never in a block before its blockhash ran out: nothing happened and no fee was paid
+  if (e && e.signature && !e.reason && /expired before it landed/i.test(m)) return 'It was sent but did not land in time, so nothing happened and no fee was paid. Try again.';
   if (/blockhash|expired/i.test(m)) return 'It took too long to sign and expired. Nothing was sent; try again.';
   return 'It did not go through: ' + (m || 'unknown error') + '.';
 }
@@ -1180,7 +1222,8 @@ async function execute() {
 // it, so every seat pays one price. Then each seat claims its share of the tokens (or, when the batch bought nothing,
 // its SOL back); the wallet that settles claims its own seat in the same transaction. The window is the chain's clock:
 // this browser's is set against it (the Clock sysvar, read at the start and every 3 minutes while the batch is open),
-// and what is left of the gap, a second or two, is the simulation's to catch.
+// and what is left of the gap, a second or two, is the simulation's to catch: a settle it refuses as too early is asked
+// again a few times, and after any failure the pool and the seat are read again.
 var SEAT = null, SEAT_OF = '', batchKey = '';           // SEAT: this wallet's seat as read, for SEAT_OF (wallet|pool)
 var CLOCK_OFF = 0, clockAt = 0;                         // the chain's clock minus this browser's, in seconds; when last asked
 function nowS() { return Date.now() / 1000 + (CLOCK_OFF || 0); }
@@ -1258,12 +1301,15 @@ function paintBatch() {
   b1.hidden = !btn; if (btn && b1.textContent !== btn) b1.textContent = btn; b1.disabled = busy;
   b2.hidden = !back; if (back && b2.textContent !== back) b2.textContent = back; b2.disabled = busy;
 }
+// the program's refusal of a settle before the close (OpeningNotOver, 7020), in the chain layer's words
+function notOver() { return Chain.explain({ err: { InstructionError: [0, { Custom: 7020 }] } }); }
+function pause(ms) { return new Promise(function (ok) { setTimeout(ok, ms); }); }
 async function batchAct(kind) {
   var w = window.Wallet && Wallet.current;
   if (!w) { connectWallet(); return; }
   if (busy || !POOL || !POOL.opening) return;
   busy = true; paintHold();
-  var what = '', sig = null;
+  var what = '', sig = null, failed = false;
   try {
     bnote('Reading the pool again…');
     try { var fresh = await withTimeout(Chain.readPool(POOL.mint), 12000); if (fresh) { PINNED = false; applyPool(fresh); } } catch (e) { /* act on what we have */ }
@@ -1282,19 +1328,34 @@ async function batchAct(kind) {
     else { bnote(inside ? 'The batch is still open.' : 'This wallet has no seat to claim.', true); return; }
     bnote('Asking ' + place + ' whether it would go through…');
     var sim = await withTimeout(Chain.simulate(built, w.publicKey), 15000);
-    if (!sim.ok) { bnote(Place + ' says it would fail: ' + sim.error + '. Nothing was sent.', true); return; }
+    // right at the close the chain's clock can be a second or two behind this page's: a settle refused as too early
+    // is asked again every 2 s, five times at most
+    for (var i = 0; i < 5 && !sim.ok && ph === 'due' && sim.error === notOver(); i++) {
+      bnote(Place + '\'s clock has not reached the close yet; asking again in 2 s…');
+      await pause(2000);
+      sim = await withTimeout(Chain.simulate(built, w.publicKey), 15000);
+    }
+    if (!sim.ok) { failed = true; bnote(Place + ' says it would fail: ' + sim.error + '. Nothing was sent.', true); return; }
     bnote(Place + ' says it goes through. Confirm in ' + (w.name || 'your wallet') + '.');
     sig = await Chain.send(built, w);
     bnoteHTML(what + ': ' + link('tx', sig, 'the signature ' + esc(shortKey(sig))) + '. Reading the pool…');
     await refresh(true);
+    // the settle's own outcome, from the pool read after it (the one it was built on may be from before the last SOL
+    // moved); a read that failed, or came from before the settle, leaves the words said before sending
+    var after = POOL && POOL.opening && POOL.opening.state;
+    if (ph === 'due' && has && (after === 'refund' || after === 'settled')) what = after === 'refund' ? 'Settled, your SOL back' : 'Settled and claimed';
     bnoteHTML(what + ': ' + link('tx', sig, 'the signature ' + esc(shortKey(sig))) + '.');
   } catch (e) {
+    failed = !sig;
     if (e && e.signature) bnoteHTML(esc(sendError(e)) + ' ' + link('tx', e.signature, 'See it on the explorer'), true);
     else bnote(sendError(e), true);
   } finally {
     busy = false; paintHold();
     // a claimed seat closes and its block goes: the result moves under the trade button
     if (sig && $('#batch').hidden) noteHTML(what + ' from the opening batch: ' + link('tx', sig, 'the signature ' + esc(shortKey(sig))) + '.');
+    // after a failure the pool and the seat are read again and the panel drawn anew, so its button offers what is left
+    // to do (a claim alone, say, once someone else's settle went in first)
+    if (failed) refresh(true).catch(report);
   }
 }
 $('#batchBtn').addEventListener('click', function () { batchAct('main'); });
@@ -1380,10 +1441,14 @@ function openKey(p) { var o = p.opening; return o ? [o.state, o.sol, o.seats, o.
 function changed(a, b) { return !b || openKey(a) !== openKey(b) || a.realSol !== b.realSol || a.tokens !== b.tokens || a.graduated !== b.graduated || a.volume !== b.volume || a.creatorFees !== b.creatorFees || a.treasuryFees !== b.treasuryFees || a.creatorFeesPaid !== b.creatorFeesPaid || a.treasuryFeesPaid !== b.treasuryFeesPaid || String(a.creator) !== String(b.creator); }
 function applyPool(p) {
   var first = !POOL || String(POOL.mint) !== String(p.mint), diff = first || changed(p, POOL);
+  // this coin's batch settled while the page was open (a refund too)
+  var settledNow = !first && POOL.opening && POOL.opening.state === 'open' && p.opening && p.opening.state !== 'open';
   POOL = p; lastRead = Date.now(); readFail = 0;
   if (!diff) { paintStatus(); return false; }
   showState(first);
   renderHero(); renderFacts(); renderQuote(); paintClaim();
+  if (!first) renderBorn();                               // its words read the batch's state (a new coin's birth is asked for anew)
+  if (settledNow) birthOnSettle();
   return true;
 }
 // The trades are read in rounds. In each, the chain layer fetches the transactions it has not kept yet, one call at a
@@ -1583,7 +1648,7 @@ async function boot() {
   applyPool(p); renderHead(busiest); layout();          // the name's height moves the hole down
   paintHoldings(); readWal(); readSeat();               // later reads: readAll, and a wallet that connects (onWallet)
   loadHistory();
-  BIRTH = null; birthTries = 0; birthPaused = false; creatorHold = null; clearTimeout(birthT); $('#born').hidden = true;
+  BIRTH = null; birthTries = 0; birthFollows = 0; birthLate = 0; birthPaused = false; creatorHold = null; clearTimeout(birthT); $('#born').hidden = true;
   loadBirth();
 }
 

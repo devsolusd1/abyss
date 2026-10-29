@@ -127,7 +127,7 @@ Não existe instrução que tire dinheiro de um pool para o admin, nem pausa de 
   | `settle` sem / com graduação | 7 mil / 13 mil |
   | `claim_seat` (com criação da conta) | 32 mil a 35 mil |
 
-  Os números mudam de rodada para rodada: as chaves dos testes são novas a cada vez, e cada tentativa a mais na busca do bump de uma PDA custa 1,5 mil. O teste confere contra os limites que o site pede: 200 mil para o lançamento (com compra ou `commit`), 60 mil para a compra, 40 mil para a venda, 50 mil para o `commit`, 20 mil para o `withdraw`, 60 mil para o `settle` e 80 mil para o `claim_seat` (a conta de token aberta junto também busca um bump; numa rodada chegou a 46 mil). O mais justo é o `commit`: com 15 mil de base, os 50 mil cobrem 23 tentativas a mais na busca do bump do assento (com 30 mil, cerca de 1 par moeda e carteira em 2 mil falharia sempre).
+  Os números mudam de rodada para rodada: as chaves dos testes são novas a cada vez, e cada tentativa a mais na busca do bump de uma PDA custa 1,5 mil. O teste confere contra os limites que o site pede: 200 mil para o lançamento (com compra ou `commit`), 80 mil para a compra (uma primeira compra que abre a conta e gradua chegou a 61 mil num endereço que já tinha SOL), 40 mil para a venda, 50 mil para o `commit`, 20 mil para o `withdraw`, 60 mil para o `settle` e 80 mil para o `claim_seat` (a conta de token aberta junto também busca um bump; numa rodada chegou a 46 mil). O mais justo é o `commit`: com 15 mil de base, os 50 mil cobrem 23 tentativas a mais na busca do bump do assento (com 30 mil, cerca de 1 par moeda e carteira em 2 mil falharia sempre).
 
 ## Segurança sem auditoria (por enquanto)
 
@@ -144,7 +144,7 @@ Não existe instrução que tire dinheiro de um pool para o admin, nem pausa de 
 
 Testes:
 - 9 de matemática em `src/math.rs`;
-- 21 de integração em LiteSVM com o Token-2022 de verdade (`../pool-tests`), entre eles o ataque das contas "intransferíveis" (agora recusado no lançamento), o endereço que pertence ao criador e ao salt, e o lote de abertura (um preço para todos os assentos, a ordem das janelas, o saque total que fecha o assento e o `commit` que o abre de novo, o reembolso, o lote que gradua, os limites da janela, a janela mínima com o `commit` do criador no lançamento, o compute de cada passo);
+- 32 de integração em LiteSVM com o Token-2022 de verdade (`../pool-tests`), entre eles o ataque das contas "intransferíveis" (agora recusado no lançamento), o endereço que pertence ao criador e ao salt, e o lote de abertura (um preço para todos os assentos, a ordem das janelas, o saque total que fecha o assento e o `commit` que o abre de novo, o reembolso, o lote que gradua, os limites da janela, a janela mínima com o `commit` do criador no lançamento, o compute de cada passo), e mais: nada entra nem sai de um assento depois do `settle`, o reembolso com vários assentos e negociação antes dos resgates, o lote que cai abaixo do mínimo no último segundo, contas trocadas em cada passo do lote, um passeio aleatório com lote que confere os livros a cada passo, a graduação antes dos resgates, os valores mínimos, os bytes de cada evento na posição que o site e o servidor leem, e o pior caso de compute contra os limites do site;
 - na devnet, `site/chain/batch-check.mjs` faz um lote de verdade pelo pacote do site;
 - `../test.sh` roda tudo.
 

@@ -9,15 +9,21 @@
 // changes with every trade or claim) is new. The answer is cached at the edge for a moment, per `at`. With a paid node
 // it fetches BATCH at a time; on the public node each of its calls keeps to that node's pace (about one call every
 // 1.3 s, on the mark it shares with the birth: config.mjs), so a long history comes in over a few answers (complete:
-// false until it is all in).
+// false until it is all in). One answer waits for the node's turns BUDGET_MS at most, the pool check and the listing
+// included; a 429 counts as a turn that comes too late. Then it gives what it has. With no list kept for the pool yet
+// it has nothing to give (an empty one would read as a pool without trades), so its pool check and listing may wait
+// until FIRST_MS: the page waits 15 s for an answer, and without a 200 it reads the node itself (for the few seconds a
+// 503's retry-after asks, or for a minute after any other answer or none in 15 s). When the listing's turn comes after
+// that too, or the node answers 429, it says so: 503, with no wait for a turn it knows is too late.
 //
 // Answer: { total, have, complete, signatures: [{ signature, blockTime, err }], txs: { signature: { t, d: [base64] } } }
 
 import { createHash } from "node:crypto";
-import { clusterOf, addressBytes, callerOf, foreign, Limiter, json, base58, OutOfTime, publicTurn, backOff } from "./config.mjs";
+import { clusterOf, addressBytes, callerOf, foreign, Limiter, json, base58, OutOfTime, publicTurn, backOff, PUBLIC_GAP } from "./config.mjs";
 
 const LIST_MS = 2000;
-const BUDGET_MS = 7000;                                  // how long one answer may spend fetching
+const BUDGET_MS = 7000;                                  // how long one answer may spend, its waits for the node included
+const FIRST_MS = 12_000;                                 // how long it may wait for a pool's first list (the page waits 15 s)
 const BATCH = 10;
 const POOL_MS = 10 * 60 * 1000;                          // how long "this is one of the program's pools" is believed
 const MAX_ANSWER = 4 * 1024 * 1024;
@@ -68,28 +74,36 @@ const one = (method, params) => ({ jsonrpc: "2.0", id: 1, method, params });
 /**
  * The mint of a pool of the program, or null for any other address: the account is the program's and starts with the
  * Pool account's mark (a seat or the config is the program's too, and is not a pool). Only its first 40 bytes are read.
- * On the public node it waits for its turn; OutOfTime when that comes after `until`.
+ * On the public node it waits for its turn; OutOfTime when that comes after `until`, or when the node answers 429.
  */
 export async function poolMint(cluster, address, until = Infinity) {
   const key = `${cluster.name}|${address}`, hit = pools.get(key), now = Date.now();
   if (hit && now - hit.at < (hit.mint ? POOL_MS : 60_000)) return hit.mint;
-  if (!(await publicTurn(cluster, until))) throw new OutOfTime();
+  // a pool is never closed: when the node's turn comes too late or it answers 429, an account read as one stays one
+  const late = () => { if (hit?.mint) return hit.mint; throw new OutOfTime(); };
+  if (!(await publicTurn(cluster, until))) return late();
   const r = await call(cluster, one("getAccountInfo", [address, { encoding: "base64", dataSlice: { offset: 0, length: 40 }, commitment: "confirmed" }]));
-  if (r?.error) { if (r.error.code === 429) backOff(cluster); throw new Error("node"); }
+  if (r?.error?.code === 429) { backOff(cluster); return late(); }
+  if (r?.error) throw new Error("node");
   const v = r?.result?.value, data = Array.isArray(v?.data) ? Buffer.from(String(v.data[0] ?? ""), "base64") : null;
   const mint = v?.owner === cluster.program && data?.length >= 40 && data.subarray(0, 8).equals(POOL_TAG) ? base58(data.subarray(8, 40)) : null;
   keep(pools, key, { at: now, mint }, 2000);
   return mint;
 }
-export const isPool = async (cluster, address) => (await poolMint(cluster, address)) !== null;
+export const isPool = async (cluster, address, until) => (await poolMint(cluster, address, until)) !== null;
 
-/** The pool's latest signatures; on the public node at its turn, or the list last read when that comes after `until`. */
+/**
+ * The pool's latest signatures; on the public node at its turn. When that comes after `until`, or the node answers
+ * 429, the list last read, or OutOfTime when there is none.
+ */
+const listKey = (cluster, pool, limit) => `${cluster.name}|${pool}|${limit}`;
 async function signatures(cluster, pool, limit, mark, until) {
-  const key = `${cluster.name}|${pool}|${limit}`, hit = lists.get(key);
+  const key = listKey(cluster, pool, limit), hit = lists.get(key);
   if (hit && Date.now() - hit.at < LIST_MS && hit.mark === mark) return hit.list;
-  if (!(await publicTurn(cluster, hit ? until : Infinity))) return hit.list;
+  const late = () => { if (hit) return hit.list; throw new OutOfTime(); };
+  if (!(await publicTurn(cluster, until))) return late();
   const r = await call(cluster, one("getSignaturesForAddress", [pool, { limit, commitment: "confirmed" }]));
-  if (r?.error?.code === 429) backOff(cluster);
+  if (r?.error?.code === 429) { backOff(cluster); return late(); }
   if (!Array.isArray(r?.result)) throw new Error("node");
   const list = r.result.filter((s) => s && typeof s.signature === "string" && s.signature.length <= 90)
     .map((s) => ({ signature: s.signature, blockTime: typeof s.blockTime === "number" ? s.blockTime : null, err: s.err ? true : null }));
@@ -154,9 +168,18 @@ export async function handleHistory(request, env = {}) {
     const mark = String(q.get("at") ?? "").slice(0, 120);
     if (!asks.take(callerOf(request))) return json({ error: "Too many asks from here; slow down" }, 429, { "retry-after": "5" });
 
-    if (!(await isPool(cluster, pool))) return json({ error: "Not a pool of this program" }, 404, { "cache-control": "public, s-maxage=60" });
-    const list = await signatures(cluster, pool, limit, mark, Date.now() + BUDGET_MS);
-    await fill(cluster, list, Date.now() + BUDGET_MS);
+    const now = Date.now(), until = now + BUDGET_MS, known = lists.has(listKey(cluster, pool, limit));
+    // with no list kept, the listing's turn may come until FIRST_MS, and the pool check leaves a turn before it
+    const last = known ? until : now + FIRST_MS;
+    let list;
+    try {
+      if (!(await isPool(cluster, pool, known ? until : last - PUBLIC_GAP))) return json({ error: "Not a pool of this program" }, 404, { "cache-control": "public, s-maxage=60" });
+      list = await signatures(cluster, pool, limit, mark, last);
+    } catch (err) {
+      if (!(err instanceof OutOfTime)) throw err;        // the node's turn comes later (or a 429), and nothing kept answers
+      return json({ error: "The node is busy; ask again shortly" }, 503, { "retry-after": "3" });
+    }
+    await fill(cluster, list, until);
     const txs = {};
     let have = 0, total = 0;
     for (const s of list) {

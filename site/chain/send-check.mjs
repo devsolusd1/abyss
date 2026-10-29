@@ -34,12 +34,18 @@ const t = (units) => Chain.tokens(units).toLocaleString("en-US", { maximumFracti
 const balance = async () => BigInt(await conn.getBalance(me, "confirmed"));
 const feeOf = async (sig) => BigInt((await conn.getTransaction(sig, { commitment: "confirmed", maxSupportedTransactionVersion: 0 })).meta.fee);
 
-/** The pool's own floor: its rent plus its reserve plus every fee it owes. */
+/**
+ * The pool's own floor: its rent plus its reserve, every fee it owes and its opening batch's SOL not yet bought with or
+ * taken back; and its vault (a token account's amount is the u64 at 64) holds its token reserve plus the batch's tokens
+ * not yet claimed.
+ */
 async function solvent(pool) {
-  const info = await conn.getAccountInfo(pool.address, "confirmed");
+  const [info, vault] = await conn.getMultipleAccountsInfo([pool.address, pool.vault], "confirmed");
   const rent = BigInt(await conn.getMinimumBalanceForRentExemption(info.data.length));
-  const floor = rent + pool.realSol + pool.creatorFees + pool.treasuryFees;
-  return { ok: BigInt(info.lamports) >= floor, spare: BigInt(info.lamports) - floor };
+  const o = pool.opening;
+  const floor = rent + pool.realSol + pool.creatorFees + pool.treasuryFees + (o ? o.sol : 0n);
+  const held = vault ? vault.data.readBigUInt64LE(64) : 0n;
+  return { ok: BigInt(info.lamports) >= floor && held >= pool.tokens + (o ? o.tokensLeft : 0n), spare: BigInt(info.lamports) - floor };
 }
 
 /** Simulates, then sends when SEND=1. Returns the signature, or null on a dry run. */
@@ -57,11 +63,14 @@ async function run(label, built) {
 console.log(`wallet ${Chain.short(me)}  ${SEND ? "SENDING on devnet" : "dry run (SEND=1 sends)"}`);
 const pools = await Chain.listPools();
 const want = process.env.COIN;
-let pool = want ? pools.find((p) => p.mint.toString() === want || p.symbol === want) : pools.find((p) => !p.graduated && p.creator.equals(me));
+// a coin that trades now: no opening batch, or one that is over (a batch still open takes no buys), and not graduated
+const trades = (p) => !p.graduated && (!p.opening || p.opening.state === "settled" || p.opening.state === "refund");
+let pool = want ? pools.find((p) => p.mint.toString() === want || p.symbol === want) : pools.find((p) => trades(p) && p.creator.equals(me));
 if (!pool) { console.log("no coin to test on"); process.exit(1); }
+if (pool.opening?.state === "open") console.log(`         ${pool.symbol} is in its opening batch: the buy will be refused`);
 line(pool.creator.equals(me) && pool.treasury.equals(me), `${pool.name} (${pool.symbol}): this wallet is its creator and its treasury`);
 console.log(`         before: ${s(pool.realSol)} SOL in, ${t(pool.tokens)} tokens left, fees owed ${s(pool.creatorFees)} creator + ${s(pool.treasuryFees)} treasury`);
-line((await solvent(pool)).ok, "the pool holds its rent, its reserve and every fee it owes");
+line((await solvent(pool)).ok, "the pool holds its rent, its reserve, every fee it owes and its batch's SOL, and its vault every token it counts");
 const claimSigs = [];
 
 let sellSig = null;
