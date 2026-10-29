@@ -9,5 +9,19 @@ target/
 .env*
 *keypair*.json
 id.json
+# the deploy kit's keys, should one land in the repository by mistake (they belong in ~/nox-release and ~/nox-keys,
+# and the kit's scripts refuse a key inside any repository): its file names, the deploy wallet's, the two folders made
+# here by a missing ~/, and a grind's <address>.json for a Nox-looking id
+program.json
+buffer.json
+upgrade-buffer.json
+mainnet-deploy.json
+nox-keys/
+nox-release/
+*nox.json
+nox*.json
+programs/deploy/**/*.json
+!programs/deploy/package.json
+!programs/deploy/package-lock.json
 # old copies of the site, kept on disk only
 backup/

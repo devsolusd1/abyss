@@ -9,8 +9,10 @@ export PATH="$HOME/.cargo/bin:$HOME/.local/share/solana/install/active_release/b
 
 # The version the upgrade starts from: the last one before the opening batch. The test writes that version's launch
 # (launch_ix_before_batch) and expects its errors, so it holds for this one upgrade only. Before an upgrade of a live
-# program, dump the live binary (solana program dump <program id> live.so) and set POOL_SO_LIVE to it: the upgrade in
-# the middle of a batch then starts from it. Without it, that test has the current binary on both sides.
+# program, set POOL_SO_LIVE to the live commit built again for the tests' address (deploy/MAINNET.md, "Um upgrade
+# depois": COMMIT=<live commit> deploy/build.sh CbAjrr…): the upgrade in the middle of a batch then starts from it.
+# A dump of the live binary does not do: it carries the live address in its declare_id! and refuses to run at any
+# other (DeclaredProgramIdMismatch). Without POOL_SO_LIVE, that test has the current binary on both sides.
 old=b73a4b1
 # Cargo is slow on a Windows drive mounted in WSL, so the old source and both builds live somewhere native.
 target="${DEX_TARGET:-$HOME/dex-target}"

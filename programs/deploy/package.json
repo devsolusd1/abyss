@@ -1,0 +1,10 @@
+{
+  "name": "dex-deploy",
+  "private": true,
+  "type": "module",
+  "description": "The pool program's first deploy, its config, its multisig, the checks after, and the program id in the site. See MAINNET.md.",
+  "dependencies": {
+    "@solana/web3.js": "1.99.0",
+    "@sqds/multisig": "2.1.4"
+  }
+}

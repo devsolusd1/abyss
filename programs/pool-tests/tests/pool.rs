@@ -4,7 +4,9 @@
 //! `POOL_SO` at the binary if it is not in `~/dex-target`. The upgrade from the version
 //! before the opening batch also needs that version's binary, in `POOL_SO_OLD`: it is ignored
 //! unless asked for, and upgrade-test.sh builds both binaries and runs it. The upgrade in the
-//! middle of a batch starts from the binary in `POOL_SO_LIVE`, the one live on chain, when given.
+//! middle of a batch starts from the binary in `POOL_SO_LIVE`, when given: the live commit built again for this
+//! program's address (`deploy/MAINNET.md`, "Um upgrade depois"), not a dump of the live binary, which carries the live
+//! address in its `declare_id!` and refuses to run at this one.
 
 use {
     anchor_lang::{InstructionData, ToAccountMetas},
@@ -2388,10 +2390,12 @@ fn upgrade_keeps_the_coins_launched_before_the_batch() {
 
 /// An upgrade while a batch is under way: the live binary replaced by the current one while a batch is open with seats
 /// in it, and again once it is settled with seats still to claim, next to a refused batch whose SOL is still owed.
-/// Each batch goes on where it was: the same seats, window and books. The live binary comes in `POOL_SO_LIVE`, dumped
-/// from the chain before an upgrade. Without it both sides are the current binary, and this is only a frame: it runs
-/// the batch through the loader's upgrade, and would not notice a change in the pool's or the seat's layout. The steps
-/// before each upgrade use today's formats; if the next version changes them, they must be written as the live one's.
+/// Each batch goes on where it was: the same seats, window and books. The live binary comes in `POOL_SO_LIVE`: the live
+/// commit built again for this address (`COMMIT=<live commit> deploy/build.sh CbAjrr…`), since a dump of the live one
+/// would refuse to run here (DeclaredProgramIdMismatch). Without it both sides are the current binary, and this is
+/// only a frame: it runs the batch through the loader's upgrade, and would not notice a change in the pool's or the
+/// seat's layout. The steps before each upgrade use today's formats; if the next version changes them, they must be
+/// written as the live one's.
 #[test]
 fn upgrade_in_the_middle_of_an_opening_batch() {
     let current = so("POOL_SO", "pool/deploy/dex.so");

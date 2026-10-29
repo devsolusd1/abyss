@@ -139,17 +139,17 @@ Não existe instrução que tire dinheiro de um pool para o admin, nem pausa de 
 6. **Mint fechado**: só os metadados, nenhuma autoridade, conferido depois de criar.
 7. **Tetos fixos** para taxas e curva.
 8. **O mint é uma PDA do programa** (2026-10-28), o que fecha na raiz o ataque das contas "intransferíveis": antes, quem tinha a chave de um endereço podia criar ali um mint com extensões, abrir contas para outras carteiras, fechar o mint e lançar a moeda no mesmo endereço, e as contas antigas ficavam com a marca. Agora não há chave: o lançamento num endereço que não é o do programa é recusado. A defesa antiga continua: **o pool só paga em contas limpas** (recusa contas congeladas ou com extensões herdadas).
-9. **Multisig com timelock** para a autoridade de upgrade, antes da mainnet.
+9. **Multisig com timelock** para a autoridade de upgrade e o admin da config, antes da mainnet. O kit está em `../deploy/` (roteiro em `../deploy/MAINNET.md`): deploy num ID novo, config com os lançamentos fechados, multisig Squads v4 sem "config authority", prova das chaves de cada membro, passagem da autoridade e do admin ao vault numa transação, e upgrades e mudanças de config por votação. Ensaiado inteiro na devnet em 2026-10-29, num programa de teste (`AC6DWrFx…gf59`), sem tocar no `CbAjrr…`.
 10. **Começo controlado**: só a equipe lança.
 
 Testes:
 - 9 de matemática em `src/math.rs`;
 - 33 de integração em LiteSVM com o Token-2022 de verdade (`../pool-tests`), entre eles o ataque das contas "intransferíveis" (agora recusado no lançamento), o endereço que pertence ao criador e ao salt, e o lote de abertura (um preço para todos os assentos, a ordem das janelas, o saque total que fecha o assento e o `commit` que o abre de novo, o reembolso, o lote que gradua, os limites da janela, a janela mínima com o `commit` do criador no lançamento, o compute de cada passo), e mais: nada entra nem sai de um assento depois do `settle`, o reembolso com vários assentos e negociação antes dos resgates, o lote que cai abaixo do mínimo no último segundo, contas trocadas em cada passo do lote, um passeio aleatório com lote que confere os livros a cada passo, a graduação antes dos resgates, os valores mínimos, os bytes de cada evento na posição que o site e o servidor leem, e o pior caso de compute contra os limites do site; e um upgrade no meio de um lote aberto;
-- `../upgrade-test.sh` compila a versão de antes do lote (b73a4b1), lança e negocia moedas com ela, faz o upgrade pelo loader (ExtendProgram e Upgrade) e confere que as moedas antigas leem o lote zerado, negociam, graduam, pagam taxas e trocam de criador. Antes de um upgrade da mainnet, o binário que estiver no ar (`solana program dump`) entra no lugar do antigo. Cuidado com a ordem: o Anchor aceita bytes a mais nos argumentos, então um site novo que mande um `launch` com lote para um programa antigo, sem o `commit` do criador, cria uma moeda sem lote sem erro nenhum. O programa sobe antes do site;
+- `../upgrade-test.sh` compila a versão de antes do lote (b73a4b1), lança e negocia moedas com ela, faz o upgrade pelo loader (ExtendProgram e Upgrade) e confere que as moedas antigas leem o lote zerado, negociam, graduam, pagam taxas e trocam de criador. Antes de um upgrade da mainnet, o commit que estiver no ar, compilado de novo para o endereço dos testes, é o ponto de partida do teste do upgrade no meio de um lote (`POOL_SO_LIVE`; `../deploy/MAINNET.md`, "Um upgrade depois"). O `solana program dump` não serve: o binário no ar leva o ID da mainnet e recusa rodar em outro endereço. Cuidado com a ordem: o Anchor aceita bytes a mais nos argumentos, então um site novo que mande um `launch` com lote para um programa antigo, sem o `commit` do criador, cria uma moeda sem lote sem erro nenhum. O programa sobe antes do site;
 - na devnet, `site/chain/batch-check.mjs` faz um lote de verdade pelo pacote do site, e `site/chain/seats-check.mjs` faz três ao mesmo tempo com seis carteiras: um que compra (quatro assentos, cada resgate conferido até a unidade), um reembolso e um vazio;
 - `../test.sh` roda tudo.
 
-O binário tem 479 KB, cerca de 3,4 SOL de aluguel.
+O binário tem 479 KB (490.736 bytes). O aluguel caiu desde então: medido em 2026-10-29, são cerca de 2,49 SOL para o binário e 3,12 SOL com os 25 % de folga que o deploy da mainnet reserva.
 
 ## Revisões (2026-10-22)
 
@@ -165,7 +165,7 @@ Hooks, Jupiter e OKX (exigem SDK), LP de terceiros, pares além do SOL, taxa de 
 1. ~~Programa e testes locais.~~
 2. ~~Devnet.~~
 3. **Site próprio**, em andamento.
-4. **Mainnet**: carteira nova, multisig, deploy (cerca de 3,4 SOL de aluguel) e o token principal do projeto lançado na DBC normal, decisão do usuário.
+4. **Mainnet**: carteira nova, multisig, deploy (cerca de 3,12 SOL de aluguel, com a folga) e o token principal do projeto lançado na DBC normal, decisão do usuário. O roteiro está ensaiado (`../deploy/MAINNET.md`); falta a carteira, os membros da multisig e um nó pago.
 
 ## Em aberto
 

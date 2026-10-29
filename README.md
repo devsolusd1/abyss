@@ -14,6 +14,15 @@ as a pixel black hole whose disk is the real SOL in its pool.
   launches and trades coins with it, upgrades to the current one, and checks the old coins still trade.
 - `programs/examples`: `devnet.mjs` launches and trades a test coin (it only simulates unless `SEND=1`),
   and the records of the coins launched on devnet.
+- `programs/deploy`: the mainnet kit, and `MAINNET.md`, its steps in Portuguese. `build.sh` builds a commit for a new
+  program id, `deploy.sh` deploys it once (resumable from its buffer), `init-config.mjs` makes the config with launches
+  closed, `multisig.mjs` makes a Squads v4 multisig, has each member sign a harmless proposal, hands the upgrade
+  authority and the config's admin to its vault in one transaction, then runs upgrades and config changes by vote and
+  timelock; `check-deploy.mjs` reads it all back (the bytes on chain against the build, the config, the multisig),
+  and `set-program.mjs` puts the id in the site. Nothing is sent without `SEND=1`, except by `sol.sh`, which runs the
+  CLI command it is given (with the node's URL filtered out of what it prints, and never `config` nor a write to the
+  site's devnet program). `check-multisig.mjs` checks `multisig.mjs` offline and by simulation. The whole path was
+  rehearsed on devnet on 2026-10-29 with a test program (`AC6DWrFxeiDbvAmE5QKXXTH2c4iriqz9YKJQ3zWwgf59`).
 - `site`: the pages. `index.html` (the landing), `coins.html`, `coin.html`, `launch.html` and `sim.html`
   (the simulator: launch a coin in the browser and trade it against a made-up crowd, with play SOL).
   - `assets/bh.js` draws the black hole.
@@ -68,7 +77,8 @@ a `.env.local` file at the repo root with `RPC_URL_DEVNET=…` (git ignores `.en
 Without one, devnet uses the public node (slow for the history: about one transaction a second) and mainnet has none.
 The paid path asks for ten transactions per JSON-RPC batch; a node that refuses batches is asked one call at a time
 for the next ten minutes, and `RPC_BATCH=0` makes that the rule.
-When the program is on mainnet, its id goes in `site/net.js` and `server/config.mjs` (or `PROGRAM_MAINNET`).
+When the program is on mainnet, its id goes in `site/net.js` and `server/config.mjs` (or `PROGRAM_MAINNET`):
+`programs/deploy/set-program.mjs mainnet <id>` shows the change, and writes it with `WRITE=1`.
 
 ## Run the site
 
