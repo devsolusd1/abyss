@@ -14,12 +14,13 @@ import {
 let NET = typeof window !== "undefined" ? window.NET : null;
 let connection = null;
 
-/** For Node scripts and tests: { rpcUrl, program, cluster, historyPace?, historyWindowMs? } (see the history pace below). */
+/** For Node scripts and tests: { rpcUrl, program, cluster, poolsUrl?, historyPace?, historyWindowMs? } (see the history pace below). */
 export function setNet(net) {
   NET = net;
   connection = null;
   feeSeen.clear();                                       // another node, its own recent fees
   pace = null; nextAt = 0; coolUntil = 0;    // another node, its own limit
+  metas.clear(); poolsDownUntil = 0;                     // another cluster, its own coins and its own server
 }
 
 export function net() {
@@ -205,14 +206,18 @@ export function priceOf(r, burned = 0n) {
 
 /* ---------------- Reading ---------------- */
 
-function parsePool(address, data) {
+const KEYS_END = 8 + 32 * 5;                             // a Pool's mint, creator, treasury, vault and hook program
+
+/** A Pool account's fields; with `keys` false, the coin board's form: the mint without the four keys after it. */
+function parsePool(address, data, keys = true) {
   const r = new Reader(data, 8);
-  const p = {
-    address, mint: r.key(), creator: r.key(), treasury: r.key(), vault: r.key(), hookProgram: r.key(),
+  const p = keys ? { address, mint: r.key(), creator: r.key(), treasury: r.key(), vault: r.key(), hookProgram: r.key() } : { mint: r.key() };
+  if (!keys) r.skip(32 * 4);
+  Object.assign(p, {
     virtualSol: r.u64(), realSol: r.u64(), tokens: r.u64(), graduationSol: r.u64(), graduationMcap: r.u64(),
     burned: r.u64(), creatorFees: r.u64(), treasuryFees: r.u64(), creatorFeesPaid: r.u64(), treasuryFeesPaid: r.u64(),
     volume: r.u64(), openedAt: Number(r.i64()), graduatedAt: Number(r.i64()), feeBps: r.u16(), treasuryShareBps: r.u16(),
-  };
+  });
   p.graduated = r.u8() === 1;
   r.skip(3);                                             // bump, padding
   const opensAt = Number(r.i64()), openingSol = r.u64(), totalSol = r.u64(), batchTokens = r.u64(), tokensLeft = r.u64();
@@ -244,22 +249,144 @@ function parseMintMetadata(data) {
   return { name: "", symbol: "", uri: "" };
 }
 
+// Coins' names, symbols and links, by mint. The launch seals them (programs/pool/src/token.rs takes the update
+// authority away in the same instruction), so once read they are kept for the visit.
+const metas = new Map();
+const NO_META = { name: "", symbol: "", uri: "" };
+function remember(mint, meta) { metas.delete(mint); metas.set(mint, meta); if (metas.size > 50_000) metas.delete(metas.keys().next().value); }
+
+/** Each pool with its coin's name, symbol and link: the kept ones at once, the rest read 100 a call, 4 calls at a time. */
 async function withMetadata(pools) {
-  const infos = [];
-  for (let i = 0; i < pools.length; i += 100) infos.push(...await conn().getMultipleAccountsInfo(pools.slice(i, i + 100).map((p) => p.mint)));
-  pools.forEach((p, i) => Object.assign(p, infos[i] ? parseMintMetadata(infos[i].data) : { name: "", symbol: "", uri: "" }));
+  const want = [...new Set(pools.map((p) => p.mint.toBase58()))].filter((m) => !metas.has(m));
+  const lots = [];
+  for (let i = 0; i < want.length; i += 100) lots.push(want.slice(i, i + 100));
+  for (let i = 0; i < lots.length; i += 4) {
+    await Promise.all(lots.slice(i, i + 4).map(async (lot) => {
+      const infos = await conn().getMultipleAccountsInfo(lot.map((m) => new PublicKey(m)));
+      lot.forEach((m, j) => { if (infos[j]) remember(m, parseMintMetadata(infos[j].data)); });   // one not served: asked for again next time
+    }));
+  }
+  for (const p of pools) Object.assign(p, metas.get(p.mint.toBase58()) ?? NO_META);
   return pools;
 }
 
-/** Every pool the program holds, newest first, with each coin's name and symbol. */
-export async function listPools() {
+/** The program's pools from the node, newest first, and the metadata of the newest `limit`. */
+async function poolsFromNode(limit) {
   const tag = await disc("account", "Pool");
   const accounts = await conn().getProgramAccounts(program(), {
     filters: [{ dataSize: POOL_LEN }, { memcmp: { offset: 0, bytes: base58(tag) } }],
   });
-  const pools = accounts.map((a) => parsePool(a.pubkey, a.account.data));
-  pools.sort((a, b) => b.openedAt - a.openedAt);
+  const readAt = Date.now();
+  const all = accounts.map((a) => parsePool(a.pubkey, a.account.data));
+  all.sort((a, b) => b.openedAt - a.openedAt);
+  const pools = limit < all.length ? all.slice(0, limit) : all;
+  Object.assign(pools, { total: all.length, readAt });
   return withMetadata(pools);
+}
+
+/*
+ * The site's pool list (NET.poolsUrl, /api/pools: server/pools.mjs), read from the node there every few seconds for
+ * every visitor. The server answers a slice within 3 s and the whole list within 5 s; an ask waits 5 s and 12 s. When
+ * it fails (404, 500, 502, 504, a 503 without a retry-after, no answer in time, an answer that is not a list of pools),
+ * the node is read here instead, and for the next minute. When it is busy (a 503 with a retry-after, or a 429), it is
+ * asked once more after the time it says (5 s at most); busy again, listPools fails and the page asks on its next round:
+ * reading the node from here then would load the node that has just refused. A whole list too large for one answer
+ * comes in pages, each after the last pool of the one before (MAX_PAGES at most).
+ */
+let poolsDownUntil = 0;
+const MAX_PAGES = 4;                                     // 50,000 pools in the board's form, 22,000 whole (the longest metadata)
+const bytesOf = (b64) => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+class Busy extends Error {}
+
+/** A pool as the site's server sends it: [address, data, name, symbol, uri], or the board's [mint and numbers, name, symbol]. */
+function fromRow(row, board) {
+  if (!Array.isArray(row) || typeof row[board ? 0 : 1] !== "string") throw new Error("Not a pool");
+  let p;
+  if (board) {
+    const b = bytesOf(row[0]), data = new Uint8Array(POOL_LEN);
+    if (b.length !== 32 + POOL_LEN - KEYS_END) throw new Error("Not a pool");
+    data.set(b.subarray(0, 32), 8); data.set(b.subarray(32), KEYS_END);
+    p = parsePool(null, data, false);
+  } else {
+    const data = bytesOf(row[1]);
+    if (data.length !== POOL_LEN) throw new Error("Not a pool");
+    p = parsePool(new PublicKey(row[0]), data);
+  }
+  const [name, symbol, uri] = board ? row.slice(1, 3) : row.slice(2, 5);
+  // null: the server has not read this coin's metadata yet
+  if (typeof name === "string" && typeof symbol === "string") {
+    Object.assign(p, { name, symbol });
+    if (!board) { p.uri = typeof uri === "string" ? uri : ""; remember(p.mint.toBase58(), { name, symbol, uri: p.uri }); }
+  }
+  return p;
+}
+
+/**
+ * One answer of the site's server, read: { pools, total, cut, readAt }, or null when it failed. Busy when it is busy, or
+ * (`late`: an ask after a busy one) when it does not answer in time. readAt: when its list was read, by the server's
+ * own clocks (its Date, and how long the edge says it kept the answer) and not by this computer's.
+ */
+async function askSite(url, wait, board, late) {
+  const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), Math.max(0, wait));
+  try {
+    const res = await fetch(url, { signal: ctl.signal });
+    const retry = Number(res.headers.get("retry-after"));
+    if (res.status === 429 || (res.status === 503 && retry > 0)) throw Object.assign(new Busy("The site's server is busy"), { retry: Math.min(5, retry > 0 ? retry : 5) * 1000 });
+    if (!res.ok) return null;
+    const body = await res.json();
+    if (!body || !Array.isArray(body.pools)) return null;
+    const pools = body.pools.map((row) => fromRow(row, board));
+    const date = Date.parse(res.headers.get("date") ?? ""), kept = Math.max(0, Number(res.headers.get("age")) || 0) * 1000;
+    const readAt = Date.now() - kept - (Number.isFinite(date) && Number.isFinite(body.at) ? Math.max(0, date - body.at) : 0);
+    return { pools, total: Number.isSafeInteger(body.total) ? body.total : 0, cut: body.cut === true, readAt };
+  } catch (err) {
+    if (err instanceof Busy || (late && ctl.signal.aborted)) throw err instanceof Busy ? err : new Busy("The site's server is busy");
+    return null;                                         // no answer in time, not JSON, a pool cut short
+  } finally { clearTimeout(timer); }
+}
+
+async function poolsFromSite(limit, board) {
+  if (!NET?.poolsUrl || Date.now() < poolsDownUntil) return null;
+  const slice = Number.isFinite(limit), wait = slice ? 5000 : 12_000, until = Date.now() + (slice ? 7000 : 15_000);
+  const url = `${NET.poolsUrl}${slice ? `&limit=${limit}` : ""}${board ? "&board=1" : ""}`;
+  let got;
+  try { got = await askSite(url, wait, board, false); } catch (err) {
+    if (!(err instanceof Busy) || Date.now() + err.retry + 1000 > until) throw err;
+    await sleep(err.retry);
+    got = await askSite(url, Math.min(wait, until - Date.now()), board, true);   // busy again: the page asks on its next round
+  }
+  if (!got) { poolsDownUntil = Date.now() + 60_000; return null; }
+  const { pools, total } = got;
+  let readAt = got.readAt;
+  // the rest of a list too large for one answer; a page that fails ends it, and the total says what is missing
+  for (let page = 1; got.cut && pools.length && page < MAX_PAGES && Date.now() < until; page++) {
+    const last = pools[pools.length - 1], mint = last.mint.toBase58();
+    try { got = await askSite(`${url}&after=${last.openedAt}.${mint}`, Math.min(wait, until - Date.now()), board, true); } catch { got = null; }
+    const next = got?.pools[0];
+    // the next answer starts after that pool (older, or as old with a later mint), or it is not the next page
+    if (!next || !(next.openedAt < last.openedAt || (next.openedAt === last.openedAt && next.mint.toBase58() > mint))) break;
+    pools.push(...got.pools);
+    readAt = Math.min(readAt, got.readAt);
+  }
+  const unnamed = pools.filter((p) => typeof p.name !== "string");
+  if (unnamed.length) await withMetadata(unnamed);
+  return Object.assign(pools, { total: Math.max(total, pools.length), readAt });
+}
+
+/**
+ * The program's pools, newest first, each with its coin's name and symbol (and link). The list's `total` is how many
+ * pools the program holds: more than its length with a limit, or when the site's server could not give them all (past
+ * MAX_PAGES answers of 4 MB, or a page that failed). Its `readAt` is when the pools were read from the node (the site's
+ * server can give a list up to a minute old while its node fails).
+ *   limit  only the newest that many (1 to 100), and only their metadata read
+ *   board  only what the coin board shows, so more pools fit in one answer of the site's server: no pool address,
+ *          creator, treasury, vault, hook program or link (when the node is read here, the pools come whole)
+ * From the site's server when there is one (NET.poolsUrl); without it, or when it fails, from the node. When the site's
+ * server stays busy, it throws.
+ */
+export async function listPools({ limit, board = false } = {}) {
+  const n = limit == null ? Infinity : Math.min(100, Math.max(1, Math.floor(Number(limit)) || 1));
+  return (await poolsFromSite(n, board)) ?? poolsFromNode(n);
 }
 
 export async function readPool(mint) {
@@ -1085,7 +1212,8 @@ export async function send(built, wallet) {
     // (the page explains the program's error), a 4xx from the site's server
     if (!/already been processed/i.test(m) && !/^5\d\d\b|fetch|network|timed? ?out|ECONN|socket|aborted/i.test(m)) throw err;
   }
-  await confirm(signature, height, raw, built.tx);
+  // explain reads what was sent: a wallet may add instructions as it signs, which moves the failing one's index
+  await confirm(signature, height, raw, signed);
   return signature;
 }
 
@@ -1239,4 +1367,4 @@ function base58(bytes) {
 export const short = (key) => { const s = key.toString(); return `${s.slice(0, 4)}…${s.slice(-4)}`; };
 export const sol = (lamports) => Number(lamports) / 1e9;
 export const tokens = (units) => Number(units) / 1e6;
-export { PublicKey, Keypair };
+export { PublicKey, Keypair, Transaction };

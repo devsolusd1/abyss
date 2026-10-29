@@ -357,7 +357,8 @@ function withTimeout(p, ms) { return Promise.race([p, new Promise(function (_, n
   if (Q.get('offline') === '1') { fail('Offline view.'); return; }
   if (absent) { fail('Nox is not on Solana mainnet yet.'); return; }
   if (!window.Chain || !window.NET || !NET.ready) { fail((window.NET ? NET.Place : 'Devnet') + ' is not reachable from here.'); return; }
-  withTimeout(Promise.resolve().then(function () { return Chain.listPools(); }), 8000).then(function (pools) {
+  // the newest 12 only, and only their names read
+  withTimeout(Promise.resolve().then(function () { return Chain.listPools({ limit: 12 }); }), 8000).then(function (pools) {
     if (!pools || !pools.length) { fail(NET.say('No coins on devnet yet.', 'No Nox coins on Solana yet.')); return; }
     var list = pools.slice(0, 12).map(function (p) {
       var f = BH.fromPool(p);                           // lamports to SOL, and the look of its launch settings

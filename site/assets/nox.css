@@ -85,6 +85,19 @@ p { margin: 0; }
 .q:hover, .q:focus-visible, .q.on, .paper .q:hover, .paper .q.on { color: var(--f-cream); }
 .paper .q { color: var(--f-mute); }
 
+/* ---------- the wallet picker (assets/wallet.js): a small card under the connect button, one row per wallet; a press
+   outside it lands on .w-back, which is clear, and closes it ---------- */
+.w-back { position: fixed; inset: 0; z-index: 40; }
+.w-pick { --s: 4px; position: fixed; z-index: 41; width: 240px; max-width: calc(100vw - 32px); padding: 14px 12px 10px; isolation: isolate; background: var(--f-line2); clip-path: var(--step); }
+.w-pick::before { content: ''; position: absolute; inset: 2px; background: var(--f-surface); clip-path: var(--step); z-index: -1; }
+.w-pick .kick { padding: 0 6px 8px; }
+.w-pick ul { list-style: none; margin: 0; padding: 0; }
+.w-pick button { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 6px; font-size: 12px; text-align: left; color: var(--f-mute); touch-action: manipulation; }
+.w-pick button:hover, .w-pick button:focus-visible { color: var(--f-cream); background: var(--f-deep); }
+.w-pick button:focus-visible { outline-offset: -2px; }
+.w-pick img, .w-pick i { flex: none; width: 20px; height: 20px; }
+.w-pick i { background: var(--f-violet); }   /* a wallet with no icon of its own */
+
 /* ---------- number blocks: a big number, then small lines under it ---------- */
 .n b { display: block; font-size: clamp(22px, 2.3vw, 32px); font-weight: 500; letter-spacing: -.02em; line-height: 1.1; font-variant-numeric: tabular-nums; }
 .n span { display: block; font-size: 11px; line-height: 1.55; white-space: nowrap; }

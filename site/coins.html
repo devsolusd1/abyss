@@ -272,7 +272,7 @@ $('#q').addEventListener('input', function () {
 // every tile is a still of its pool (BH.fromPool): the look of its launch settings, its disk as far as its real SOL
 // reaches, jets once it has graduated; framed as the landing frames its devnet coins
 var SP = 3, ZOOM = 1;   // 1: the frame holds the full disk a coin reaches at graduation
-var coins = [], byMint = {}, live = false, lastRead = 0, paints = 0, ghostCvs = [], moves = [];
+var coins = [], byMint = {}, live = false, lastRead = 0, paints = 0, ghostCvs = [], moves = [], allCoins = 0;   // allCoins: the program's pools, when the board has fewer
 
 function nameOf(p) { var n = String(p.name || '').trim(); if (/^DESKTOP-/i.test(n)) return 'Test coin'; return n || 'Unnamed coin'; }
 function progressOf(p) { return p.graduated ? 1 : Math.max(0, Math.min(1, num(p.progress))); }
@@ -418,10 +418,10 @@ function totals() {
     vol += solOf(p.volume); toCreators += cr; fees += cr + solOf(p.treasuryFees) + solOf(p.treasuryFeesPaid);
     if (num(p.treasuryShareBps) !== 5000) half = false;
   });
-  var h = n ? n + (n === 1 ? ' coin' : ' coins') + ' on ' + N.place + '.' : 'Coins on ' + N.place + '.';
+  var all = Math.max(n, allCoins), h = all ? fmt(all, 0) + (all === 1 ? ' coin' : ' coins') + ' on ' + N.place + '.' : 'Coins on ' + N.place + '.';
   if ($('#h').textContent !== h) $('#h').textContent = h;
   setTotals(n
-    ? '<b>' + g + '</b> graduated · <b>' + fSol(vol) + '</b> SOL traded · <b>' + fSol(fees) + '</b> SOL in fees, ' + (half ? 'half to the creators' : '<b>' + fSol(toCreators) + '</b> to the creators')
+    ? (all > n ? 'of the newest ' + fmt(n, 0) + ': ' : '') + '<b>' + g + '</b> graduated · <b>' + fSol(vol) + '</b> SOL traded · <b>' + fSol(fees) + '</b> SOL in fees, ' + (half ? 'half to the creators' : '<b>' + fSol(toCreators) + '</b> to the creators')
     : 'nothing launched yet.');
 }
 function readAgo() {
@@ -457,9 +457,18 @@ async function load() {
   try {
     if (Q.get('offline') === '1') throw new Error('offline');   // a check can see the failed board without cutting the network
     if (!window.Chain || !window.NET || !NET.ready) throw new Error('no chain');
-    var pools = await withTimeout(Promise.resolve().then(function () { return Chain.listPools(); }), 20000);
+    // every pool, with only what the board shows: the site's server sends about 12,500 an answer, in up to 4 answers
+    // (past that the oldest are left out, and total says so)
+    var pools = await withTimeout(Promise.resolve().then(function () { return Chain.listPools({ board: true }); }), 20000);
     if (!Array.isArray(pools)) throw new Error('bad answer');
-    var seen = {}, isNew = false, now = Date.now();
+    // when the pools were read: the site's server can give a list up to a minute old while its node fails
+    var now = Math.min(Date.now(), num(pools.readAt) || Date.now());
+    if (now < lastRead - 2000) {   // older than the one shown (another of the server's copies): the board stays as it is
+      setStatus('last read ' + readAgo() + ', and the latest answer was older; trying again in 30 s', false);
+      return;
+    }
+    var seen = {}, isNew = false;
+    allCoins = num(pools.total);
     pools.forEach(function (p) {
       var m = String(p.mint); seen[m] = true;
       var c = byMint[m], before = c ? solOf(c.p.realSol) : null;
@@ -478,7 +487,8 @@ async function load() {
     if (!coins.length) { if (!boardEl.querySelector('.coin.empty')) ghostSlots(1, true); }
     else coins.forEach(function (c) { if (c.dirty) paint(c); renderText(c); if (!c.el.isConnected) boardEl.appendChild(c.el); });
     applyView();   // the counts too, so they go back to 0 if every coin is gone
-    setStatus('read from ' + N.place + ' just now, again every 30 s', true);
+    var part = num(pools.total) > pools.length ? 'the newest ' + fmt(pools.length, 0) + ' of ' + fmt(num(pools.total), 0) + ' coins, ' : '';
+    setStatus(part + 'read from ' + N.place + ' ' + readAgo() + ', again every 30 s', true);
   } catch (err) {
     if (!firstDone) {
       setTotals('');

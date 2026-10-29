@@ -3,7 +3,8 @@
 //   - only the calls the site itself makes (CALLS), with the settings it sends (CONFIG); getProgramAccounts only on
 //     the pool program;
 //   - transactions (sent or simulated) only when every instruction goes to the pool program, the compute budget or
-//     the associated token account program, so the door is not a free relay for anything else;
+//     the associated token account program, so the door is not a free relay for anything else; or to a program a
+//     wallet adds as it signs (WALLET_ADDS), next to an instruction for the pool program;
 //   - per caller, a share of calls per window, and fewer of the heavy ones (best effort: each instance counts its own).
 //     The share of sends counts transactions, not calls: a page sends one again while it waits for it to land, and
 //     those resends (the same bytes, with no preflight, as the page sends them) take no more of it, a few times;
@@ -73,6 +74,16 @@ const rpcError = (id, code, message) => ({ jsonrpc: "2.0", id: typeof id === "nu
 const isObject = (x) => x !== null && typeof x === "object" && !Array.isArray(x);
 
 const ALLOWED = (cluster) => [cluster.program, COMPUTE_BUDGET, ATA_PROGRAM].map(addressBytes).filter(Boolean);
+/*
+ * The programs a wallet may add to the site's transaction as it signs (the page sends what the wallet gave back).
+ * Each one only checks or records: none moves anyone's SOL or tokens of its own accord.
+ *   - Lighthouse, L2TExMFKdjpN9kozasaurPirfHy9P8sbXoAN1qA3S95: Phantom appends its "guard" assertions, which fail the
+ *     transaction when an account ends up other than the wallet showed before signing.
+ *   - Memo, MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr: a line of text in the transaction, which some wallets add.
+ * They pass only in a transaction that also calls the pool program, so the door is no free relay for them either.
+ * The compute budget, which wallets also add (a priority fee), is one of the site's own programs already.
+ */
+const WALLET_ADDS = ["L2TExMFKdjpN9kozasaurPirfHy9P8sbXoAN1qA3S95", "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr"].map(addressBytes);
 const same = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
 
 /** The programs a serialized transaction's instructions go to (legacy or v0), as base58, or null when it does not parse. */
@@ -101,12 +112,23 @@ export function programsOf(b64) {
     return used.map((p) => base58(keys[p]));
   } catch { return null; }
 }
-/** True when every instruction of the transaction goes to one of the site's programs. */
+/**
+ * True when every instruction of the transaction goes to one of the site's programs, or to one a wallet adds
+ * (WALLET_ADDS) when another instruction goes to the pool program.
+ */
 function onlyOurs(b64, cluster) {
   const programs = programsOf(b64);
   if (!programs || !programs.length) return false;
-  const allowed = ALLOWED(cluster);
-  return programs.every((p) => { const k = addressBytes(p); return k && allowed.some((a) => same(a, k)); });
+  const allowed = ALLOWED(cluster), pool = addressBytes(cluster.program);
+  let added = false, pooled = false;
+  for (const p of programs) {
+    const k = addressBytes(p);
+    if (!k) return false;
+    if (allowed.some((a) => same(a, k))) { if (pool && same(pool, k)) pooled = true; continue; }
+    if (!WALLET_ADDS.some((a) => same(a, k))) return false;
+    added = true;
+  }
+  return pooled || !added;
 }
 
 /** A serialized transaction's first signature (the one the cluster knows it by), as base58, or null when it has none. */

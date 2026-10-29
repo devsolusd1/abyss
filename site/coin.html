@@ -1181,7 +1181,10 @@ function note(text, bad) { noteEl.classList.toggle('bad', !!bad); noteEl.textCon
 function noteHTML(html, bad) { noteEl.classList.toggle('bad', !!bad); noteEl.innerHTML = html; }
 function connectWallet() {
   if (!window.Wallet) { note('The wallet code did not load.', true); return; }
-  if (!window.Chain || !Chain.wallets().length) { note('No Solana wallet in this browser. Phantom, Solflare or Backpack work.', true); return; }
+  // no wallet here: Wallet.missing says so, and on a phone links to this page opened inside Phantom or Solflare
+  if (!Wallet.list().length) { note('', true); Wallet.missing(noteEl); return; }
+  // with more than one wallet, the picker opens under the button just pressed (the hold button or a batch button);
+  // wallet.js knows which, since a press on the hold button leaves focus where it was
   Wallet.connect().catch(function (err) { note(err && err.message ? err.message : 'The wallet did not connect.', true); });
 }
 function sendError(e) {

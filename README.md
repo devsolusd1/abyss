@@ -28,7 +28,11 @@ as a pixel black hole whose disk is the real SOL in its pool.
     events byte by byte, its numbers and errors against the program's source, the error words, and the settle's claim
     against a fake node. `check-fees.mjs` checks the priority fee every sent transaction gets (one price, from the
     node's recent fees for its writable accounts, between a floor and a cap of 0.0001 SOL; none on devnet) against a
-    fake node. `send-check.mjs` sends a
+    fake node. `check-wallet.mjs` runs `assets/wallet.js` against fake Wallet Standard wallets: how they are found, the
+    picker when there are several, signing, account changes and the phone links when there is none.
+    `check-pools.mjs` checks the coin list against the site's server and a fake node: slices, pages, a busy server,
+    and the list's age. `check-launch-usd.mjs` checks the launch page's two market caps in dollars: the conversion
+    to the lamports sent, the limits, and SOL when the price is missing. `send-check.mjs` sends a
     buy, a sell of what it bought and both claims for real (with `SEND=1` and the coin creator's devnet keypair in
     `KEYPAIR`), then checks every number against the pool. `batch-check.mjs` launches a coin with a 2-minute opening
     batch and takes it through its seat, the settle, the claim and trading, for real (about 3 minutes, same
@@ -42,11 +46,16 @@ as a pixel black hole whose disk is the real SOL in its pool.
 - `api/` and `server/`: the site's own server, two Vercel functions.
   - `/api/rpc?cluster=…` passes the pages' JSON-RPC calls to the cluster's node, so a paid node's key never reaches a
     browser. Only the calls the site makes pass; transactions only when every instruction goes to the pool program,
-    the compute budget or the token account program; each address has a share of calls; the program's account list
+    the compute budget or the token account program (plus Lighthouse and Memo, which wallets add as they sign, only
+    beside a pool instruction); each address has a share of calls; the program's account list
     is shared between visitors for 3 s.
   - `/api/history?cluster=…&pool=…` answers a pool's latest 100 transactions with their event lines in one call, for
     every visitor at once (kept in memory, cached at the edge for a moment).
-  - `/api/price` gives SOL in dollars for the charts (Jupiter, CoinGecko when that fails), kept 30 s.
+  - `/api/pools?cluster=…` gives the coin list for every visitor at once: the program's pools read every 4 s, each
+    coin's name read once (a launched coin's metadata cannot change), `limit=` for the newest few, `board=1` for the
+    numbers only, and `after=` for the next page.
+  - `/api/price` gives SOL in dollars for the charts and the launch page's market caps (Jupiter, CoinGecko when that
+    fails), kept 30 s.
   - `/api/birth?cluster=…&pool=…` gives a coin's launch, its first ten buyers (or seats in its opening batch) and, for each, the wallet that sent it
     its first SOL before the buy, one hop, with the transaction (facts only; kept an hour once there are ten).
   - `node server/check.mjs` checks them all against fake nodes.

@@ -55,6 +55,7 @@
   net.rpcUrl = viaServer ? `${origin}/api/rpc?cluster=${net.cluster}` : net.publicRpc;
   net.fallbackRpc = viaServer && net.publicRpc ? net.publicRpc : "";
   net.historyUrl = viaServer ? `${origin}/api/history?cluster=${net.cluster}` : "";
+  net.poolsUrl = viaServer ? `${origin}/api/pools?cluster=${net.cluster}` : "";   // every pool, read once for every visitor
   net.priceUrl = viaServer ? `${origin}/api/price` : "";           // SOL in dollars, for the charts
   net.birthUrl = viaServer ? `${origin}/api/birth?cluster=${net.cluster}` : "";   // a coin's launch and first buyers
   net.ready = Boolean(net.rpcUrl && net.program);

@@ -1,5 +1,5 @@
-// Checks the site's server (rpc.mjs, history.mjs, price.mjs, birth.mjs) against fake nodes on this machine. Nothing
-// touches a real cluster.
+// Checks the site's server (rpc.mjs, history.mjs, price.mjs, birth.mjs, pools.mjs) against fake nodes on this machine.
+// Nothing touches a real cluster.
 //
 //   node server/check.mjs        (from the repo root; site/chain must have its node_modules, for a real transaction)
 
@@ -213,6 +213,41 @@ const call = (method, params = [], id = 1) => ({ jsonrpc: "2.0", id, method, par
   sends = [];
   for (let i = 0; i < 7; i++) sends.push(await send(signed(), "9.9.9.5"));
   line(r.status === 200 && sends.filter((s) => s === 200).length === 6 && sends.at(-1) === 429, `ten copies in one batch take six shares: six more transactions pass, then 429 (${sends.join(" ")})`);
+}
+
+/* ---------- transactions: what a wallet adds as it signs ---------- */
+// Phantom appends Lighthouse assertions to what it signs, and some wallets a memo; the page sends what came back
+{
+  const require = createRequire(new URL("../site/chain/package.json", import.meta.url));
+  const Chain = require("../vendor/chain.js");
+  const web3 = require("@solana/web3.js");
+  Chain.setNet({ cluster: "devnet", rpcUrl: UP, program: PROGRAM });
+  const LIGHTHOUSE = new web3.PublicKey("L2TExMFKdjpN9kozasaurPirfHy9P8sbXoAN1qA3S95"), MEMO = new web3.PublicKey("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr");
+  const owner = web3.Keypair.generate().publicKey;
+  const pool = {
+    address: Chain.poolAddress(web3.Keypair.generate().publicKey), mint: web3.Keypair.generate().publicKey, vault: web3.Keypair.generate().publicKey,
+    creator: owner, treasury: owner, feeBps: 100, virtualSol: 30_000_000_000n, realSol: 0n, tokens: Chain.SUPPLY, graduationSol: 42_000_000_000n, graduated: false,
+  };
+  const built = await Chain.buildBuy({ pool, owner, sol: 0.01 });
+  // an assertion on the wallet's own account, as Lighthouse's are, and a memo signed by the wallet
+  const guard = new web3.TransactionInstruction({ programId: LIGHTHOUSE, keys: [{ pubkey: owner, isSigner: false, isWritable: false }], data: Buffer.from([4, 0, 1, 2, 3]) });
+  const memo = new web3.TransactionInstruction({ programId: MEMO, keys: [{ pubkey: owner, isSigner: true, isWritable: false }], data: Buffer.from("nox") });
+  const tx = (...ins) => new web3.Transaction({ feePayer: owner, recentBlockhash: web3.Keypair.generate().publicKey.toBase58() }).add(...ins)
+    .serialize({ requireAllSignatures: false, verifySignatures: false }).toString("base64");
+  const send = async (b64, who) => (await rpc(call("sendTransaction", [b64, { encoding: "base64" }]), { who })).status;
+  const sim = async (b64, who) => (await rpc(call("simulateTransaction", [b64, { encoding: "base64", sigVerify: false }]), { who })).status;
+  const changed = tx(...built.tx.instructions, guard, memo);
+  line(programsOf(changed)?.slice(-2).join() === [LIGHTHOUSE.toBase58(), MEMO.toBase58()].join(), "a buy with a Lighthouse guard and a memo after it reads as those programs last");
+  line(await send(changed, "9.9.8.1") === 200 && await sim(changed, "9.9.8.1") === 200, "a buy the wallet added a Lighthouse guard and a memo to may be sent, and simulated");
+  line(await send(tx(guard, ...built.tx.instructions), "9.9.8.1") === 200, "and with the guard first");
+  line(await send(tx(built.tx.instructions[0], guard, memo), "9.9.8.2") === 403, "a guard and a memo with only a compute budget, no pool instruction, are refused");
+  line(await send(tx(memo), "9.9.8.2") === 403, "a memo alone is refused");
+  const transfer = web3.SystemProgram.transfer({ fromPubkey: owner, toPubkey: web3.Keypair.generate().publicKey, lamports: 1 });
+  line(await send(tx(...built.tx.instructions, guard, transfer), "9.9.8.3") === 403, "a buy with a guard and a SOL transfer is refused");
+  const other = new web3.TransactionInstruction({ programId: web3.Keypair.generate().publicKey, keys: [], data: Buffer.alloc(0) });
+  line(await send(tx(...built.tx.instructions, memo, other), "9.9.8.3") === 403, "a buy with a memo and an unknown program is refused");
+  line(await send(tx(...built.tx.instructions, new web3.TransactionInstruction({ programId: new web3.PublicKey("Memo1UhkJRfHyvLMcVucJwxXeuD728EqVDDwQDxFMNo"), keys: [], data: Buffer.from("x") })), "9.9.8.4") === 403,
+    "the old memo program is not one of them");
 }
 
 /* ---------- shared answers ---------- */
@@ -1023,6 +1058,233 @@ function makeSigs(n, tag) {
   }
   Date.now = realNow;
   chainNode.close();
+}
+
+/* ---------- the pool list: every pool for every visitor at once ---------- */
+{
+  const { handlePools, mintMetadata } = await import("./pools.mjs");
+  const { noBatches = {} } = await import("./history.mjs");
+  const { base58 } = await import("./config.mjs");
+  delete noBatches.devnet;
+  const TOKEN_2022 = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb", TAG = createHash("sha256").update("account:Pool").digest().subarray(0, 8);
+  const sleep = (ms) => new Promise((ok) => setTimeout(ok, ms));
+  const key = (kind, n) => { const b = Buffer.alloc(32, kind); b.writeUInt32LE(n + 1, 0); return b; };
+  const str = (s) => { const v = Buffer.from(s, "utf8"), n = Buffer.alloc(4); n.writeUInt32LE(v.length); return Buffer.concat([n, v]); };
+  const tlv = (type, body) => { const h = Buffer.alloc(4); h.writeUInt16LE(type, 0); h.writeUInt16LE(body.length, 2); return Buffer.concat([h, body]); };
+  /** A Token-2022 mint as the launch leaves it: its metadata pointer, then its metadata. */
+  const mintOf = (mint, name, symbol, uri) => Buffer.concat([Buffer.alloc(166, 0), tlv(18, Buffer.concat([Buffer.alloc(32), mint])),
+    tlv(19, Buffer.concat([Buffer.alloc(32), mint, str(name), str(symbol), str(uri), Buffer.alloc(4)]))]).toString("base64");
+  const account = (data, owner) => ({ data: [data.toString("base64"), "base64"], executable: false, lamports: 3_285_120, owner, rentEpoch: 18446744073709551615, space: data.length });
+
+  // a node with n pools (the newest the last made) and their mints, plus four accounts that are not pools, as a node
+  // that ignores the filters would send them: a seat and the config (the program's), a Pool-like account of another
+  // program, and a Pool's mark on an account of another size. It counts requests, account lists, mint calls and mints.
+  // delay: each call of mints that long; listDelay: the account list that long; refuse: the account list answered 429
+  const ln = { text: "", mints: new Map(), requests: 0, gpa: 0, gma: 0, asked: [], delay: 0, listDelay: 0, refuse: false, down: false, times: [] };
+  const NOT_POOLS = [];
+  // a coin's metadata; `long`: as long as the program allows (a name of 32 bytes, a symbol of 10, a link of 200)
+  const meta = (n, long) => (long ? [`Coin ${n}`.padEnd(32, "x"), `C${n}`.padEnd(10, "x"), `https://nox.example/c/${n}.json`.padEnd(200, "x")] : [`Coin ${n}`, `C${n}`, `https://nox.example/c/${n}.json`]);
+  function makeChain(n, from, long = false) {
+    const list = [];
+    ln.mints = new Map();
+    for (let i = 0; i < n; i++) {
+      const d = Buffer.alloc(344), mint = key(7, from + i);
+      TAG.copy(d, 0); mint.copy(d, 8);
+      for (let k = 0; k < 4; k++) key(20 + k, from + i).copy(d, 40 + 32 * k);
+      [30e9, 1e6 * i, 1e15 - i, 42e9, 420e9, 0, i, i, 0, 0, 5e8 + i].forEach((v, k) => d.writeBigUInt64LE(BigInt(v), 168 + 8 * k));
+      d.writeBigInt64LE(BigInt(1_800_000_000 + i), 256); d.writeUInt16LE(100, 272); d.writeUInt16LE(5000, 274);
+      list.push({ pubkey: base58(key(9, from + i)), account: account(d, PROGRAM) });
+      ln.mints.set(base58(mint), mintOf(mint, ...meta(from + i, long)));
+    }
+    const odd = (tag, size, owner, k) => { const d = Buffer.alloc(size); tag.copy(d, 0); key(8, from + k).copy(d, 8); d.writeBigInt64LE(9_000_000_000n, Math.min(256, size - 8)); return { pubkey: base58(key(10, from + k)), account: account(d, owner) }; };
+    const mark = (name) => createHash("sha256").update(`account:${name}`).digest().subarray(0, 8);
+    const others = [odd(mark("Seat"), 344, PROGRAM, 0), odd(mark("Config"), 344, PROGRAM, 1), odd(TAG, 344, "11111111111111111111111111111111", 2), odd(TAG, 120, PROGRAM, 3)];
+    NOT_POOLS.length = 0; NOT_POOLS.push(...others.map((a) => a.pubkey));
+    list.splice(Math.floor(n / 2), 0, ...others);
+    ln.text = JSON.stringify(list);
+  }
+  const listNode = createServer((req, res) => {
+    let body = ""; req.on("data", (c) => { body += c; });
+    req.on("end", async () => {
+      ln.requests++; ln.times.push(Date.now());
+      if (ln.down) { res.writeHead(500, { "content-type": "text/plain" }).end("down"); return; }
+      const parsed = JSON.parse(body), list = Array.isArray(parsed) ? parsed : [parsed];
+      if (!Array.isArray(parsed) && parsed.method === "getProgramAccounts") {
+        ln.gpa++;
+        if (ln.refuse) { res.writeHead(429, { "content-type": "text/plain" }).end("slow down"); return; }
+        if (ln.listDelay) await sleep(ln.listDelay);
+        res.writeHead(200, { "content-type": "application/json" }).end(`{"jsonrpc":"2.0","id":${JSON.stringify(parsed.id)},"result":${ln.text}}`);
+        return;
+      }
+      if (ln.delay) await sleep(ln.delay);
+      const out = list.map((c) => {
+        if (c.method !== "getMultipleAccounts") return { jsonrpc: "2.0", id: c.id, error: { code: -32601, message: "no" } };
+        ln.gma++; ln.asked.push(...c.params[0]);
+        return { jsonrpc: "2.0", id: c.id, result: { context: { slot: 1 }, value: c.params[0].map((m) => (ln.mints.has(m) ? { data: [ln.mints.get(m), "base64"], executable: false, lamports: 1, owner: TOKEN_2022, rentEpoch: 0, space: 400 } : null)) } };
+      });
+      res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(Array.isArray(parsed) ? out : out[0]));
+    });
+  });
+  await new Promise((ok) => listNode.listen(0, "127.0.0.1", ok));
+  const LIST_UP = `http://127.0.0.1:${listNode.address().port}`, env = { RPC_URL_DEVNET: LIST_UP };
+  const ask = async (q = "", e = env, headers = {}) => {
+    const r = await handlePools(new Request(`${SITE}/api/pools?cluster=devnet${q}`, { headers: { "x-forwarded-for": `10.4.${++ip % 250}.${ip % 7}`, ...headers } }), e);
+    const text = await r.text();
+    let j = null;
+    try { j = JSON.parse(text); } catch { /* not JSON: j stays null */ }
+    return { r, text, j };
+  };
+  const counts = () => ({ requests: ln.requests, gpa: ln.gpa, gma: ln.gma });
+  const zero = () => { ln.requests = 0; ln.gpa = 0; ln.gma = 0; ln.asked = []; ln.times = []; };
+  const realNow = Date.now;
+  let shift = 0;
+  Date.now = () => realNow() + shift;
+  const KB = (n) => `${Math.floor(n / 1024)} KB`;
+
+  const mm = mintMetadata(Buffer.from(mintOf(key(7, 1), "Nox ✶", "NOX", "https://nox.example/x.json"), "base64"));
+  line(mm.join("|") === "Nox ✶|NOX|https://nox.example/x.json" && mintMetadata(Buffer.alloc(200)).join("") === "", `a mint's metadata decode (${mm.join(", ")}); a mint without them gives none`);
+  const away = await ask("", env, { origin: "https://elsewhere.example" });
+  line(away.r.status === 403, "a page on another site is refused");
+  const post = await handlePools(new Request(`${SITE}/api/pools?cluster=devnet`, { method: "POST", body: "{}" }), env);
+  line(post.status === 405, "POST is refused");
+  const main = await handlePools(new Request(`${SITE}/api/pools?cluster=mainnet`), env), other = await handlePools(new Request(`${SITE}/api/pools?cluster=testnet`), env);
+  line(main.status === 503 && other.status === 400, `mainnet has no program yet (${main.status}), an unknown cluster is refused (${other.status})`);
+
+  let from = 100_000;
+  for (const n of [400, 2000, 7000]) {
+    const long = n === 7000;                             // the largest list with the longest metadata
+    makeChain(n, from, long); from += n + 10;
+    shift += 61_000; zero();                             // past the list read for the last size, and past giving it when the node fails
+    // fifty visitors open the board at once
+    const t0 = realNow();
+    const board = await Promise.all(Array.from({ length: 50 }, () => ask("&board=1")));
+    const took = realNow() - t0, b = board[0], size = Buffer.byteLength(b.text), per = (size - 60) / n, first = counts();
+    const names = b.j?.pools?.every((row, k) => { const [name, symbol] = meta(from - 11 - k, long); return row[1] === name && row[2] === symbol; });
+    line(board.every((x) => x.r.status === 200 && x.text === b.text) && b.j.total === n && b.j.pools.length === n && !b.j.cut && names && took < 5000,
+      `${n} pools${long ? " (with the longest metadata)" : ""}: 50 visitors at once get the same board, all ${b.j?.pools?.length} named, newest first, in ${took} ms`);
+    line(first.gpa === 1 && first.gma === Math.ceil(n / 100) && first.requests === 1 + Math.ceil(n / 1000) && new Set(ln.asked).size === n && ln.asked.length === n,
+      `the node: ${first.gpa} account list and each mint once (${first.gma} calls of 100 in ${first.requests - 1} batch${first.requests === 2 ? "" : "es"}), for all 50: ${(first.requests / 50).toFixed(2)} requests a visitor`);
+    line(size < 4 * 1024 * 1024 && /s-maxage=4\b/.test(b.r.headers.get("cache-control")) && /stale-while-revalidate=\d+/.test(b.r.headers.get("cache-control")),
+      `the board's answer: ${KB(size)}, ${per.toFixed(0)} bytes a pool (about ${Math.floor((4 * 1024 * 1024 - 60) / per).toLocaleString("en-US")} pools under 4 MB), cached at the edge: ${b.r.headers.get("cache-control")}`);
+    // the landing's 12 and a whole list, from the same read
+    zero();
+    const t1 = realNow();
+    const [land, whole] = await Promise.all([Promise.all(Array.from({ length: 50 }, () => ask("&limit=12"))), ask("")]);
+    const took2 = realNow() - t1, l = land[0].j, w = whole.j, wsize = Buffer.byteLength(whole.text);
+    line(land.every((x) => x.r.status === 200) && l.pools.length === 12 && l.total === n && l.pools.every((row) => row.length === 5 && Buffer.from(row[1], "base64").length === 344) && ln.requests === 0 && took2 < 1000,
+      `50 landings and a whole list a moment later: nothing asked of the node, 12 whole pools each (${KB(Buffer.byteLength(land[0].text))}), in ${took2} ms`);
+    const fits = Math.floor((4 * 1024 * 1024) / ((wsize - 60) / w.pools.length));
+    line(w.total === n && !w.pools.some((row) => NOT_POOLS.includes(row[0])) && w.pools.every((row) => Buffer.from(row[1], "base64").length === 344),
+      "only Pool accounts of the program: the seat, the config, another program's account and a smaller one are left out");
+    line(whole.r.status === 200 && wsize < 4 * 1024 * 1024 && w.total === n && (!long ? !w.cut && w.pools.length === n : w.cut && w.pools.length < n && w.pools[0][0] === b58Of(from - 11)),
+      `the whole list (listPools() with no option): ${KB(wsize)}, ${w.pools.length} of ${n}${w.cut ? ", the newest that fit, cut: true" : ""} (about ${fits.toLocaleString("en-US")} pools fit${long ? " with the longest metadata" : ""})`);
+    if (w.cut) {
+      // the next page: the pools after the last one sent, by its openedAt and mint
+      const last = Buffer.from(w.pools.at(-1)[1], "base64"), rest = await ask(`&after=${last.readBigInt64LE(256)}.${base58(last.subarray(8, 40))}`);
+      const all = [...w.pools, ...(rest.j?.pools ?? [])].map((row) => row[0]);
+      line(rest.r.status === 200 && rest.j.cut === false && all.length === n && all.every((a, k) => a === b58Of(from - 11 - k)),
+        `and after=<openedAt>.<mint> of its last pool: the other ${rest.j?.pools?.length}, so the ${all.length} come newest first, none twice, none missed`);
+      const bad = await ask("&after=yesterday");
+      line(bad.r.status === 400, `an after= that does not name a pool is refused (${bad.r.status})`);
+    }
+    // the edge's copy runs out: one more read of the list, no mint again
+    shift += 4100; zero();
+    await Promise.all(Array.from({ length: 50 }, () => ask("&board=1")));
+    line(ln.gpa === 1 && ln.gma === 0, `4 s on, 50 more visitors: ${ln.gpa} account list, ${ln.gma} mint calls`);
+    // the door, as the board read it before: the whole account list for each visitor, shared only under 256 KB
+    zero();
+    const gpa = call("getProgramAccounts", [PROGRAM, { encoding: "base64", filters: [{ dataSize: 344 }, { memcmp: { offset: 0, bytes: base58(TAG) } }] }]);
+    const d1 = await rpc(gpa, { env }), d2 = await rpc(gpa, { env }), dsize = Buffer.byteLength(await d1.text());
+    line(n < 7000 ? d1.status === 200 && ln.gpa === (dsize > 256 * 1024 ? 2 : 1) : d1.status === 502 && d2.status === 502,
+      `the old way, through /api/rpc: ${d1.status === 200 ? `${KB(dsize)} for each visitor, ${ln.gpa} reads for 2 visitors` : `${d1.status}, too large`}`);
+  }
+  function b58Of(n) { return base58(key(9, n)); }
+
+  // metadata slow to come (2.2 s a batch): the answer gives what is in after 5 s, with null for the rest, kept 1 s at
+  // the edge; the next answer waits for the batch under way and is whole. No mint is read twice
+  {
+    makeChain(2500, from); from += 2510;
+    shift += 61_000; zero(); ln.delay = 2200;
+    const t0 = realNow();
+    let a = await ask("&board=1");
+    const took = realNow() - t0, unnamed = a.j?.pools?.filter((row) => row[1] === null).length;
+    line(a.r.status === 200 && a.j.pools.length === 2500 && unnamed === 500 && /s-maxage=1\b/.test(a.r.headers.get("cache-control")) && took < 6000,
+      `metadata slow to come: an answer in ${(took / 1000).toFixed(1)} s, ${unnamed} of 2,500 without names (null), kept 1 s at the edge`);
+    a = await ask("&board=1");
+    ln.delay = 0;
+    line(a.j?.pools?.every((row) => typeof row[1] === "string") && /s-maxage=4\b/.test(a.r.headers.get("cache-control")) && ln.asked.length === 2500 && new Set(ln.asked).size === 2500,
+      `the next answer is whole, and each mint was read once (${ln.asked.length})`);
+  }
+
+  // the node fails: the list read last is given for a minute, then 502 (the page then reads the node itself)
+  {
+    shift += 4100; ln.down = true;
+    let a = await ask("&board=1");
+    const at = a.j?.at;
+    line(a.r.status === 200 && a.j.pools.length === 2500, `the node down: the list read ${Math.round((Date.now() - at) / 1000)} s ago is given`);
+    shift += 61_000;
+    a = await ask("&board=1");
+    line(a.r.status === 502 && !/127\.0\.0\.1/.test(a.text), `a minute on: ${a.r.status}, "${a.j?.error}"`);
+    const before = ln.requests;
+    a = await ask("&board=1");
+    line(a.r.status === 502 && ln.requests === before, `asked again at once: ${a.r.status}, and no new read of the node for 3 s after a failed one (${ln.requests - before} requests)`);
+    ln.down = false;
+  }
+
+  // the public node: every call at its turn, the list and each 100 mints
+  {
+    const real = CLUSTERS.devnet.publicRpc;
+    CLUSTERS.devnet.publicRpc = LIST_UP;
+    makeChain(150, from); from += 160;
+    shift += 61_000; zero(); publicPace.devnet = 0;
+    const a = await ask("&board=1", { RPC_URL_DEVNET: "" });
+    const gaps = ln.times.slice(1).map((t, i) => t - ln.times[i]);
+    line(a.r.status === 200 && a.j.pools.length === 150 && a.j.pools.every((row) => typeof row[1] === "string") && ln.requests === 3 && gaps.every((g) => g >= PUBLIC_GAP - 5),
+      `the public node: the list and 2 calls of mints, ${Math.min(...gaps)} ms apart at least, all named`);
+    publicPace.devnet = 0;
+    CLUSTERS.devnet.publicRpc = real;
+  }
+
+  // no list kept (a new instance, or one a minute without a read) and the account list slow (6 s): a slice answers in
+  // its 3 s and the whole board in its 5 s, a 503 with a retry-after; the read goes on, and the next answers get it
+  {
+    shift += 61_000; zero(); ln.listDelay = 6000;
+    const t0 = realNow(), timed = (q) => ask(q).then((x) => Object.assign(x, { took: realNow() - t0 }));
+    const [slice, board] = await Promise.all([timed("&limit=12"), timed("&board=1")]);
+    line(slice.r.status === 503 && slice.r.headers.get("retry-after") === "3" && slice.took >= 2900 && slice.took < 3600,
+      `a slow account list and nothing kept: the landing's slice gets ${slice.r.status} (retry-after ${slice.r.headers.get("retry-after")}) in ${(slice.took / 1000).toFixed(1)} s, before the page's 5 s`);
+    line(board.r.status === 503 && board.took >= 4900 && board.took < 5600 && ln.gpa === 1,
+      `and the whole board ${board.r.status} in ${(board.took / 1000).toFixed(1)} s, from the same read (${ln.gpa} account list)`);
+    await sleep(Math.max(0, 6300 - (realNow() - t0)));
+    ln.listDelay = 0;
+    const after = await ask("&board=1");
+    line(after.r.status === 200 && after.j.pools.length === after.j.total && ln.gpa === 1, `once that read is in: 200, all ${after.j?.pools?.length} pools, no new read`);
+  }
+
+  // a paid node that refuses the account list (429) and nothing kept: 503 with a retry-after, and no new read for 3 s
+  {
+    shift += 61_000; zero(); ln.refuse = true;
+    const first = await ask("&board=1"), more = [];
+    for (let k = 0; k < 10; k++) more.push(await ask(k % 2 ? "&board=1" : "&limit=12"));
+    line(first.r.status === 503 && first.r.headers.get("retry-after") === "3" && more.every((x) => x.r.status === 503) && ln.gpa === 1,
+      `the node refuses the account list: ${first.r.status} (retry-after ${first.r.headers.get("retry-after")}), and 10 asks after it read nothing more (${ln.gpa} account list asked)`);
+    ln.refuse = false; shift += 3100;
+    const a = await ask("&board=1");
+    line(a.r.status === 200 && ln.gpa === 2, `3 s on, the list is read again: ${a.r.status}`);
+  }
+
+  // the landing's slice when the metadata are slow (6 s): it comes in its 3 s, with null for the names not in
+  {
+    makeChain(300, from); from += 310;
+    shift += 61_000; zero(); ln.delay = 6000;
+    const t0 = realNow(), a = await ask("&limit=12"), took = realNow() - t0;
+    line(a.r.status === 200 && a.j.pools.length === 12 && a.j.pools.every((row) => row[2] === null) && /s-maxage=1\b/.test(a.r.headers.get("cache-control")) && took < 3600,
+      `metadata slow to come: the landing's 12 in ${(took / 1000).toFixed(1)} s, before the page's 5 s, without names (the page reads those), kept 1 s at the edge`);
+    await sleep(3200);                                   // the round under way ends
+    ln.delay = 0;
+  }
+  Date.now = realNow;
+  listNode.close();
 }
 
 fake.close();
