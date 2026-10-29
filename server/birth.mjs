@@ -14,10 +14,11 @@
 // so it is kept in this instance's memory, cached at the edge for an hour and never read again. Any other birth keeps
 // what it read, and a minute after its last listing (not while an ask is still reading it) only the signatures after
 // the newest seen are listed and read on. With a paid node one answer does it all, unless the node refuses part of a
-// batch (its plan's rate): what it served is read, and the next ask goes on. On the public node every call keeps its
-// pace (one every 1.3 s, on the mark the history shares) and an answer gives what it has (complete: false), the next
-// one goes on. A transaction the node does not serve (null, or an error) is not read: the answer stays
-// complete: false and the next ask tries it again.
+// batch (its plan's rate): what it served is read, and the next ask goes on. A node that takes no batches (RPC_BATCH=0,
+// or it refused one in the last ten minutes: history.mjs callMany) gets the same transactions as single calls, a few at a time.
+// On the public node every call keeps its pace (one every 1.3 s, on the mark the history shares) and an answer gives
+// what it has (complete: false), the next one goes on. A transaction the node does not serve (null, or an error) is not
+// read: the answer stays complete: false and the next ask tries it again.
 //
 // Answer: { complete, tooOld, read, more, launch, buyers }
 //   complete: nothing more to read until the pool has new transactions. tooOld: 5,000 or more transactions, its start
@@ -33,7 +34,7 @@
 
 import { createHash } from "node:crypto";
 import { clusterOf, addressBytes, callerOf, foreign, Limiter, json, base58, OutOfTime, publicTurn, backOff } from "./config.mjs";
-import { call, poolMint, ownLines } from "./history.mjs";
+import { call, callMany, NodeError, poolMint, ownLines } from "./history.mjs";
 
 const FIRST = 10;
 const PAGES = 5;                                         // 5,000 transactions back at most
@@ -52,11 +53,12 @@ const OTHERS = ["SeatClaimed", "Graduated", "FeesClaimed", "CreatorChanged"].map
 /**
  * A call that keeps the public node's pace (the turn the history takes too), and gives up when the answer's time is
  * spent or the node refuses all of it (429). A batch it refuses only in part (a paid plan's rate) comes back as it is:
- * the caller reads what was served, up to the first one that was not.
+ * the caller reads what was served, up to the first one that was not. `send` is call, or callMany for several calls
+ * (one batch, or single calls to a node that takes no batches).
  */
-async function paced(cluster, body, until) {
+async function paced(cluster, body, until, send = call) {
   if (!(await publicTurn(cluster, until)) || (cluster.paid && Date.now() > until)) throw new OutOfTime();
-  const r = await call(cluster, body);
+  const r = await send(cluster, body);
   const all = Array.isArray(r) ? r : [r], refused = all.filter((x) => x?.error?.code === 429).length;
   if (refused) backOff(cluster);
   if (refused && refused === all.length) throw new OutOfTime();
@@ -175,8 +177,8 @@ async function advance(cluster, pool, st, until) {
   // 2. the transactions, oldest first: the launch, the first buyers, and their seats until the batch settles
   while (st.queue.length && !stopped(st)) {
     const part = st.queue.slice(0, Math.min(cluster.paid ? 10 : 1, FETCH - st.fetched));
-    const r = await paced(cluster, part.map((sig, id) => ({ jsonrpc: "2.0", id, method: "getTransaction", params: txParams(sig) })), until);
-    const byId = new Map((Array.isArray(r) ? r : [r]).map((x) => [x?.id, x]));
+    const r = await paced(cluster, part.map((sig, id) => ({ jsonrpc: "2.0", id, method: "getTransaction", params: txParams(sig) })), until, callMany);
+    const byId = new Map(r.map((x) => [x?.id, x]));
     for (let k = 0; k < part.length && !stopped(st); k++) {
       const tx = byId.get(k)?.result;
       if (!tx) return;                                   // not served (yet): the next ask reads on from here
@@ -197,7 +199,8 @@ async function advance(cluster, pool, st, until) {
       b.look = r.result.filter((s) => s && !s.err && typeof s.signature === "string").slice(-TRIES).reverse().map((s) => s.signature);
     }
     while (b.look.length && !b.funding) {
-      const tx = (await paced(cluster, one("getTransaction", txParams(b.look[0])), until))?.result;
+      // an HTTP error on it is the node not serving it, like an error in its answer
+      const tx = (await paced(cluster, one("getTransaction", txParams(b.look[0])), until).catch((err) => { if (err instanceof NodeError) return null; throw err; }))?.result;
       if (!tx?.meta) break;
       const f = funder(tx, b.wallet);
       if (f) b.funding = { ...f, signature: b.look[0], time: tx.blockTime ?? null };

@@ -18,6 +18,7 @@ let connection = null;
 export function setNet(net) {
   NET = net;
   connection = null;
+  feeSeen.clear();                                       // another node, its own recent fees
   pace = null; nextAt = 0; coolUntil = 0;    // another node, its own limit
 }
 
@@ -979,11 +980,85 @@ export async function buildLaunch({
 
 /* ---------------- Simulating and sending ---------------- */
 
+/**
+ * The priority fee, set on every transaction as it is prepared (prepare, below), never in a builder: buildLaunch reuses
+ * buildBuy's instructions, and a transaction with two compute unit prices fails. The price is in micro-lamports per
+ * compute unit. For each of its recent blocks (up to 150) the node tells one number (getRecentPrioritizationFees): the
+ * lowest price paid in the block, or, when higher, the lowest paid by its transactions that wrote one of the accounts
+ * asked about (the transaction's writable ones). It is a minimum, not what most paid, and most blocks say 0: some
+ * transaction in them paid nothing. So the price is the `percentile`th of the blocks that say more than 0, at least `floor`, and at
+ * most what keeps the priority fee, the price times the transaction's compute unit limit, within `maxLamports` (0.0001
+ * SOL). When no recent block says more than 0, or the node says nothing within `waitMs`, refuses the call (a server
+ * from before it allowed it) or tells of no blocks, the price is the floor: a failed read pays what a quiet one does.
+ * On devnet, where nobody competes for a block, the price is 0 and the node is not asked (the devnet checks count fees
+ * to the lamport). One reading serves `keepMs`: a simulation and the send after it ask once.
+ */
+export const PRIORITY = { percentile: 75, floor: 50_000, maxLamports: 100_000, waitMs: 2_000, keepMs: 10_000 };
+
+const BUDGET_LIMIT = 2, BUDGET_PRICE = 3;                // the compute budget program's instruction tags
+const isBudget = (ins, tag) => ins.programId.equals(ComputeBudgetProgram.programId) && ins.data[0] === tag;
+
+/** The compute units `tx` asks for: its own limit, or else the most the runtime would give it (200,000 an instruction). */
+function unitLimit(tx) {
+  const set = tx.instructions.find((ins) => isBudget(ins, BUDGET_LIMIT) && ins.data.length >= 5);
+  if (set) return Math.max(1, new DataView(set.data.buffer, set.data.byteOffset, set.data.byteLength).getUint32(1, true));
+  const others = tx.instructions.filter((ins) => !ins.programId.equals(ComputeBudgetProgram.programId)).length;
+  return Math.min(1_400_000, 200_000 * Math.max(1, others));
+}
+
+const feeSeen = new Map();                               // writable accounts -> { at, price }
+/**
+ * The percentile of the recent blocks that took a price for these accounts (more than 0), in micro-lamports per unit;
+ * 0 when none did, or when the node did not say.
+ */
+async function recentPrice(accounts) {
+  const key = accounts.join(" "), kept = feeSeen.get(key);
+  if (kept && Date.now() - kept.at < PRIORITY.keepMs) return kept.price;
+  const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), PRIORITY.waitMs);
+  let price = 0;
+  try {
+    const { result } = await rpc("getRecentPrioritizationFees", [accounts], ctl.signal);
+    const paid = (Array.isArray(result) ? result : []).map((x) => x?.prioritizationFee).filter((x) => typeof x === "number" && x > 0);
+    paid.sort((a, b) => a - b);
+    if (paid.length) price = paid[Math.ceil(paid.length * PRIORITY.percentile / 100) - 1];
+  } catch { /* no answer in time, or not a node's: the floor */ } finally { clearTimeout(timer); }
+  for (const [k, v] of feeSeen) if (Date.now() - v.at >= PRIORITY.keepMs) feeSeen.delete(k);
+  feeSeen.set(key, { at: Date.now(), price });
+  return price;
+}
+
+/** The compute unit price for `tx`: 0 on devnet; elsewhere the node's reading, held between the floor and the cap. */
+async function priceFor(tx) {
+  if (NET?.cluster === "devnet") return 0;
+  const writable = new Set([tx.feePayer.toBase58()]);
+  for (const ins of tx.instructions) for (const k of ins.keys) if (k.isWritable) writable.add(k.pubkey.toBase58());
+  const seen = await recentPrice([...writable].slice(0, 128));   // the node takes 128 accounts at most
+  const cap = Math.floor(PRIORITY.maxLamports * 1_000_000 / unitLimit(tx));
+  return Math.min(cap, Math.max(PRIORITY.floor, Math.floor(seen)));
+}
+
+// the price instructions prepare put in: a transaction prepared again (a simulation, then its send) gets its price read
+// again in the same place, not a second one
+const ownPrice = new WeakSet();
+
+/**
+ * Sets a built transaction's fee payer, blockhash and priority fee (PRIORITY), and its own signers' signatures. A
+ * compute unit price its builder or caller put in is kept as it is, and no other is added.
+ */
 async function prepare(built, feePayer) {
-  const { blockhash, lastValidBlockHeight } = await conn().getLatestBlockhash();
-  built.tx.feePayer = new PublicKey(feePayer);
-  built.tx.recentBlockhash = blockhash;
-  if (built.signers.length) built.tx.partialSign(...built.signers);
+  const tx = built.tx;
+  tx.feePayer = new PublicKey(feePayer);
+  const at = tx.instructions.findIndex((ins) => isBudget(ins, BUDGET_PRICE));
+  const ours = at < 0 || ownPrice.has(tx.instructions[at]);
+  const [{ blockhash, lastValidBlockHeight }, price] = await Promise.all([conn().getLatestBlockhash(), ours ? priceFor(tx) : null]);
+  if (ours) {
+    const ins = ComputeBudgetProgram.setComputeUnitPrice({ microLamports: price });
+    ownPrice.add(ins);
+    // last, so the other instructions keep their places (a failure on chain names its instruction by its place)
+    if (at < 0) tx.instructions.push(ins); else tx.instructions[at] = ins;
+  }
+  tx.recentBlockhash = blockhash;
+  if (built.signers.length) tx.partialSign(...built.signers);
   return lastValidBlockHeight;
 }
 

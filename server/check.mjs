@@ -25,14 +25,26 @@ line(/mainnet:[\s\S]*?program: "([^"]*)"/.exec(netJs)?.[1] === CLUSTERS.mainnet.
 /* ---------- a fake node ---------- */
 // limit: getTransaction calls a second, past it each one gets a 429 in its answer (a paid plan's rate). busy: a
 // method or a transaction's signature -> how many more requests that ask for it get HTTP 429 (a busy public node).
-// asked: the transactions it served or answered null for.
-const node = { calls: [], times: [], batches: 0, sigs: [], txs: new Map(), owner: PROGRAM, data: accountData("Pool"), limit: Infinity, window: [], null: new Set(), busy: new Map(), asked: [] };
+// asked: the transactions it served or answered null for. noBatch: how it refuses every batch (a plan that takes
+// none): "object", one JSON-RPC error with id null; "list", that error in a list; "each", an error for each call, with
+// its id; or an HTTP status, with a body that is not JSON.
+const node = { calls: [], times: [], batches: 0, sigs: [], txs: new Map(), owner: PROGRAM, data: accountData("Pool"), limit: Infinity, window: [], null: new Set(), busy: new Map(), asked: [], noBatch: null };
+/** A refusal of a batch (the calls in `list`), as a plan that takes none answers it; true when it answered. */
+function refuseBatch(how, res, list) {
+  if (!how) return false;
+  const no = (id) => ({ jsonrpc: "2.0", id, error: { code: -32600, message: "Batch requests are not allowed on this plan" } });
+  const answer = { object: no(null), list: [no(null)], each: list.map((c) => no(c.id)) }[how];
+  if (answer) res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(answer));
+  else res.writeHead(how, { "content-type": "text/plain" }).end("Request Entity Too Large");
+  return true;
+}
 const fake = createServer((req, res) => {
   let body = "";
   req.on("data", (c) => { body += c; });
   req.on("end", () => {
     const parsed = JSON.parse(body), list = Array.isArray(parsed) ? parsed : [parsed];
     if (Array.isArray(parsed)) node.batches++;
+    if (Array.isArray(parsed) && refuseBatch(node.noBatch, res, list)) return;
     const now = Date.now();
     const refuse = list.map((c) => (c.method === "getTransaction" ? c.params?.[0] : c.method)).find((k) => node.busy.get(k) > 0);
     if (refuse) {
@@ -58,6 +70,7 @@ const fake = createServer((req, res) => {
       }
       if (c.method === "getSignaturesForAddress") return { jsonrpc: "2.0", id: c.id, result: node.sigs.slice(0, c.params[1]?.limit ?? 1000) };
       if (c.method === "getAccountInfo") return { jsonrpc: "2.0", id: c.id, result: { context: { slot: 1 }, value: { owner: node.owner, lamports: 1, data: [node.data, "base64"], executable: false, rentEpoch: 0 } } };
+      if (c.method === "getRecentPrioritizationFees") return { jsonrpc: "2.0", id: c.id, result: [{ slot: 1, prioritizationFee: 0 }, { slot: 2, prioritizationFee: 1500 }] };
       return { jsonrpc: "2.0", id: c.id, result: `${c.method} answered` };
     });
     res.writeHead(200, { "content-type": "application/json" });
@@ -105,6 +118,38 @@ const call = (method, params = [], id = 1) => ({ jsonrpc: "2.0", id, method, par
   line(r.status === 400, "a body that is not JSON is refused");
 }
 
+/* ---------- the recent priority fees, asked before each send ---------- */
+{
+  const { base58 } = await import("./config.mjs");
+  const keys = (n, from = 1) => Array.from({ length: n }, (_, i) => base58(Buffer.alloc(32, from + i)));
+  const fees = () => node.calls.filter((m) => m === "getRecentPrioritizationFees").length;
+  const accounts = keys(3, 60);
+  node.calls = [];
+  let r = await rpc(call("getRecentPrioritizationFees", [accounts])), b = await r.json();
+  line(r.status === 200 && b.result?.[1]?.prioritizationFee === 1500, "the recent priority fees for a transaction's accounts pass");
+  r = await rpc(call("getRecentPrioritizationFees", []));
+  line(r.status === 200 && fees() === 2, "and with no accounts (the whole cluster's), as web3.js sends it");
+  r = await rpc(call("getRecentPrioritizationFees", [[...accounts].reverse()], 5)); b = await r.json();
+  line(r.status === 200 && b.id === 5 && b.result?.length === 2 && fees() === 2, "the same accounts in another order a moment later: from memory, with the page's own id");
+  r = await rpc(call("getRecentPrioritizationFees", [keys(2, 60)]));
+  line(r.status === 200 && fees() === 3, "another set of accounts is asked for on its own");
+  const realNow = Date.now;
+  Date.now = () => realNow() + 3100;
+  await rpc(call("getRecentPrioritizationFees", [accounts]));
+  Date.now = realNow;
+  line(fees() === 4, "three seconds on, the node is asked again");
+  r = await rpc(call("getRecentPrioritizationFees", [keys(128)]));
+  line(r.status === 200, "128 accounts pass");
+  r = await rpc(call("getRecentPrioritizationFees", [keys(129)]));
+  line(r.status === 403, `129 do not (${r.status})`);
+  r = await rpc(call("getRecentPrioritizationFees", [[...accounts, "not an address"]]));
+  line(r.status === 403, "nor something that is not an address");
+  r = await rpc(call("getRecentPrioritizationFees", [accounts[0]]));
+  line(r.status === 403, "nor an address that is not in a list");
+  r = await rpc(call("getRecentPrioritizationFees", [accounts, { percentile: 5000 }]));
+  line(r.status === 403, "nor a settings object (the site sends none)");
+}
+
 /* ---------- transactions: only for the pool program ---------- */
 {
   const require = createRequire(new URL("../site/chain/package.json", import.meta.url));
@@ -133,9 +178,41 @@ const call = (method, params = [], id = 1) => ({ jsonrpc: "2.0", id, method, par
   line(r.status === 403, "a transaction without its encoding named is refused");
   r = await rpc(call("sendTransaction", ["AAAA", { encoding: "base64" }]));
   line(r.status === 403, "nonsense is refused");
-  const sends = [];
-  for (let i = 0; i < 14; i++) sends.push((await rpc(call("sendTransaction", [b64, { encoding: "base64" }]), { who: "9.9.9.9" })).status);
-  line(sends.filter((s) => s === 200).length === 12 && sends.at(-1) === 429, `12 sends a minute from one address, then 429 (${sends.join(" ")})`);
+  // the share of sends counts transactions. Unsigned ones all carry the same signature (zeros), and each still counts
+  const blockhash = () => web3.Keypair.generate().publicKey.toBase58();
+  const unsigned = () => new web3.Transaction({ feePayer: payer, recentBlockhash: blockhash() }).add(...built.tx.instructions)
+    .serialize({ requireAllSignatures: false, verifySignatures: false }).toString("base64");
+  // the page sends a transaction first with its preflight, then again with none (site/chain's confirm)
+  const send = async (tx, who, preflight = false) => (await rpc(call("sendTransaction", [tx, preflight ? { encoding: "base64", skipPreflight: false } : { encoding: "base64", skipPreflight: true, maxRetries: 0 }]), { who })).status;
+  let sends = [];
+  for (let i = 0; i < 14; i++) sends.push(await send(unsigned(), "9.9.9.9"));
+  line(sends.filter((s) => s === 200).length === 12 && sends.at(-1) === 429, `12 transactions a minute from one address, then 429, though their signatures are the same zeros (${sends.join(" ")})`);
+  // a signed one sent again three times while the page waits for it, as site/chain's confirm does: one share
+  const signer = web3.Keypair.generate(), mine = await Chain.buildBuy({ pool, owner: signer.publicKey, sol: 0.01 });
+  const signed = () => { const t = new web3.Transaction({ feePayer: signer.publicKey, recentBlockhash: blockhash() }).add(...mine.tx.instructions); t.sign(signer); return t.serialize().toString("base64"); };
+  const first = signed();
+  sends = [];
+  for (let i = 0; i < 4; i++) sends.push(await send(first, "9.9.9.8", i === 0));
+  for (let i = 0; i < 11; i++) sends.push(await send(signed(), "9.9.9.8"));
+  line(sends.every((s) => s === 200), `a transaction and three resends of it, then 11 others: all pass, 12 shares (${sends.join(" ")})`);
+  line(await send(signed(), "9.9.9.8") === 429 && await send(first, "9.9.9.8") === 200, "a 13th transaction does not, and the first one sent again still does");
+  line(await send(first, "9.9.9.8") === 429, "but not a fifth time: past four free resends, each one is a share");
+  // the same bytes over and over: four resends are free, then each takes a share, and the shares run out
+  const again = signed();
+  sends = [];
+  for (let i = 0; i < 20; i++) sends.push(await send(again, "9.9.9.7"));
+  line(sends.filter((s) => s === 200).length === 16 && sends.at(-1) === 429, `the same transaction 20 times: 16 pass (1 + 4 free + 11), then 429 (${sends.join(" ")})`);
+  // a resend with its preflight is a simulation too: it takes a share
+  const checked = signed();
+  sends = [];
+  for (let i = 0; i < 12; i++) sends.push(await send(checked, "9.9.9.6", true));
+  line(sends.every((s) => s === 200) && await send(signed(), "9.9.9.6") === 429, `a transaction and 11 resends of it with their preflight take 12 shares: the next transaction gets 429 (${sends.join(" ")})`);
+  // ten copies of one transaction in one batch: the first and four free, then five shares
+  const copies = signed(), batch = Array.from({ length: 10 }, (_, i) => call("sendTransaction", [copies, { encoding: "base64", skipPreflight: true, maxRetries: 0 }], i));
+  r = await rpc(batch, { who: "9.9.9.5" });
+  sends = [];
+  for (let i = 0; i < 7; i++) sends.push(await send(signed(), "9.9.9.5"));
+  line(r.status === 200 && sends.filter((s) => s === 200).length === 6 && sends.at(-1) === 429, `ten copies in one batch take six shares: six more transactions pass, then 429 (${sends.join(" ")})`);
 }
 
 /* ---------- shared answers ---------- */
@@ -316,6 +393,41 @@ function makeSigs(n, tag) {
   r = await hist("QSj33hfaVGjppx8hxK1Ms6weBSvKdNZCD7Xv3dU8rhf"); b = await r.json();
   line(b.complete, "once the node serves it, the next answer is complete");
 }
+{
+  // a paid node on a plan that takes no batches: it answers one with a single error (id null), alone or in a list, with
+  // an error for each call, or with HTTP 413. The same round goes again as single calls, and for ten minutes it is sent
+  // no batch at all. RPC_BATCH=0 sends none
+  const { base58 } = await import("./config.mjs");
+  const { noBatches = {}, call: nodeCall } = await import("./history.mjs");
+  const singles = () => node.calls.filter((m) => m === "getTransaction").length;
+  let at = 200;
+  const named = { object: "one error, id null", list: "a list with one error, id null", each: "an error for each call" };
+  for (const how of ["object", "list", "each", 413]) {
+    makeSigs(25, `nb${how}`); node.calls = []; node.batches = 0; node.noBatch = how; delete noBatches.devnet;
+    let r = await hist(base58(Buffer.alloc(32, at++))), b = await r.json();
+    line(r.status === 200 && b.complete && b.have === 24 && node.batches === 1 && singles() === 24,
+      `a paid node that refuses a batch (${named[how] ?? `HTTP ${how}`}): all ${b.have} of ${b.total}, as ${singles()} single calls`);
+    makeSigs(12, `nb${how}2`); node.calls = []; node.batches = 0;
+    r = await hist(base58(Buffer.alloc(32, at++))); b = await r.json();
+    line(b.complete && b.have === 11 && node.batches === 0, `and the next pool's history sends it no batch (${node.batches})`);
+  }
+  const realNow = Date.now;
+  Date.now = () => realNow() + 10 * 60 * 1000 + 1000;
+  makeSigs(12, "nbback"); node.calls = []; node.batches = 0; node.noBatch = null;
+  let r = await hist(base58(Buffer.alloc(32, at++))), b = await r.json();
+  Date.now = realNow;
+  line(b.complete && node.batches === 2, `ten minutes on, it is sent batches again (${node.batches})`);
+  makeSigs(12, "nbenv"); node.calls = []; node.batches = 0; delete noBatches.devnet;
+  r = await hist(base58(Buffer.alloc(32, at++)), { env: { ...ENV, RPC_BATCH: "0" } }); b = await r.json();
+  line(b.complete && b.have === 11 && node.batches === 0 && singles() === 11, `RPC_BATCH=0: ${node.batches} batches, ${singles()} transactions asked for one by one, complete`);
+
+  // an HTTP error from the node is an error with its status, and never the node's URL (it can carry the key)
+  const shut = createServer((req, res) => res.writeHead(403, { "content-type": "text/plain" }).end("forbidden"));
+  await new Promise((ok) => shut.listen(0, "127.0.0.1", ok));
+  const err = await nodeCall({ url: `http://127.0.0.1:${shut.address().port}/?api-key=secret-key-here` }, { jsonrpc: "2.0", id: 1, method: "getSlot" }).then(() => null, (e) => e);
+  line(err?.status === 403 && /403/.test(err.message) && !/secret/.test(err.message), `an HTTP error from the node names its status, not its URL ("${err?.message}")`);
+  shut.close();
+}
 
 /* ---------- what the review asked for ---------- */
 {
@@ -417,8 +529,10 @@ function makeSigs(n, tag) {
   // transactions, the program's accounts, node errors still to give for a transaction, and every call made (with when).
   // delay: how long it takes to answer a request with a getTransaction in it. busy: a method or a transaction's
   // signature -> how many more requests that ask for it get HTTP 429 (their calls are marked refused). limit:
-  // getTransaction calls a second, past it each one gets a 429 in its answer (a paid plan's rate)
-  const chain = { sigs: new Map(), txs: new Map(), accounts: new Map(), errs: new Map(), calls: [], delay: 0, busy: new Map(), limit: Infinity, window: [] };
+  // getTransaction calls a second, past it each one gets a 429 in its answer (a paid plan's rate). noBatch: how it
+  // refuses every batch, as the history's fake node does (batches: how many it was sent). http: a transaction's
+  // signature -> how many more requests that ask for it get HTTP 500 (with a JSON-RPC error)
+  const chain = { sigs: new Map(), txs: new Map(), accounts: new Map(), errs: new Map(), calls: [], delay: 0, busy: new Map(), limit: Infinity, window: [], noBatch: null, batches: 0, http: new Map() };
   const sigOf = (name) => name.padEnd(88, "x");
   let slot = 100;
   const listed = (who, signature, s, err) => {
@@ -447,6 +561,15 @@ function makeSigs(n, tag) {
     let body = ""; req.on("data", (d) => { body += d; });
     req.on("end", () => {
       const parsed = JSON.parse(body), list = Array.isArray(parsed) ? parsed : [parsed];
+      if (Array.isArray(parsed)) chain.batches++;
+      if (Array.isArray(parsed) && refuseBatch(chain.noBatch, res, list)) return;
+      const broken = list.map((cl) => cl.params?.[0]).find((k) => chain.http.get(k) > 0);
+      if (broken) {
+        chain.http.set(broken, chain.http.get(broken) - 1);
+        for (const cl of list) chain.calls.push({ method: cl.method, params: cl.params ?? [], t: Date.now(), refused: true });
+        res.writeHead(500, { "content-type": "application/json" }).end(JSON.stringify({ jsonrpc: "2.0", id: list[0].id ?? null, error: { code: -32603, message: "Internal error" } }));
+        return;
+      }
       const refuse = list.map((cl) => (cl.method === "getTransaction" ? cl.params?.[0] : cl.method)).find((k) => chain.busy.get(k) > 0);
       if (refuse) {
         chain.busy.set(refuse, chain.busy.get(refuse) - 1);
@@ -773,6 +896,47 @@ function makeSigs(n, tag) {
     line(j.complete && j.read === 11 && j.buyers.length === 10 && j.buyers.every((x) => x.funding?.none) && /s-maxage=3600/.test(r.headers.get("cache-control")),
       `and a second after that the birth is whole: ${j.buyers.length} buyers, read ${j.read}, final`);
     chain.limit = Infinity;
+  }
+
+  // a paid node on a plan that takes no batches (one error with id null, alone or in a list, an error for each call, or
+  // HTTP 413): the birth reads the same transactions as single calls, whole in one ask. RPC_BATCH=0 sends it none from
+  // the start
+  {
+    const { noBatches = {} } = await import("./history.mjs");
+    let n = 170;
+    const named = { object: "one error (id null)", list: "a list with one error (id null)", each: "an error for each call" };
+    for (const how of ["object", "list", "each", 413, "RPC_BATCH=0"]) {
+      const POOLN = base58(keyOf(n++)), MINTN = keyOf(n++);
+      chain.accounts.set(POOLN, isPoolOf(MINTN));
+      poolTx(POOLN, `launchN${how}`, [launched(MINTN, CREATOR), trade(MINTN, CREATOR, true, 1e8)]);
+      for (let i = 0; i < 11; i++) poolTx(POOLN, `buyN${how}${i}`, [trade(MINTN, keyOf(150 + i), true, 1e8)]);
+      delete noBatches.devnet; chain.noBatch = how === "RPC_BATCH=0" ? null : how; chain.batches = 0; chain.calls = [];
+      const { r, j } = await birth(POOLN, how === "RPC_BATCH=0" ? { ...env, RPC_BATCH: "0" } : env);
+      const singles = calls("getTransaction").length;
+      line(r.status === 200 && j?.complete && j.read === 10 && j.buyers.length === 10 && j.buyers.every((x) => x.funding?.none) && chain.batches === (chain.noBatch ? 1 : 0) && singles === 10,
+        `a birth with ${named[how] ? `a node that answers a batch with ${named[how]}` : typeof how === "number" ? `a node that answers a batch with HTTP ${how}` : how}: whole in one ask, ${chain.batches} batch(es) sent, ${singles} transactions asked for (read ${j?.read}, ${j?.buyers?.length} buyers)`);
+    }
+    chain.noBatch = null; delete noBatches.devnet;
+  }
+
+  // an HTTP error on a buyer's funding transaction (500, with a JSON-RPC error in it) is that transaction not served:
+  // the other buyers go on, and the next ask reads it
+  {
+    const POOLH = base58(keyOf(136)), MINTH = keyOf(137), [H1, H2, HF] = [138, 139, 141].map((k) => base58(keyOf(k)));
+    chain.accounts.set(POOLH, isPoolOf(MINTH));
+    const h1Fund = walletTx(H1, "h1Fund", { from: HF });
+    walletTx(H2, "h2Fund", { from: HF });
+    poolTx(POOLH, "launchH", [launched(MINTH, CREATOR)]);
+    poolTx(POOLH, "buyH1", [trade(MINTH, keyOf(138), true, 1e8)]);
+    poolTx(POOLH, "buyH2", [trade(MINTH, keyOf(139), true, 1e8)]);
+    chain.http.set(h1Fund, 1); chain.calls = [];
+    let { r, j } = await birth(POOLH);
+    let byW = Object.fromEntries((j?.buyers ?? []).map((x) => [x.wallet, x]));
+    line(r.status === 200 && j && !j.complete && byW[H1]?.funding === null && byW[H2]?.funding?.by === HF,
+      "an HTTP 500 on a buyer's funding transaction: not read, the next buyer goes on, not complete");
+    ({ j } = await birth(POOLH));
+    byW = Object.fromEntries((j?.buyers ?? []).map((x) => [x.wallet, x]));
+    line(j?.complete && byW[H1]?.funding?.signature === h1Fund, "and the next ask reads it");
   }
 
   // 5,000 transactions exactly: the start is in them (not tooOld); spam that only names the pool stops at 200 fetched.

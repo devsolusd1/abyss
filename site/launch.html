@@ -380,8 +380,12 @@ function lamText(l) {
 function numText(x) { return String(+Number(x).toFixed(9)); }   // a SOL amount for a field
 /* rent the launch leaves in the coin's accounts, measured on devnet 2026-10-22 by simulating
    launches: mint, pool and vault with empty metadata, plus 6,960 lamports per metadata byte,
-   plus the creator's token account when there is a first buy. Network fee: 2 signatures */
-var RENT_BASE = 6065640, RENT_BYTE = 6960, RENT_ATA = 1513840, NET_FEE = 10000;
+   plus the creator's token account when there is a first buy. Network fee: one signature (the
+   coin's address is the program's, so only the creator signs), and a priority fee the chain
+   layer prices as it prepares the transaction, PRIORITY_MAX at most: counted in full until a
+   simulation says what it takes */
+var RENT_BASE = 6065640, RENT_BYTE = 6960, RENT_ATA = 1513840, NET_FEE = 5000;
+var PRIORITY_MAX = window.Chain && Chain.PRIORITY ? Chain.PRIORITY.maxLamports : 100000;
 var RENT_SEAT = 6960 * (128 + 81);                     // a seat in the opening batch: 81 bytes, back when it is claimed
 
 /* ================= the form's state ================= */
@@ -823,14 +827,14 @@ function needLamports() {
   var meta = bytes(F.name.trim()) + bytes(F.symbol.trim()) + bytes(F.uri.trim());
   var rent = RENT_BASE + RENT_BYTE * meta + (F.first > 0 ? (F.opening ? RENT_SEAT : RENT_ATA) : 0);
   var first = F.first > 0 ? Math.round(F.first * LAMP) : 0;
-  return { rent: rent, first: first, fee: launchFee(), net: NET_FEE, total: rent + first + launchFee() + NET_FEE };
+  return { rent: rent, first: first, fee: launchFee(), net: NET_FEE + PRIORITY_MAX, total: rent + first + launchFee() + NET_FEE + PRIORITY_MAX };
 }
 function renderNeed() {
   var n = needLamports(), simmed = pre.ok && pre.spent != null;
   $('#needN').textContent = simmed ? (pre.spent / LAMP).toFixed(4) : fSol(n.total / LAMP);
   $('#needSmall').textContent = simmed ? 'SOL, simulated for this wallet' : 'SOL, about';
   var feeTxt = CFG.state === 'ok' ? (n.fee ? '<b>' + fSol(n.fee / LAMP) + '</b> launch fee' : 'no launch fee (<b>0</b>, read from the program)') : CFG.state === 'loading' ? 'launch fee: reading…' : 'launch fee: unknown';
-  $('#needParts').innerHTML = (n.first ? '<b>' + fSol(n.first / LAMP) + '</b> ' + (F.opening ? 'into your seat' : 'first buy') + ' · ' : '') + 'about <b>' + (n.rent / LAMP).toFixed(4) + '</b> rent, kept by the coin’s accounts · ' + feeTxt + ' · <b>0.00001</b> network fee';
+  $('#needParts').innerHTML = (n.first ? '<b>' + fSol(n.first / LAMP) + '</b> ' + (F.opening ? 'into your seat' : 'first buy') + ' · ' : '') + 'about <b>' + (n.rent / LAMP).toFixed(4) + '</b> rent, kept by the coin’s accounts · ' + feeTxt + ' · <b>' + numText(NET_FEE / LAMP) + '</b> network fee and up to <b>' + numText(PRIORITY_MAX / LAMP) + '</b> priority fee';
   var el = $('#needWallet');
   if (!WAL.key) { el.textContent = 'Connect a wallet to see its balance.'; return; }
   if (WAL.sol == null) { el.textContent = WAL.reading ? 'Reading the wallet’s balance…' : NOT_YET ? NOT_YET_TEXT + '.' : 'Could not read the wallet’s balance.'; return; }

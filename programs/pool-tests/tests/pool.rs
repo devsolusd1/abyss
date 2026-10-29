@@ -1,7 +1,10 @@
 //! The compiled pool, run inside LiteSVM next to the real Token-2022.
 //!
 //! Build the program first (`cargo build-sbf` in `../pool`; test.sh does it) and point
-//! `POOL_SO` at the binary if it is not in `~/dex-target`.
+//! `POOL_SO` at the binary if it is not in `~/dex-target`. The upgrade from the version
+//! before the opening batch also needs that version's binary, in `POOL_SO_OLD`: it is ignored
+//! unless asked for, and upgrade-test.sh builds both binaries and runs it. The upgrade in the
+//! middle of a batch starts from the binary in `POOL_SO_LIVE`, the one live on chain, when given.
 
 use {
     anchor_lang::{InstructionData, ToAccountMetas},
@@ -9,7 +12,7 @@ use {
         math,
         state::{
             Pool, CONFIG_SEED, MAX_OPENING_SECS, MINT_SEED, MIN_BATCH, MIN_COMMIT, MIN_OPENING_SECS, OPENING_LOCK_SECS,
-            OPENING_REFUND, OPENING_SETTLED, POOL_SEED, SEAT_SEED, SUPPLY,
+            OPENING_NONE, OPENING_OPEN, OPENING_REFUND, OPENING_SETTLED, POOL_SEED, SEAT_SEED, SUPPLY,
         },
         token::{ATA_PROGRAM, TOKEN_2022},
         ConfigArgs, LaunchArgs, PoolError,
@@ -40,6 +43,8 @@ const T0: i64 = 1_800_000_000;
 const SYSTEM_PROGRAM: Address = Address::new_from_array([0; 32]);
 const LOADER: Address = Address::from_str_const("BPFLoaderUpgradeab1e11111111111111111111111");
 const COMPUTE_BUDGET: Address = Address::from_str_const("ComputeBudget111111111111111111111111111111");
+const RENT_SYSVAR: Address = Address::from_str_const("SysvarRent111111111111111111111111111111111");
+const CLOCK_SYSVAR: Address = Address::from_str_const("SysvarC1ock11111111111111111111111111111111");
 
 fn so(var: &str, under_target: &str) -> String {
     std::env::var(var).unwrap_or_else(|_| format!("{}/dex-target/{under_target}", std::env::var("HOME").unwrap()))
@@ -102,9 +107,13 @@ struct Env {
 impl Env {
     /// The program loaded, the admin as upgrade authority, no config yet.
     fn bare() -> Self {
+        Env::bare_from(&so("POOL_SO", "pool/deploy/dex.so"))
+    }
+
+    /// The same with the binary at `pool_so`, such as an earlier version's.
+    fn bare_from(pool_so: &str) -> Self {
         let mut svm = LiteSVM::new();
-        let pool_so = so("POOL_SO", "pool/deploy/dex.so");
-        svm.add_program_from_file(dex::ID, &pool_so)
+        svm.add_program_from_file(dex::ID, pool_so)
             .unwrap_or_else(|e| panic!("build the program first; could not load {pool_so}: {e:?}"));
         let mut clock = svm.get_sysvar::<Clock>();
         clock.unix_timestamp = T0;
@@ -129,7 +138,11 @@ impl Env {
 
     /// Ready to launch: the config made by the admin, launches closed.
     fn new() -> Self {
-        let mut env = Env::bare();
+        Env::new_from(&so("POOL_SO", "pool/deploy/dex.so"))
+    }
+
+    fn new_from(pool_so: &str) -> Self {
+        let mut env = Env::bare_from(pool_so);
         let admin = env.admin.insecure_clone();
         let args = env.config_args();
         env.send(&admin, vec![env.init_config_ix(&admin.pubkey(), args)], &[]).unwrap();
@@ -2131,5 +2144,317 @@ fn a_launch_fits_the_compute_the_site_asks_for() {
          in all), with a commitment {launch_commit} ({commit_tries} tries); the limit leaves room for {room} more tries"
     );
     assert!(launch_buy.max(launch_commit) < 200_000);
+}
+
+/* ---------------- upgrades ---------------- */
+
+/// The loader's header in a program's data account: its state, the slot it was deployed in, the upgrade authority.
+const PROGRAM_DATA_HEADER: usize = 45;
+
+/// The loader refuses to change a program twice in one slot, and an upgraded program runs from the next.
+fn next_slot(env: &mut Env) {
+    let slot = env.svm.get_sysvar::<Clock>().slot;
+    env.svm.warp_to_slot(slot + 1);
+}
+
+/// Replaces the program at its address the way a deploy does: the program's data account made bigger first when the
+/// binary has grown, the binary in a buffer as the loader's writes leave it, then the loader's Upgrade, signed by the
+/// upgrade authority. No account of the pool's is touched.
+fn upgrade(env: &mut Env, binary: &[u8]) {
+    let admin = env.admin.insecure_clone();
+    next_slot(env);
+    let room = env.svm.get_account(&program_data()).unwrap().data.len() - PROGRAM_DATA_HEADER;
+    if binary.len() > room {
+        // ExtendProgram, by 10 KiB at least as the loader asks, paid by the admin
+        let more = ((binary.len() - room) as u32).max(10_240);
+        let mut data = vec![6, 0, 0, 0];
+        data.extend_from_slice(&more.to_le_bytes());
+        let accounts = vec![
+            AccountMeta::new(program_data(), false),
+            AccountMeta::new(dex::ID, false),
+            AccountMeta::new_readonly(SYSTEM_PROGRAM, false),
+            AccountMeta::new(admin.pubkey(), true),
+        ];
+        env.send(&admin, vec![Instruction { program_id: LOADER, accounts, data }], &[]).unwrap();
+        next_slot(env);
+    }
+    // a buffer: its state, its authority (the admin), then the binary
+    let buffer = Keypair::new().pubkey();
+    let mut data = vec![1, 0, 0, 0, 1];
+    data.extend_from_slice(admin.pubkey().as_ref());
+    data.extend_from_slice(binary);
+    let lamports = env.svm.minimum_balance_for_rent_exemption(data.len());
+    env.svm.set_account(buffer, Account { lamports, data, owner: LOADER, executable: false, rent_epoch: 0 }).unwrap();
+    let accounts = vec![
+        AccountMeta::new(program_data(), false),
+        AccountMeta::new(dex::ID, false),
+        AccountMeta::new(buffer, false),
+        // the buffer's SOL, less the program's rent, goes back to the admin
+        AccountMeta::new(admin.pubkey(), false),
+        AccountMeta::new_readonly(RENT_SYSVAR, false),
+        AccountMeta::new_readonly(CLOCK_SYSVAR, false),
+        AccountMeta::new_readonly(admin.pubkey(), true),
+    ];
+    env.send(&admin, vec![Instruction { program_id: LOADER, accounts, data: vec![3, 0, 0, 0] }], &[]).unwrap();
+    let deployed = env.svm.get_account(&program_data()).unwrap().data;
+    assert!(deployed[PROGRAM_DATA_HEADER..PROGRAM_DATA_HEADER + binary.len()] == *binary, "the new binary is in place");
+    next_slot(env);
+}
+
+/// `launch` as the version before the opening batch reads it: today's arguments without the last, `opening_secs`.
+fn launch_ix_before_batch(env: &Env, creator: &Address, mint: &Address, args: LaunchArgs) -> Instruction {
+    let mut ix = env.launch_ix(creator, mint, args);
+    ix.data.truncate(ix.data.len() - 4);
+    ix
+}
+
+/// A coin launched by `creator` the way the version before the batch launches.
+fn launch_before_batch(env: &mut Env, creator: &Keypair) -> Coin {
+    let salt = fresh_salt();
+    let coin = Coin::of(mint_for(&creator.pubkey(), salt));
+    let ix = launch_ix_before_batch(env, &creator.pubkey(), &coin.mint, LaunchArgs { salt, ..env.args() });
+    env.send(creator, vec![ix], &[]).unwrap();
+    coin
+}
+
+/// The pool's bytes from the opening batch's first field to the end of the account: the 64 that were reserved before.
+fn batch_bytes(env: &Env, coin: &Coin) -> Vec<u8> {
+    let data = env.svm.get_account(&coin.pool).unwrap().data;
+    assert_eq!(data.len(), Pool::LEN, "the pool's size never changes");
+    data[8 + std::mem::offset_of!(Pool, opens_at)..].to_vec()
+}
+
+/// Anchor's "fallback functions are not supported": an instruction the binary does not have.
+const NO_SUCH_INSTRUCTION: InstructionError = InstructionError::Custom(101);
+/// Anchor's "the program could not deserialize the given instruction".
+const UNREADABLE_ARGS: InstructionError = InstructionError::Custom(102);
+
+/// Coins launched by the binary from before the opening batch (b73a4b1), traded and one graduated, then the current
+/// binary in its place at the same address, as a mainnet upgrade does it: there each pool holds real SOL and nothing
+/// migrates it. The batch's fields, in what were reserved bytes, read zeros, so the old coins have no batch: they buy
+/// at once, graduate, pay their fees, change hands and sell out, with the books straight. A coin launched after the
+/// upgrade has a batch and goes through it to the end next to them. The old half is written in that version's
+/// formats and expects its errors, so this test holds for that one upgrade only.
+#[test]
+#[ignore = "needs the binary from before the batch in POOL_SO_OLD: upgrade-test.sh builds it and runs this"]
+fn upgrade_keeps_the_coins_launched_before_the_batch() {
+    let binary = std::fs::read(so("POOL_SO", "pool/deploy/dex.so")).unwrap();
+    let mut env = Env::new_from(&so("POOL_SO_OLD", "old/deploy/dex.so"));
+    let (admin, launcher) = (env.admin.insecure_clone(), env.launcher.insecure_clone());
+    let (alice, bob) = (env.alice.insecure_clone(), env.bob.insecure_clone());
+
+    // the old binary: two coins in its own launch format, traded, and one graduated
+    let early = launch_before_batch(&mut env, &admin);
+    let curve = launch_before_batch(&mut env, &launcher);
+    env.buy(&early, &alice, 3 * SOL).unwrap();
+    env.buy(&curve, &alice, 2 * SOL).unwrap();
+    env.buy(&curve, &launcher, SOL).unwrap();
+    let held = env.tokens(&alice.pubkey(), &curve);
+    env.sell(&curve, &alice, held / 2).unwrap();
+    env.buy(&early, &bob, 200 * SOL).unwrap();
+    assert_eq!((env.pool(&early).graduated, env.pool(&curve).graduated), (1, 0));
+    // A launch in today's format reaches the old binary as one without a batch: the bytes after the salt are not read.
+    // So the site must not offer a batch until the program it talks to has one.
+    let salt = fresh_salt();
+    let quiet = Coin::of(mint_for(&admin.pubkey(), salt));
+    let ix = env.launch_ix(&admin.pubkey(), &quiet.mint, LaunchArgs { salt, opening_secs: 300, ..env.args() });
+    env.send(&admin, vec![ix], &[]).unwrap();
+    assert_eq!(error(env.commit(&quiet, &alice, SOL)), NO_SUCH_INSTRUCTION, "the old binary has no batch");
+    let coins = [early, curve, quiet];
+    for coin in &coins {
+        env.check_books(coin);
+        assert!(batch_bytes(&env, coin).iter().all(|&b| b == 0), "the old binary left the reserved bytes at zero");
+    }
+    let creator_owed = env.pool(&early).creator_fees;
+
+    // The loader's Upgrade lists none of the pools' accounts, so nothing of theirs can move: this checks the helper,
+    // not the program. What counts is how the new binary reads them, below.
+    let watched: Vec<Address> = coins.iter().flat_map(|c| [c.pool, c.vault, c.mint]).chain([config_address()]).collect();
+    let before = env.snapshot(&watched);
+    upgrade(&mut env, &binary);
+    assert_eq!(env.snapshot(&watched), before, "the upgrade touched no account of the pools'");
+
+    // the old coins have no batch: nothing waits for a settle, and the batch's instructions refuse them
+    for coin in &coins {
+        let quote = math::buy(reserves(&env.pool(coin)), SOL / 10, FEE_BPS).unwrap();
+        env.buy(coin, &bob, SOL / 10).unwrap();
+        assert_eq!(env.pool(coin).token_reserve, quote.after.tokens, "bought at once, as the math says");
+        assert_eq!(env.pool(coin).opening_state, OPENING_NONE);
+        assert_eq!(error(env.commit(coin, &alice, SOL)), pool_error(PoolError::NoOpening));
+        assert_eq!(error(env.settle(coin, &bob)), pool_error(PoolError::NoOpening));
+        assert_eq!(error(env.withdraw(coin, &alice, SOL)), NO_SEAT);
+        assert_eq!(error(env.claim_seat(coin, &alice, false)), NO_SEAT);
+        assert!(batch_bytes(&env, coin).iter().all(|&b| b == 0), "a trade leaves the batch's fields at zero");
+        env.check_books(coin);
+    }
+    // and an old page's launch is refused now, not read wrong
+    let salt = fresh_salt();
+    let mint = mint_for(&admin.pubkey(), salt);
+    let ix = launch_ix_before_batch(&env, &admin.pubkey(), &mint, LaunchArgs { salt, ..env.args() });
+    assert_eq!(error(env.send(&admin, vec![ix], &[])), UNREADABLE_ARGS);
+
+    // on the curve: trades as the math says, each event read where the site reads it, the creator's marked as theirs
+    let quote = math::buy(reserves(&env.pool(&curve)), SOL, FEE_BPS).unwrap();
+    let bought = env.buy(&curve, &alice, SOL).unwrap();
+    assert_eq!(reserves(&env.pool(&curve)), quote.after);
+    let trade = event::<dex::TradeEvent>(&bought);
+    assert_eq!((trade.tokens, trade.by_creator), (quote.tokens_out, false));
+    assert!(event::<dex::TradeEvent>(&env.buy(&curve, &launcher, SOL).unwrap()).by_creator);
+    let held = env.tokens(&alice.pubkey(), &curve);
+    let quote = math::sell(reserves(&env.pool(&curve)), held, FEE_BPS).unwrap();
+    env.sell(&curve, &alice, held).unwrap();
+    assert_eq!(reserves(&env.pool(&curve)), quote.after);
+    env.check_books(&curve);
+    // it graduates in the buy that crosses the line, and goes on as a plain pool
+    let quote = math::buy(reserves(&env.pool(&curve)), 200 * SOL, FEE_BPS).unwrap();
+    env.buy(&curve, &bob, 200 * SOL).unwrap();
+    let p = env.pool(&curve);
+    assert!(p.graduated == 1 && quote.burned > 0);
+    assert_eq!((p.burned, p.graduated_at), (quote.burned, T0));
+    env.check_books(&curve);
+    // the coin that graduated under the old binary trades both ways
+    env.sell(&early, &bob, 100_000_000 * TOKEN).unwrap();
+    env.buy(&early, &alice, SOL).unwrap();
+    env.check_books(&early);
+
+    // fees owed from before the upgrade and after are paid in full, to the creator and to the recorded treasury
+    let p = env.pool(&early);
+    assert!(p.creator_fees > creator_owed && creator_owed > 0);
+    let before = env.lamports(&admin.pubkey());
+    env.claim_creator(&early, &admin).unwrap();
+    assert_eq!(env.lamports(&admin.pubkey()) + 5_000, before + p.creator_fees);
+    for coin in &coins {
+        let owed = env.pool(coin).treasury_fees;
+        let before = env.lamports(&env.treasury);
+        env.claim_treasury(coin, &bob).unwrap();
+        assert_eq!(env.lamports(&env.treasury), before + owed);
+        env.check_books(coin);
+    }
+    // the creator hands the coin over: what was owed goes to them in the same call, the new creator collects after
+    let owed = env.pool(&curve).creator_fees;
+    let accounts = dex::accounts::SetCreator { creator: launcher.pubkey(), pool: curve.pool };
+    let ix = pool_ix(accounts, dex::instruction::SetCreator { new_creator: alice.pubkey() });
+    let before = env.lamports(&launcher.pubkey());
+    env.send(&launcher, vec![ix], &[]).unwrap();
+    assert_eq!(env.lamports(&launcher.pubkey()) + 5_000, before + owed);
+    assert_eq!(env.pool(&curve).creator, alice.pubkey());
+    env.buy(&curve, &bob, SOL).unwrap();
+    assert_eq!(error(env.claim_creator(&curve, &launcher)), pool_error(PoolError::WrongAccount));
+    env.claim_creator(&curve, &alice).unwrap();
+    env.check_books(&curve);
+
+    // everyone can still leave, each sale as the math says
+    for (coin, who) in [(&early, &alice), (&early, &bob), (&curve, &bob), (&curve, &launcher), (&quiet, &bob)] {
+        let held = env.tokens(&who.pubkey(), coin);
+        let quote = math::sell(reserves(&env.pool(coin)), held, FEE_BPS).unwrap();
+        env.sell(coin, who, held).unwrap();
+        assert_eq!(reserves(&env.pool(coin)), quote.after);
+        env.check_books(coin);
+    }
+
+    // a coin launched now has its batch, and goes through it to the end
+    let carol = env.wallet(10 * SOL);
+    let coin = launch_with_batch(&mut env, 300, SOL);
+    assert_eq!(env.pool(&coin).opening_state, OPENING_OPEN);
+    assert_eq!(error(env.buy(&coin, &alice, SOL)), pool_error(PoolError::NotOpenYet));
+    env.commit(&coin, &alice, 2 * SOL).unwrap();
+    env.commit(&coin, &carol, SOL).unwrap();
+    env.withdraw(&coin, &carol, SOL / 2).unwrap();
+    env.check_books(&coin);
+    env.warp(env.pool(&coin).opens_at);
+    env.settle(&coin, &bob).unwrap();
+    let total = 3 * SOL + SOL / 2;
+    let expected = math::buy(opening_reserves(), total, FEE_BPS).unwrap();
+    let share = |sol: u64| (expected.tokens_out as u128 * sol as u128 / total as u128) as u64;
+    assert_eq!((env.pool(&coin).opening_state, env.pool(&coin).opening_tokens), (OPENING_SETTLED, expected.tokens_out));
+    for (who, sol) in [(&admin, SOL), (&alice, 2 * SOL), (&carol, SOL / 2)] {
+        env.claim_seat(&coin, who, true).unwrap();
+        assert_eq!(env.tokens(&who.pubkey(), &coin), share(sol));
+        env.check_books(&coin);
+    }
+    assert_eq!(env.pool(&coin).opening_seats, 0);
+    env.buy(&coin, &bob, SOL).unwrap();
+    for who in [&alice, &carol, &bob, &admin] {
+        let held = env.tokens(&who.pubkey(), &coin);
+        env.sell(&coin, who, held).unwrap();
+        env.check_books(&coin);
+    }
+    env.claim_creator(&coin, &admin).unwrap();
+    env.claim_treasury(&coin, &bob).unwrap();
+    for coin in coins.iter().chain([&coin]) {
+        env.check_books(coin);
+    }
+}
+
+/// An upgrade while a batch is under way: the live binary replaced by the current one while a batch is open with seats
+/// in it, and again once it is settled with seats still to claim, next to a refused batch whose SOL is still owed.
+/// Each batch goes on where it was: the same seats, window and books. The live binary comes in `POOL_SO_LIVE`, dumped
+/// from the chain before an upgrade. Without it both sides are the current binary, and this is only a frame: it runs
+/// the batch through the loader's upgrade, and would not notice a change in the pool's or the seat's layout. The steps
+/// before each upgrade use today's formats; if the next version changes them, they must be written as the live one's.
+#[test]
+fn upgrade_in_the_middle_of_an_opening_batch() {
+    let current = so("POOL_SO", "pool/deploy/dex.so");
+    let live = std::env::var("POOL_SO_LIVE").unwrap_or_else(|_| current.clone());
+    let binary = std::fs::read(&current).unwrap();
+    let same = std::fs::read(&live).unwrap() == binary;
+    println!("upgrade in a batch, from {live} to {current}{}", if same { ": the same bytes, so only a frame" } else { "" });
+    let mut env = Env::new_from(&live);
+    let (admin, alice, bob) = (env.admin.insecure_clone(), env.alice.insecure_clone(), env.bob.insecure_clone());
+    let carol = env.wallet(10 * SOL);
+    let coin = launch_with_batch(&mut env, 300, SOL);
+    let small = launch_with_batch(&mut env, 120, 0);
+    env.commit(&coin, &alice, 2 * SOL).unwrap();
+    env.commit(&coin, &bob, SOL).unwrap();
+    env.commit(&small, &carol, SOL / 200).unwrap();
+    let seats = |owners: &[&Keypair]| owners.iter().map(|o| Env::seat_of(&coin, &o.pubkey())).collect::<Vec<_>>();
+    let mut watched = vec![coin.pool, coin.vault, small.pool, Env::seat_of(&small, &carol.pubkey())];
+    watched.extend(seats(&[&admin, &alice, &bob]));
+
+    // open, with three seats (the snapshot checks the helper, as in the upgrade before the batch)
+    let before = env.snapshot(&watched);
+    upgrade(&mut env, &binary);
+    assert_eq!(env.snapshot(&watched), before, "the upgrade touched no account of the pools'");
+    assert_eq!(error(env.buy(&coin, &carol, SOL)), pool_error(PoolError::NotOpenYet));
+    env.withdraw(&coin, &bob, SOL / 2).unwrap();
+    env.commit(&coin, &carol, SOL).unwrap();
+    let opens = env.pool(&coin).opens_at;
+    assert_eq!(opens, T0 + 300);
+    env.warp(opens - OPENING_LOCK_SECS);
+    assert_eq!(error(env.commit(&coin, &alice, SOL)), pool_error(PoolError::OpeningLocked));
+    env.check_books(&coin);
+    env.warp(opens);
+    env.settle(&coin, &bob).unwrap();
+    env.settle(&small, &bob).unwrap();
+    assert_eq!(env.pool(&small).opening_state, OPENING_REFUND);
+    let total = 4 * SOL + SOL / 2;
+    let expected = math::buy(opening_reserves(), total, FEE_BPS).unwrap();
+    let share = |sol: u64| (expected.tokens_out as u128 * sol as u128 / total as u128) as u64;
+    env.claim_seat(&coin, &admin, true).unwrap();
+    assert_eq!(env.tokens(&admin.pubkey(), &coin), share(SOL));
+
+    // settled, with three seats to claim, and the refused batch's SOL still owed
+    watched.extend(seats(&[&carol]));
+    let before = env.snapshot(&watched);
+    upgrade(&mut env, &binary);
+    assert_eq!(env.snapshot(&watched), before, "the upgrade touched no account of the pools'");
+    for (who, sol) in [(&alice, 2 * SOL), (&bob, SOL / 2), (&carol, SOL)] {
+        env.claim_seat(&coin, who, true).unwrap();
+        assert_eq!(env.tokens(&who.pubkey(), &coin), share(sol));
+        env.check_books(&coin);
+    }
+    let p = env.pool(&coin);
+    assert_eq!(p.opening_seats, 0);
+    assert!(p.opening_tokens_left < 4, "only the rounding dust stays in the vault");
+    let before = env.lamports(&carol.pubkey());
+    env.claim_seat(&small, &carol, false).unwrap();
+    assert_eq!(env.lamports(&carol.pubkey()), before + SOL / 200 + env.seat_rent() - 5_000);
+    env.check_books(&small);
+    // and both coins trade
+    env.buy(&coin, &bob, SOL).unwrap();
+    env.sell(&coin, &alice, 1_000 * TOKEN).unwrap();
+    env.buy(&small, &bob, SOL).unwrap();
+    env.check_books(&coin);
+    env.check_books(&small);
 }
 

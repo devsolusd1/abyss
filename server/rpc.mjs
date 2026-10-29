@@ -4,18 +4,22 @@
 //     the pool program;
 //   - transactions (sent or simulated) only when every instruction goes to the pool program, the compute budget or
 //     the associated token account program, so the door is not a free relay for anything else;
-//   - per caller, a share of calls per window, and fewer of the heavy ones (best effort: each instance counts its own);
+//   - per caller, a share of calls per window, and fewer of the heavy ones (best effort: each instance counts its own).
+//     The share of sends counts transactions, not calls: a page sends one again while it waits for it to land, and
+//     those resends (the same bytes, with no preflight, as the page sends them) take no more of it, a few times;
 //   - answers up to MAX_ANSWER bytes.
-// The program's account list and the mints it names (the coin board, the landing) are shared between callers for a
-// few seconds, and a transaction once read is kept for a while: the node is asked once for what many pages want.
-// What is kept is bounded in bytes, and only small answers are kept.
+// The program's account list, the mints it names (the coin board, the landing) and the recent priority fees for a set
+// of accounts (asked before each send) are shared between callers for a few seconds, and a transaction once read is
+// kept for a while: the node is asked once for what many pages want. What is kept is bounded in bytes, and only small
+// answers are kept.
 
+import { createHash } from "node:crypto";
 import { clusterOf, addressBytes, base58, callerOf, foreign, Limiter, json, COMPUTE_BUDGET, ATA_PROGRAM } from "./config.mjs";
 
 const CALLS = new Set([
   "getAccountInfo", "getMultipleAccounts", "getBalance", "getProgramAccounts", "getSignaturesForAddress", "getTransaction",
   "getLatestBlockhash", "getBlockHeight", "getSignatureStatuses", "simulateTransaction", "sendTransaction",
-  "getMinimumBalanceForRentExemption", "getSlot", "getHealth",
+  "getMinimumBalanceForRentExemption", "getSlot", "getHealth", "getRecentPrioritizationFees",
 ]);
 // the settings each call may carry (what web3.js and the pages send); anything else is refused
 const CONFIG = {
@@ -33,6 +37,7 @@ const CONFIG = {
   getMinimumBalanceForRentExemption: ["commitment"],
   getSlot: ["commitment", "minContextSlot"],
   getHealth: [],
+  getRecentPrioritizationFees: [],                       // only a list of accounts, no settings
 };
 const MAX_BODY = 32 * 1024;
 const MAX_BATCH = 10;
@@ -41,6 +46,9 @@ const MAX_ANSWER = 4 * 1024 * 1024;                      // Vercel answers up to
 const KEEP_ANSWER = 256 * 1024;                          // only answers this small are kept
 const SHARED_MS = 3000;                                  // how long the program's account list is shared
 const TX_MS = 10 * 60 * 1000;                            // how long a read transaction is kept
+const SENT_MS = 2 * 60 * 1000;                           // how long a sent transaction is known (its blockhash lasts about 60 to 90 s)
+const MAX_SENT = 20_000;
+const FREE_RESENDS = 4;                                  // resends of a transaction that take no share (the page's are 3 at most)
 const calls = new Limiter(120, 10_000), heavy = new Limiter(20, 10_000), sends = new Limiter(12, 60_000), sims = new Limiter(40, 60_000);
 
 /** A map of answers kept for `ms`, at most `bytes` of them in all, oldest out first. */
@@ -49,10 +57,10 @@ class Kept {
   get(key, now = Date.now()) { const v = this.map.get(key); return v && now - v.at < this.ms ? v : null; }
   put(key, text, result, now = Date.now()) {
     if (text.length > KEEP_ANSWER) return;
-    const old = this.map.get(key);
+    const old = this.map.get(key), n = text.length + key.length;   // a key can be long too: up to 128 accounts
     if (old) { this.size -= old.n; this.map.delete(key); }
-    this.map.set(key, { at: now, result, n: text.length });
-    this.size += text.length;
+    this.map.set(key, { at: now, result, n });
+    this.size += n;
     for (const [k, v] of this.map) {                     // oldest first: the expired ones, then while over the budget
       if (now - v.at < this.ms && this.size <= this.bytes) break;
       this.map.delete(k); this.size -= v.n;
@@ -101,6 +109,36 @@ function onlyOurs(b64, cluster) {
   return programs.every((p) => { const k = addressBytes(p); return k && allowed.some((a) => same(a, k)); });
 }
 
+/** A serialized transaction's first signature (the one the cluster knows it by), as base58, or null when it has none. */
+export function signatureOf(b64) {
+  const b = Buffer.from(b64, "base64");
+  return b.length >= 65 && b[0] > 0 && b[0] < 0x80 ? base58(b.subarray(1, 65)) : null;   // a count under 128 is one byte
+}
+
+/*
+ * The transactions each caller sent in the last SENT_MS, by first signature, each with a digest of its bytes: a resend
+ * is the same signature on the same bytes. The signature alone is not enough, as it is only what the sender put there
+ * (an unsigned transaction's is all zeros): other bytes under it are another transaction, and count. A resend is free
+ * only with no preflight (one with it is a simulation too) and FREE_RESENDS times; past that, each one counts.
+ */
+const sent = new Map();                                  // caller|signature -> { at, digest, free }
+/**
+ * Takes a share of sends for a transaction, unless it is a resend of one this caller sent a moment ago, with no
+ * preflight, and it still has free resends; false when no share is left.
+ */
+function takeSend(who, b64, cfg, now = Date.now()) {
+  const sig = signatureOf(b64), key = sig && `${who}|${sig}`, digest = createHash("sha256").update(b64).digest("base64");
+  const seen = key && sent.get(key), again = seen && now - seen.at < SENT_MS && seen.digest === digest;
+  if (again && cfg?.skipPreflight === true && seen.free < FREE_RESENDS) { seen.free++; return true; }
+  if (!sends.take(who, 1, now)) return false;
+  if (key && !again) { sent.delete(key); sent.set(key, { at: now, digest, free: 0 }); }   // a resend keeps its count
+  for (const [k, v] of sent) {                           // oldest first: the expired ones, then while there are too many
+    if (now - v.at < SENT_MS && sent.size <= MAX_SENT) break;
+    sent.delete(k);
+  }
+  return true;
+}
+
 /** Why a call may not pass, or null. */
 function refuse(call, cluster) {
   if (!isObject(call) || call.jsonrpc !== "2.0" || typeof call.method !== "string") return "Not a JSON-RPC call";
@@ -115,6 +153,9 @@ function refuse(call, cluster) {
     case "getMultipleAccounts": if (!Array.isArray(p[0]) || p[0].length > 100 || !p[0].every((k) => typeof k === "string")) return "Up to 100 accounts"; break;
     case "getSignatureStatuses": if (!Array.isArray(p[0]) || p[0].length > 20 || !p[0].every((k) => typeof k === "string")) return "Up to 20 signatures"; break;
     case "getSignaturesForAddress": if (Number(cfg?.limit ?? 1000) > 100) return "Up to 100 signatures"; break;
+    case "getRecentPrioritizationFees":                  // [] or [[address, …]], as web3.js sends it
+      if (p.length > 1 || (p.length && (!Array.isArray(p[0]) || p[0].length > 128 || !p[0].every((k) => addressBytes(k))))) return "Up to 128 accounts";
+      break;
     case "sendTransaction": case "simulateTransaction":
       if (typeof p[0] !== "string" || p[0].length > MAX_TX || cfg?.encoding !== "base64") return "Transactions in base64 only";
       if (!onlyOurs(p[0], cluster)) return "Only transactions for the pool program";
@@ -125,10 +166,14 @@ function refuse(call, cluster) {
   return null;
 }
 
-/** The key under which an answer may be shared, or null: only the listing calls and transaction reads, as the site sends them. */
+/**
+ * The key under which an answer may be shared, or null: only the listing calls, the priority fees and transaction
+ * reads, as the site sends them. The fees are the same for a set of accounts in any order.
+ */
 function keyOf(cluster, call) {
   try {
     if (call.method === "getProgramAccounts" || call.method === "getMultipleAccounts") return `${cluster.name}|${call.method}|${JSON.stringify(call.params)}`;
+    if (call.method === "getRecentPrioritizationFees") return `${cluster.name}|fees|${[...new Set(call.params?.[0] ?? [])].sort().join()}`;
     if (call.method === "getTransaction" && typeof call.params?.[0] === "string") {
       const c = call.params[1] ?? {};
       return `${cluster.name}|tx|${call.params[0]}|${c.commitment ?? ""}|${c.encoding ?? ""}|${c.maxSupportedTransactionVersion ?? ""}`;
@@ -183,7 +228,7 @@ export async function handleRpc(request, env = {}) {
     }
     for (const call of list) {
       if (call.method === "getProgramAccounts" && !heavy.take(who)) return json(rpcError(call.id, 429, "Too many account lists from here"), 429, { "retry-after": "5" });
-      if (call.method === "sendTransaction" && !sends.take(who)) return json(rpcError(call.id, 429, "Too many transactions from here"), 429, { "retry-after": "30" });
+      if (call.method === "sendTransaction" && !takeSend(who, call.params[0], call.params[call.params.length - 1])) return json(rpcError(call.id, 429, "Too many transactions from here"), 429, { "retry-after": "30" });
       if (call.method === "simulateTransaction" && !sims.take(who)) return json(rpcError(call.id, 429, "Too many simulations from here"), 429, { "retry-after": "15" });
     }
 

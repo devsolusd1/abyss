@@ -1046,6 +1046,14 @@ function parseAmt(s) {
   if (!m || m[1] === '' || m[1] === '.') return NaN;
   return parseFloat(m[1]) * { '': 1, k: 1e3, m: 1e6, b: 1e9 }[m[2]];
 }
+// the most a trade or a commit pays the network: one signature and its priority fee at its most (Chain.PRIORITY). The
+// rent of a new seat or token account is not counted here: the simulation catches a wallet short of it
+function netFee() { return 5000n + BigInt(Chain.PRIORITY ? Chain.PRIORITY.maxLamports : 100000); }
+function shortOf(lamports) {
+  var fee = netFee();
+  if (!WAL || lamports + fee <= WAL.sol) return null;
+  return { msg: 'Your wallet has ' + fSol(lam(WAL.sol)) + ' SOL, and the network fee takes up to ' + lam(fee) + ' of it.', bad: true };
+}
 function makeQuote() {
   if (!POOL || !window.Chain) return { msg: POOL ? 'The trading code did not load.' : 'Reading the pool…' };
   var ph = batchPhase();
@@ -1057,7 +1065,8 @@ function makeQuote() {
   if (ph === 'open') {
     var lc = BigInt(Math.round(v * 1e9)), seat0 = mySeat();
     if (lc < Chain.OPENING.minCommit) return { msg: 'A seat in the batch takes at least 0.001 SOL.', bad: true };
-    if (WAL && lc > WAL.sol) return { msg: 'Your wallet has ' + fSol(lam(WAL.sol)) + ' SOL.', bad: true };
+    var low = shortOf(lc);
+    if (low) return low;
     var mine = (seat0 ? seat0.sol : 0n) + lc, total = POOL.opening.sol + lc;
     return { side: 'commit', sol: v, lamports: lc, q: Chain.quoteSeat(POOL, mine, total), mine: mine, total: total, after: null };
   }
@@ -1065,7 +1074,8 @@ function makeQuote() {
   if (side === 'buy') {
     var lamports = BigInt(Math.round(v * 1e9));
     if (lamports < 10000n) return { msg: 'Too small to trade.', bad: true };
-    if (WAL && lamports > WAL.sol) return { msg: 'Your wallet has ' + fSol(lam(WAL.sol)) + ' SOL.', bad: true };
+    var low2 = shortOf(lamports);
+    if (low2) return low2;
     var q = Chain.quoteBuy(r, lamports, fee);
     if (q.tokensOut <= 0n) return { msg: 'Too small to trade.', bad: true };
     return { side: 'buy', sol: v, q: q, minOut: q.tokensOut * (10000n - SLIP) / 10000n, after: afterOf(q.after, POOL.burned + q.burned) };
@@ -1140,7 +1150,8 @@ amt.addEventListener('input', function () { if (amt.value !== maxText) maxText =
 maxBtn.addEventListener('click', function () {
   if (!WAL) return;
   if (side === 'buy') {
-    var keep = 10000000n, spend = WAL.sol > keep ? WAL.sol - keep : 0n; // keeps 0.01 SOL for the network fee and the token account
+    // keeps 0.01 SOL for the network fee, its priority fee at its most (Chain.PRIORITY.maxLamports) included, and the token account
+    var keep = 10000000n, spend = WAL.sol > keep ? WAL.sol - keep : 0n;
     maxText = String(Number(spend) / 1e9); maxUnits = null;
     noteEl.textContent = 'Max keeps 0.01 SOL back for the network fee and your token account.';
   } else { maxUnits = WAL.tokens; maxText = String(Number(WAL.tokens) / 1e6); noteEl.textContent = ''; }

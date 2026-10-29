@@ -10,6 +10,8 @@ as a pixel black hole whose disk is the real SOL in its pool.
 
 - `programs/pool`: the Anchor program (`src/lib.rs`, `math.rs`, `state.rs`, `token.rs`) and `DESIGN.md`.
 - `programs/pool-tests`: its tests. `programs/test.sh` builds the program and runs them (Linux or WSL).
+  `programs/upgrade-test.sh` builds the program as it was before the opening batch (`DEX_OLD_COMMIT`, b73a4b1),
+  launches and trades coins with it, upgrades to the current one, and checks the old coins still trade.
 - `programs/examples`: `devnet.mjs` launches and trades a test coin (it only simulates unless `SEND=1`),
   and the records of the coins launched on devnet.
 - `site`: the pages. `index.html` (the landing), `coins.html`, `coin.html`, `launch.html` and `sim.html`
@@ -24,7 +26,9 @@ as a pixel black hole whose disk is the real SOL in its pool.
     `npm run check` simulates a buy, a sell, both fee claims and a launch against devnet, and the opening batch's
     calls on devnet coins in each of its states. `check-opening.mjs` checks the batch's side of the layer offline: its
     events byte by byte, its numbers and errors against the program's source, the error words, and the settle's claim
-    against a fake node. `send-check.mjs` sends a
+    against a fake node. `check-fees.mjs` checks the priority fee every sent transaction gets (one price, from the
+    node's recent fees for its writable accounts, between a floor and a cap of 0.0001 SOL; none on devnet) against a
+    fake node. `send-check.mjs` sends a
     buy, a sell of what it bought and both claims for real (with `SEND=1` and the coin creator's devnet keypair in
     `KEYPAIR`), then checks every number against the pool. `batch-check.mjs` launches a coin with a 2-minute opening
     batch and takes it through its seat, the settle, the claim and trading, for real (about 3 minutes, same
@@ -53,6 +57,8 @@ The server reads it from the environment, never from a file in git: `RPC_URL_DEV
 node, such as Helius, whose URL carries its key). On Vercel: Project, Settings, Environment Variables. On this machine:
 a `.env.local` file at the repo root with `RPC_URL_DEVNET=…` (git ignores `.env*`), which `serve.mjs` reads.
 Without one, devnet uses the public node (slow for the history: about one transaction a second) and mainnet has none.
+The paid path asks for ten transactions per JSON-RPC batch; a node that refuses batches is asked one call at a time
+for the next ten minutes, and `RPC_BATCH=0` makes that the rule.
 When the program is on mainnet, its id goes in `site/net.js` and `server/config.mjs` (or `PROGRAM_MAINNET`).
 
 ## Run the site

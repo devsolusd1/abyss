@@ -1,7 +1,9 @@
 // The clusters the site's server talks to, and where each one's node comes from. The node's URL (a paid one carries
 // its key in it) is only ever read from the environment: RPC_URL_DEVNET, RPC_URL_MAINNET (Vercel: Project, Settings,
 // Environment Variables; on this machine: a .env.local file at the repo root, which git ignores). Without one, devnet
-// uses the public node; mainnet has no public fallback (the public mainnet node is not for apps).
+// uses the public node; mainnet has no public fallback (the public mainnet node is not for apps). A paid node is sent
+// batches of calls, unless RPC_BATCH=0 (for a plan that takes none; one that refuses a batch gets single calls for a
+// while anyway: history.mjs callMany).
 // The program ids must match site/net.js (server/check.mjs checks that they do).
 
 export const CLUSTERS = {
@@ -16,12 +18,12 @@ function nodeUrl(value) {
   try { const u = new URL(v); return u.protocol === "https:" || u.protocol === "http:" ? v : ""; } catch { return ""; }
 }
 
-/** { name, url, paid, program } for a cluster's name, or null for one the site does not know. */
+/** { name, url, paid, batch, program } for a cluster's name, or null for one the site does not know. */
 export function clusterOf(name, env = {}) {
   const c = Object.prototype.hasOwnProperty.call(CLUSTERS, name) ? CLUSTERS[name] : null;
   if (!c) return null;
-  const own = nodeUrl(env[c.rpcEnv]);
-  return { name, url: own || c.publicRpc, paid: Boolean(own), program: String(env[c.programEnv] ?? "").trim().replace(/^(["'])(.*)\1$/, "$2") || c.program };
+  const own = nodeUrl(env[c.rpcEnv]), plain = (v) => String(v ?? "").trim().replace(/^(["'])(.*)\1$/, "$2");
+  return { name, url: own || c.publicRpc, paid: Boolean(own), batch: Boolean(own) && plain(env.RPC_BATCH) !== "0", program: plain(env[c.programEnv]) || c.program };
 }
 
 /**

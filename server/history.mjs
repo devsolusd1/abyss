@@ -7,14 +7,16 @@
 // Transactions never change once they are in, so each is fetched once and kept in this instance's memory; the list of
 // signatures is read again at most every LIST_MS, or at once when `at` (the page's mark of the pool's state, which
 // changes with every trade or claim) is new. The answer is cached at the edge for a moment, per `at`. With a paid node
-// it fetches BATCH at a time; on the public node each of its calls keeps to that node's pace (about one call every
-// 1.3 s, on the mark it shares with the birth: config.mjs), so a long history comes in over a few answers (complete:
-// false until it is all in). One answer waits for the node's turns BUDGET_MS at most, the pool check and the listing
-// included; a 429 counts as a turn that comes too late. Then it gives what it has. With no list kept for the pool yet
-// it has nothing to give (an empty one would read as a pool without trades), so its pool check and listing may wait
-// until FIRST_MS: the page waits 15 s for an answer, and without a 200 it reads the node itself (for the few seconds a
-// 503's retry-after asks, or for a minute after any other answer or none in 15 s). When the listing's turn comes after
-// that too, or the node answers 429, it says so: 503, with no wait for a turn it knows is too late.
+// it fetches BATCH at a time, in one batch (or as single calls, a few at a time, when the node takes no batches:
+// RPC_BATCH=0, or it refused one in the last BATCH_OFF_MS); on the public node each of its calls keeps to that node's
+// pace (about one call every 1.3 s, on the mark it shares with the birth: config.mjs), so a long history comes in over
+// a few answers (complete: false until it is all in). One answer waits for the node's turns BUDGET_MS at most, the
+// pool check and the listing included; a 429 counts as a turn that comes too late. Then it gives what it has. With no
+// list kept for the pool yet it has nothing to give (an empty one would read as a pool without trades), so its pool
+// check and listing may wait until FIRST_MS: the page waits 15 s for an answer, and without a 200 it reads the node
+// itself (for the few seconds a 503's retry-after asks, or for a minute after any other answer or none in 15 s). When
+// the listing's turn comes after that too, or the node answers 429, it says so: 503, with no wait for a turn it knows
+// is too late.
 //
 // Answer: { total, have, complete, signatures: [{ signature, blockTime, err }], txs: { signature: { t, d: [base64] } } }
 
@@ -25,6 +27,8 @@ const LIST_MS = 2000;
 const BUDGET_MS = 7000;                                  // how long one answer may spend, its waits for the node included
 const FIRST_MS = 12_000;                                 // how long it may wait for a pool's first list (the page waits 15 s)
 const BATCH = 10;
+const BATCH_OFF_MS = 10 * 60 * 1000;                     // how long a node that refused a batch is sent single calls
+const SINGLES = 4;                                       // single calls at once, to a node that takes no batches
 const POOL_MS = 10 * 60 * 1000;                          // how long "this is one of the program's pools" is believed
 const MAX_ANSWER = 4 * 1024 * 1024;
 const PREFIX = "Program data: ";
@@ -58,18 +62,70 @@ export function ownLines(logs, program) {
   return lines;
 }
 
-/** One call (or a batch) to the cluster's node; a 429 comes back as { error: { code: 429 } }. */
+/**
+ * The node refused a call: an HTTP error, or an answer that is not JSON. It names the status, never the URL (a paid
+ * node's carries its key).
+ */
+export class NodeError extends Error {
+  constructor(message, status) { super(message); this.status = status; }
+}
+
+/** One call (or a batch) to the cluster's node; a 429 comes back as { error: { code: 429 } }, with the call's id. */
 export async function call(cluster, body) {
   const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 15_000);
   try {
     const res = await fetch(cluster.url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal: ctl.signal });
-    if (res.status === 429) return Array.isArray(body) ? body.map(() => ({ error: { code: 429 } })) : { error: { code: 429 } };
+    if (res.status === 429) return Array.isArray(body) ? body.map((c) => ({ id: c?.id, error: { code: 429 } })) : { id: body?.id, error: { code: 429 } };
+    if (!res.ok) throw new NodeError(`The node answered HTTP ${res.status}`, res.status);
     const text = await res.text();
     if (text.length > MAX_ANSWER) throw new Error("too large");
-    return JSON.parse(text);
+    try { return JSON.parse(text); } catch { throw new NodeError(`The node's answer was not JSON (HTTP ${res.status})`, res.status); }
   } finally { clearTimeout(timer); }
 }
 const one = (method, params) => ({ jsonrpc: "2.0", id: 1, method, params });
+const isObject = (x) => x !== null && typeof x === "object" && !Array.isArray(x);
+
+/** Cluster name -> until when its node is sent no batch: it refused one (a plan that takes none, or fewer). */
+export const noBatches = {};
+
+/** The node takes batches: a paid one, unless RPC_BATCH=0 or it refused a batch in the last BATCH_OFF_MS. */
+const batches = (cluster) => cluster.batch && !((noBatches[cluster.name] ?? 0) > Date.now());
+
+/** A batch's answers serve some of its calls: one of them has its own answer there (a result, or the node's rate: 429). */
+function serves(answers, list) {
+  const ids = new Set(list.map((c) => c.id));
+  return answers.some((x) => isObject(x) && ids.has(x.id) && ("result" in x || x.error?.code === 429));
+}
+
+/**
+ * Several calls, their answers in a list, each with its call's id (a call with no answer is left out). In one batch
+ * when the node takes batches. A batch it refuses (an answer that is not a list, a list that serves none of the
+ * calls, or an HTTP error other than 429) marks its cluster as one whose node takes none for BATCH_OFF_MS, and the
+ * same calls go again as single calls: SINGLES at a time, and none after a 429 (the node's rate; the next round asks
+ * for the rest). Throws when no call got an answer.
+ */
+export async function callMany(cluster, list) {
+  if (batches(cluster)) {
+    let r;
+    // no answer at all (a timeout, a lost connection) says nothing of batches: it goes to the caller as it is
+    try { r = await call(cluster, list); } catch (err) { if (!(err instanceof NodeError)) throw err; r = err; }
+    if (Array.isArray(r) && serves(r, list)) return r;
+    noBatches[cluster.name] = Date.now() + BATCH_OFF_MS;
+    const why = r instanceof NodeError ? (r.status === 200 ? "an answer that is not JSON" : `HTTP ${r.status}`)
+      : Array.isArray(r) ? "a list that serves none of the calls" : "one answer, not a list";
+    console.warn(`The ${cluster.name} node refused a batch (${why}): single calls to it for ${BATCH_OFF_MS / 60_000} minutes`);
+  }
+  const out = [];
+  let first = null;
+  for (let i = 0; i < list.length; i += SINGLES) {
+    const got = await Promise.all(list.slice(i, i + SINGLES).map((c) => call(cluster, c)
+      .then((r) => (isObject(r) ? { ...r, id: c.id } : null), (err) => { first ??= err; return null; })));
+    for (const r of got) if (r) out.push(r);
+    if (got.some((r) => r?.error?.code === 429)) break;
+  }
+  if (!out.length && first) throw first;
+  return out;
+}
 
 /**
  * The mint of a pool of the program, or null for any other address: the account is the program's and starts with the
@@ -132,7 +188,7 @@ async function fill(cluster, list, until) {
     }
     if (cluster.paid) {
       const part = want.slice(0, BATCH);
-      const job = call(cluster, part.map((s, i) => ({ jsonrpc: "2.0", id: i, method: "getTransaction", params: params(s.signature) })));
+      const job = callMany(cluster, part.map((s, i) => ({ jsonrpc: "2.0", id: i, method: "getTransaction", params: params(s.signature) })));
       part.forEach((s) => fetching.set(s.signature, job));
       let replies;
       try { replies = await job; } catch { replies = []; } finally { part.forEach((s) => fetching.get(s.signature) === job && fetching.delete(s.signature)); }
