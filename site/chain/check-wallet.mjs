@@ -322,7 +322,7 @@ Chain.setNet({ cluster: "devnet", rpcUrl: `http://127.0.0.1:${server.address().p
 const owner0 = web3.Keypair.generate().publicKey;
 const POOL = {
   address: Chain.poolAddress(web3.Keypair.generate().publicKey), mint: web3.Keypair.generate().publicKey, vault: web3.Keypair.generate().publicKey,
-  creator: owner0, treasury: owner0, feeBps: 100, virtualSol: 30_000_000_000n, realSol: 0n, tokens: Chain.SUPPLY, graduationSol: 42_000_000_000n, graduated: false,
+  creator: owner0, treasury: owner0, feeBps: 100, virtualSol: 30_000_000_000n, realSol: 0n, tokens: Chain.SUPPLY, graduationSol: 42_000_000_000n, graduationMcap: 172_800_000_000n, graduated: false,
 };
 const buyFor = async (owner) => {
   const built = await Chain.buildBuy({ pool: POOL, owner, sol: 0.01 });

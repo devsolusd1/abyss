@@ -259,22 +259,6 @@ pub fn transfer<'info>(
     Ok(())
 }
 
-/// Burns from the vault. Burning never calls the hook.
-pub fn burn<'info>(
-    vault: &AccountInfo<'info>,
-    mint: &AccountInfo<'info>,
-    pool: &AccountInfo<'info>,
-    amount: u64,
-    pool_seeds: &[&[u8]],
-) -> Result<()> {
-    invoke_signed(
-        &token_ix::burn(&TOKEN_2022, vault.key, mint.key, pool.key, &[], amount)?,
-        &[vault.clone(), mint.clone(), pool.clone()],
-        &[pool_seeds],
-    )?;
-    Ok(())
-}
-
 /// Extensions a holder's account may carry for a coin of this program: the ones the associated
 /// token program adds, and the two a wallet can switch on itself.
 const HOLDER_EXTENSIONS: [ExtensionType; 4] = [

@@ -1,6 +1,7 @@
-// Reference implementation of the hook_pool curve math (DESIGN.md draft, 2026-10-22).
-// Integer base units only: lamports for SOL, 6-decimal base units for tokens. BigInt stands
-// in for u128. Every rounding goes the pool's way.
+// The pool's math in JavaScript, integer for integer with src/math.rs (2026-11-09: one curve for life, a part of every
+// fee kept in the pool, and the coin graduated while its market cap on the whole supply is at the line). Integer base
+// units only: lamports for SOL, 6-decimal base units for tokens. BigInt stands in for u128. Every rounding goes the
+// pool's way.
 'use strict';
 
 const LAMPORTS = 1_000_000_000n;          // 1 SOL
@@ -10,7 +11,9 @@ const U64_MAX = (1n << 64n) - 1n;
 const U128_MAX = (1n << 128n) - 1n;
 
 const ceilDiv = (a, b) => (a + b - 1n) / b;
-const min = (a, b) => (a < b ? a : b);
+const feeOf = (amount, bps) => ceilDiv(amount * bps, BPS);
+// The pool's part of a fee: rounded down, the share held to the whole fee.
+const poolPart = (fee, shareBps) => (fee * (shareBps < BPS ? shareBps : BPS)) / BPS;
 
 function isqrt(n) {                         // floor(sqrt(n))
   if (n < 2n) return n;
@@ -26,117 +29,96 @@ function u128(v, what) {
   return v;
 }
 
+// What the program refuses: a trade too small to move a base unit (MathError::ZeroOut).
+class ZeroOut extends Error {}
+
 class Pool {
   /**
-   * p.V       virtual SOL (lamports)
-   * p.S       supply minted to the vault (base units)
-   * p.Mg      graduation market cap on supply S (lamports)
-   * p.feeBps  normal fee
-   * p.snipeBps  starting anti-sniper fee (0 = off), decays linearly to feeBps over p.snipeSecs
-   * p.gradMode  'overshoot' (whole buy on the curve, then graduate)
-   *             'route'     (curve leg capped at the threshold, the rest through the AMM)
-   *             'refund'    (curve leg capped at the threshold, the rest of the SOL refunded)
-   * p.rent    rent-exempt minimum of the Pool account
+   * p.V           virtual SOL (lamports)
+   * p.S           supply minted to the vault (base units)
+   * p.Mg          graduation market cap on supply S (lamports)
+   * p.feeBps      fee on every trade
+   * p.shareBps    the part of each fee that stays in the real SOL (POOL_SHARE_BPS, 2000; 0 for a coin launched before)
+   * p.treasuryBps the treasury's part of the rest; the creator gets what is left
+   * p.rent        rent-exempt minimum of the Pool account
    */
   constructor(p) {
-    Object.assign(this, { feeBps: 100n, snipeBps: 0n, snipeSecs: 0n, gradMode: 'overshoot', rent: 2_000_000n }, p);
-    this.phase = 'curve';
+    Object.assign(this, { feeBps: 100n, shareBps: 2000n, treasuryBps: 5000n, rent: 2_000_000n }, p);
     this.R = 0n;                       // real SOL in the reserve
     this.T = this.S;                   // recorded token reserve
-    this.burned = 0n;
+    this.burned = 0n;                  // only a pool the first version graduated has burned
     this.feesCreator = 0n;
     this.feesTreasury = 0n;
     this.lamports = this.rent;         // what the Pool account actually holds
-    // Graduation threshold on real SOL: x_g = ceil(sqrt(Mg*V)), so mcap(S) >= Mg when R >= Rg.
+    // Real SOL that takes the pool, just launched, to its line: x_g = ceil(sqrt(Mg*V)). For reading, and for the first
+    // version's math, whose line it was; the line is the market cap.
     this.Rg = isqrtCeil(u128(this.Mg * this.V, 'Mg*V')) - this.V;
-    this.gradEvent = null;
+    this.graduated = false;
   }
 
-  x() { return this.phase === 'curve' ? this.V + this.R : this.R; }
+  // What Pool::reserves gives the math. A pool the first version graduated (burned > 0) goes on as that version left
+  // it: no virtual SOL, a line of 0 so past it for good, the whole fee owed.
+  legacy() { return this.burned > 0n; }
+  v() { return this.legacy() ? 0n : this.V; }
+  line() { return this.legacy() ? 0n : this.Mg; }
+  share() { return this.legacy() ? 0n : this.shareBps; }
+
+  x() { return this.v() + this.R; }
   k() { return u128(this.x() * this.T, 'k'); }
   feesOwed() { return this.feesCreator + this.feesTreasury; }
+  // Reserves::over_the_line: the market cap on the whole supply, x·S/T, at the line or above it, with no division.
+  overTheLine() { return u128(this.x() * this.S, 'x*S') >= u128(this.line() * this.T, 'M*T'); }
+  // The market cap on the whole supply, in SOL (for reading).
+  mcap() { return Number(this.x()) / 1e9 * Number(this.S) / Number(this.T); }
+  // Real SOL at which the pool as it stands reaches its line, should only buys with none of their fee kept follow:
+  // x² = M·k/S, rounded up. (x - V) / (that - V) is how far it has come.
+  lineSol() { return isqrtCeil(ceilDiv(this.line() * this.k(), this.S)) - this.v(); }
 
-  // Fee rate at `elapsed` seconds after opening. Rounded up (pool's favour).
-  feeBpsAt(elapsed) {
-    if (this.snipeBps <= this.feeBps || this.snipeSecs === 0n) return this.feeBps;
-    const e = elapsed < 0n ? 0n : elapsed;
-    if (e >= this.snipeSecs) return this.feeBps;
-    const span = this.snipeBps - this.feeBps;
-    return this.snipeBps - (span * e) / this.snipeSecs;     // floor of the decrement = ceil of the fee
-  }
-  takeFee(fee) {
-    const c = fee / 2n;                // creator gets the floor of half
-    this.feesCreator += c;
-    this.feesTreasury += fee - c;
-  }
-
-  // Constant-product step, exact input of the quote side. Returns tokens out (floor).
-  _swapSolIn(net) {
-    const x = this.x(), T = this.T;
-    const k = u128(x * T, 'k');
-    const newX = u128(x + net, 'x');
-    const newT = ceilDiv(k, newX);
-    const out = T - newT;
-    this.R += net;
-    this.T = newT;
-    return out;
+  owe(owed) {
+    const t = (owed * this.treasuryBps) / BPS;
+    this.feesTreasury += t;
+    this.feesCreator += owed - t;
   }
 
-  graduate() {
-    const x = this.x();                           // V + R
-    const Told = this.T;
-    const burn = (Told * this.V) / x;             // floor: T' = ceil(T*R/x), price never rises
-    this.T = Told - burn;
-    this.burned += burn;
-    this.phase = 'amm';
-    this.gradEvent = { xBefore: x, Tbefore: Told, R: this.R, Tafter: this.T, burn };
+  // One leg on the curve, on either side of the line. The pool's part of the fee joins the real SOL after the leg.
+  buy(solIn) {
+    if (solIn < 0n || solIn > U64_MAX) throw new Error('bad solIn');
+    const fee = feeOf(solIn, this.feeBps);
+    const toPool = poolPart(fee, this.share());
+    const rest = solIn - fee;
+    const x = this.x();
+    const left = ceilDiv(u128(x * this.T, 'k'), u128(x + rest, 'x'));
+    const out = this.T - left;
+    if (out === 0n) throw new ZeroOut('buy');
+    const was = this.graduated;
+    this.R += rest + toPool;
+    this.T = left;
+    this.graduated = this.overTheLine();
+    this.lamports += solIn;
+    this.owe(fee - toPool);
+    return { out, fee, toPool, graduates: !was && this.graduated };
   }
 
-  buy(solIn, elapsed = 0n) {
-    if (solIn <= 0n || solIn > U64_MAX) throw new Error('bad solIn');
-    const bps = this.feeBpsAt(elapsed);
-    let gross = solIn, refund = 0n;
-    if (this.phase === 'curve' && this.gradMode === 'refund') {
-      // Smallest gross g whose net reaches the threshold; the rest of the input is refunded
-      // untouched (no fee charged on it).
-      const room = this.Rg - this.R;
-      let g = ceilDiv(room * BPS, BPS - bps);
-      while (g - ceilDiv(g * bps, BPS) < room) g += 1n;
-      while (g > 1n && (g - 1n) - ceilDiv((g - 1n) * bps, BPS) >= room) g -= 1n;
-      if (g < solIn) { refund = solIn - g; gross = g; }
-    }
-    const fee = ceilDiv(gross * bps, BPS);
-    let net = gross - fee;
-    let out = 0n, crossed = false;
-    if (this.phase === 'curve') {
-      let leg = net;
-      if (this.gradMode === 'route') leg = min(net, this.Rg - this.R);
-      out += this._swapSolIn(leg);
-      net -= leg;
-      if (this.R >= this.Rg) { this.graduate(); crossed = true; }
-    }
-    if (net > 0n) out += this._swapSolIn(net);
-    this.lamports += gross;
-    this.takeFee(fee);
-    return { out, fee, refund, crossed };
-  }
-
-  sell(tokIn, elapsed = 0n) {
-    if (tokIn <= 0n) throw new Error('bad tokIn');
-    const x = this.x(), T = this.T;
-    const k = u128(x * T, 'k');
-    const newT = T + tokIn;
-    const newX = ceilDiv(k, newT);
+  // Never under the virtual SOL: the real SOL saturates at zero instead of failing. Only dust is refused.
+  sell(tokIn) {
+    if (tokIn < 0n) throw new Error('bad tokIn');
+    const v = this.v();
+    const x = v + this.R;
+    const k = u128(x * this.T, 'k');
+    const newT = this.T + tokIn;
+    let newX = ceilDiv(k, newT);
+    if (newX < v) newX = v;
     const gross = x - newX;
-    const bps = this.feeBpsAt(elapsed);
-    const fee = ceilDiv(gross * bps, BPS);
+    const fee = feeOf(gross, this.feeBps);
     const out = gross - fee;
-    this.R -= gross;
+    if (out === 0n) throw new ZeroOut('sell');
+    const toPool = poolPart(fee, this.share());
+    this.R = newX - v + toPool;
     this.T = newT;
-    if (this.R < 0n) throw new Error(`R < 0 after sell: ${this.R}`);
+    this.graduated = this.overTheLine();
     this.lamports -= out;
-    this.takeFee(fee);
-    return { out, fee };
+    this.owe(fee - toPool);
+    return { out, fee, toPool };
   }
 
   claim(which) {
@@ -147,11 +129,48 @@ class Pool {
   }
 
   clone() {
-    const p = Object.create(Pool.prototype);
-    Object.assign(p, this);
-    p.gradEvent = this.gradEvent && { ...this.gradEvent };
-    return p;
+    return Object.assign(Object.create(Pool.prototype), this);
   }
 }
 
-module.exports = { Pool, LAMPORTS, TOKEN, BPS, ceilDiv, isqrt, isqrtCeil };
+// The first version's math, as it was until 2026-11-09: the curve stopped at the line, dropped the virtual SOL and
+// burned T·V/x, and the pool went on as a plain x·y=k pool of real reserves. Here to graduate pools the old way and to
+// hold them to it.
+const first = {
+  buy(r, solIn, feeBps) {
+    const fee = feeOf(solIn, feeBps);
+    let rest = solIn - fee;
+    const a = { ...r };
+    let out = 0n, burned = 0n;
+    if (!a.graduated) {
+      const room = a.Rg - a.R;
+      const onCurve = rest < room ? rest : room;
+      if (onCurve > 0n) {
+        const x = a.V + a.R, left = ceilDiv(x * a.T, x + onCurve);
+        out += a.T - left; a.T = left; a.R += onCurve; rest -= onCurve;
+      }
+      if (a.R === a.Rg) {
+        burned = (a.T * a.V) / (a.V + a.R);
+        a.T -= burned; a.graduated = true;
+      }
+    }
+    if (a.graduated && rest > 0n) {
+      const left = ceilDiv(a.R * a.T, a.R + rest);
+      out += a.T - left; a.T = left; a.R += rest;
+    }
+    if (out === 0n) throw new ZeroOut('first buy');
+    return { fee, out, burned, after: a };
+  },
+  sell(r, tokIn, feeBps) {
+    const offset = r.graduated ? 0n : r.V;
+    const x = offset + r.R;
+    const newT = r.T + tokIn;
+    const newX = ceilDiv(x * r.T, newT);
+    const gross = x - newX, fee = feeOf(gross, feeBps), out = gross - fee;
+    if (out === 0n) throw new ZeroOut('first sell');
+    if (newX < offset) throw new Error('first version: R < 0');
+    return { fee, out, after: { ...r, R: newX - offset, T: newT } };
+  },
+};
+
+module.exports = { Pool, ZeroOut, first, LAMPORTS, TOKEN, BPS, U64_MAX, ceilDiv, feeOf, poolPart, isqrt, isqrtCeil };

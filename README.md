@@ -1,17 +1,45 @@
 # Nox
 
-A Solana launchpad where each coin gets one pool for life. The coin starts on a bonding curve
-and keeps trading in the same pool after it graduates: no migration. The site draws every coin
-as a pixel black hole whose disk is the real SOL in its pool.
+A Solana launchpad where each coin gets one pool for life. One curve for life. No migration, no step down in depth,
+no LP to pull. 20% of every fee stays in the pool. The site draws every coin as a pixel black hole whose disk is the
+real SOL in its pool.
 
 **Devnet only, unaudited.** Program `CbAjrrCk8WEyh9uTQ1cNJWxNGJk2ipJtxK5p8yBwnURK`. No hooks yet.
+
+## The curve
+
+Every trade is one constant-product leg on the coin's virtual SOL plus the real SOL in its pool, against its token
+reserve, the same from the first trade to the last. The virtual SOL never leaves the curve and the supply never
+shrinks, so the price never goes under the opening price. The real SOL leaves through sells; if every token came back
+to the pool, the price would sit at k/S² (k the curve's SOL times its tokens, S the supply): the opening price plus what
+the pool's part of the fees has added, and that much real SOL would stay in it.
+
+A coin is graduated while its market cap on the whole supply is at the graduation market cap chosen at launch or over
+it: `(virtual + real) × S ≥ M × T`, in u128 with no division, after every buy, sell and settle (`Reserves::over_the_line`
+in `math.rs`). Nothing is burned, so the whole supply is the supply there is. Only a buy or a settle takes a coin over
+the line: a sell never lifts the price. The pool also writes down the real SOL that takes it there from launch (82.25
+SOL for 30 virtual SOL and 420), for reading only: the pool's part of each fee lifts k, so as a coin trades it takes
+more real SOL to reach the same market cap (83.85 SOL for that coin after 1,000 SOL traded under the line at a 1%
+fee), and the site measures the way there as the program does. Nothing changes in the pool at the line: the same curve
+before and after, the jets light on the page, and a coin that falls under it again is not graduated until it is back
+over. The pool notes when it first got there.
+
+The fee is taken in SOL. The pool's part comes first (`POOL_SHARE_BPS` in `state.rs`, 2,000 basis points of the fee,
+written into each pool at launch) and goes into its real SOL; the rest is owed to the creator and the treasury, split
+by the config's `treasury_share_bps` (fixed into each pool at launch). With the config's 50% today, a 1% fee is 0.4%
+to the creator, 0.4% to the treasury and 0.2% kept in the pool. A `treasury_share_bps` of 3,750 takes the pool's part
+from the treasury alone (0.5% creator, 0.3% treasury), with no change to the code, for coins launched after it.
+
+Coins launched on devnet before this keep their books: one that graduated under the first rules (its virtual SOL
+dropped and tokens burned, `burned` > 0) trades on its real SOL alone, stays graduated for good (its line read as 0)
+and keeps no part of the fee; one that had not graduated follows the one curve, keeping no part of the fee either.
 
 ## What is here
 
 - `programs/pool`: the Anchor program (`src/lib.rs`, `math.rs`, `state.rs`, `token.rs`) and `DESIGN.md`.
 - `programs/pool-tests`: its tests. `programs/test.sh` builds the program and runs them (Linux or WSL).
-  `programs/upgrade-test.sh` builds the program as it was before the opening batch (`DEX_OLD_COMMIT`, b73a4b1),
-  launches and trades coins with it, upgrades to the current one, and checks the old coins still trade.
+  `programs/upgrade-test.sh` builds the program as it is live on devnet (671ae17, `old` in the script), launches and
+  trades coins with it, upgrades to the current one, and checks the old coins still trade.
 - `programs/examples`: `devnet.mjs` launches and trades a test coin (it only simulates unless `SEND=1`),
   and the records of the coins launched on devnet.
 - `programs/deploy`: the mainnet kit, and `MAINNET.md`, its steps in Portuguese. `build.sh` builds a commit for a new
@@ -28,7 +56,13 @@ as a pixel black hole whose disk is the real SOL in its pool.
   - `assets/bh.js` draws the black hole.
   - `assets/nox.css` is the look the pages share.
   - `assets/pool-math.js` is the program's math without the chain code; `assets/sim.js` is the simulated market and
-    `assets/chart.js` the pixel candle chart. `node site/chain/check-pool-math.mjs` checks the math against `chain/src`.
+    `assets/chart.js` the pixel candle chart. `node site/chain/check-pool-math.mjs` checks the math against `chain/src`,
+    the curve's numbers for a 30 / 420 coin, and what random markets do to it (k never falls, the price never goes under
+    the opening one, nobody gains by trading alone). `node site/chain/check-math-rs.mjs` checks the three copies of the
+    math the site runs (`chain/src`, `vendor/chain.js`, `assets/pool-math.js`) against the program's own `math.rs`,
+    built with rustc (in WSL on Windows) into a small harness: 51,100 cases, trades on both sides of the line, coins
+    from before the pool's part and from the first rules, opening batches, and buys of exactly the line's real SOL into
+    coins just launched, to the lamport.
   - `net.js` picks the cluster and the program (`?net=mainnet` for the rest of a visit), and gives the pages the
     words that follow the cluster (`NET.place` is "devnet" or "Solana").
   - `chain/` is the chain layer, bundled into `vendor/chain.js` with `npm install && npm run build`. `npm run build:mwa`
@@ -39,7 +73,8 @@ as a pixel black hole whose disk is the real SOL in its pool.
     remote mode, never set up) and @solana/errors' message table, each checked against the package's text so a new
     version stops the build, and puts the licenses of what it bundles at the end of the file.
     `npm run check` simulates a buy, a sell, both fee claims and a launch against devnet, and the opening batch's
-    calls on devnet coins in each of its states. `check-opening.mjs` checks the batch's side of the layer offline: its
+    calls on devnet coins in each of its states. Its simulations pass on the devnet program from before the one curve
+    too; `send-check.mjs` and `batch-check.mjs`, which check every lamport, need the program upgraded to it. `check-opening.mjs` checks the batch's side of the layer offline: its
     events byte by byte, its numbers and errors against the program's source, the error words, and the settle's claim
     against a fake node. `check-fees.mjs` checks the priority fee every sent transaction gets (one price, from the
     node's recent fees for its writable accounts, between a floor and a cap of 0.0001 SOL; none on devnet) against a

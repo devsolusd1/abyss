@@ -1,12 +1,11 @@
 //! The compiled pool, run inside LiteSVM next to the real Token-2022.
 //!
 //! Build the program first (`cargo build-sbf` in `../pool`; test.sh does it) and point
-//! `POOL_SO` at the binary if it is not in `~/dex-target`. The upgrade from the version
-//! before the opening batch also needs that version's binary, in `POOL_SO_OLD`: it is ignored
-//! unless asked for, and upgrade-test.sh builds both binaries and runs it. The upgrade in the
-//! middle of a batch starts from the binary in `POOL_SO_LIVE`, when given: the live commit built again for this
-//! program's address (`deploy/MAINNET.md`, "Um upgrade depois"), not a dump of the live binary, which carries the live
-//! address in its `declare_id!` and refuses to run at this one.
+//! `POOL_SO` at the binary if it is not in `~/dex-target`. The upgrade tests start from the
+//! live binary, in `POOL_SO_LIVE`: the live commit built again for this program's address
+//! (`deploy/MAINNET.md`, "Um upgrade depois"), not a dump of the live binary, which carries the
+//! live address in its `declare_id!` and refuses to run at this one. upgrade-test.sh builds it
+//! and runs them; the upgrade over the coins the live binary launched is ignored without it.
 
 use {
     anchor_lang::{InstructionData, ToAccountMetas},
@@ -14,7 +13,7 @@ use {
         math,
         state::{
             Pool, CONFIG_SEED, MAX_OPENING_SECS, MINT_SEED, MIN_BATCH, MIN_COMMIT, MIN_OPENING_SECS, OPENING_LOCK_SECS,
-            OPENING_NONE, OPENING_OPEN, OPENING_REFUND, OPENING_SETTLED, POOL_SEED, SEAT_SEED, SUPPLY,
+            OPENING_NONE, OPENING_OPEN, OPENING_REFUND, OPENING_SETTLED, POOL_SEED, POOL_SHARE_BPS, SEAT_SEED, SUPPLY,
         },
         token::{ATA_PROGRAM, TOKEN_2022},
         ConfigArgs, LaunchArgs, PoolError,
@@ -441,9 +440,10 @@ impl Env {
         (supply, mint_auth, freeze)
     }
 
-    /// The books every trade has to leave straight: the pool's SOL covers its rent, reserve,
-    /// fees owed and the opening batch's SOL, and the vault holds the reserve plus the batch's
-    /// unclaimed tokens.
+    /// The books every trade has to leave straight: the pool's SOL is exactly its rent, reserve,
+    /// fees owed and the opening batch's SOL (a fee counted twice would show here), the vault
+    /// holds the reserve plus the batch's unclaimed tokens, and the supply is whole but for what
+    /// the first version burned.
     fn check_books(&self, coin: &Coin) {
         let p = self.pool(coin);
         let account = self.svm.get_account(&coin.pool).unwrap();
@@ -484,14 +484,37 @@ fn system_calls(meta: &TransactionMetadata) -> usize {
     meta.logs.iter().filter(|l| *l == "Program 11111111111111111111111111111111 invoke [2]").count()
 }
 
+/// Compute units the pool program's own instructions used in a transaction, read off its logs: what it spends and
+/// what the programs it calls spend, without the compute budget or the associated token program around it.
+fn program_units(meta: &TransactionMetadata) -> u64 {
+    let prefix = format!("Program {} consumed ", dex::ID);
+    let units = meta.logs.iter().filter_map(|l| l.strip_prefix(&prefix)?.split(' ').next()?.parse::<u64>().ok());
+    units.sum()
+}
+
+/// The pool as the math reads it, written again here to hold the program's own rule (Pool::reserves) to it: a pool the
+/// first version graduated (it burned) goes on with no virtual SOL, past its line for good, and keeps no part of a fee.
 fn reserves(p: &Pool) -> math::Reserves {
+    let first_version = p.burned > 0;
     math::Reserves {
-        virtual_sol: p.virtual_sol,
+        virtual_sol: if first_version { 0 } else { p.virtual_sol },
         real_sol: p.real_sol,
         tokens: p.token_reserve,
-        graduation_sol: p.graduation_sol,
-        graduated: p.graduated != 0,
+        graduation_mcap: if first_version { 0 } else { p.graduation_mcap },
+        graduated: first_version || p.graduated != 0,
+        pool_share_bps: if first_version { 0 } else { p.pool_share_bps },
     }
+}
+
+/// The graduation rule written again: the market cap on the full supply, (virtual + real)·S/T, at the line chosen at
+/// launch or above it, in u128 with no division; for good in a pool the first version graduated.
+fn over_the_line(p: &Pool) -> bool {
+    p.burned > 0 || (p.virtual_sol + p.real_sol) as u128 * SUPPLY as u128 >= p.graduation_mcap as u128 * p.token_reserve as u128
+}
+
+/// The pool's market cap on the full supply, in SOL.
+fn mcap(p: &Pool) -> f64 {
+    (p.virtual_sol + p.real_sol) as f64 / 1e9 * SUPPLY as f64 / p.token_reserve as f64
 }
 
 #[test]
@@ -530,6 +553,9 @@ fn launch_builds_a_sealed_coin() {
     assert_eq!((p.virtual_sol, p.real_sol, p.token_reserve), (VIRTUAL, 0, SUPPLY));
     assert_eq!(p.graduation_sol, math::graduation_sol(VIRTUAL, GRADUATION_MCAP).unwrap());
     assert_eq!((p.fee_bps, p.treasury_share_bps, p.graduated), (FEE_BPS, 5_000, 0));
+    // a fifth of every fee stays in the pool
+    assert_eq!((p.pool_share_bps, POOL_SHARE_BPS), (2_000, 2_000));
+    assert_eq!((p.burned, p.graduated_at), (0, 0));
     assert_eq!(p.opened_at, T0);
     env.check_books(&coin);
 }
@@ -582,18 +608,25 @@ fn trades_follow_the_math() {
     env.buy(&coin, &alice, SOL).unwrap();
     assert_eq!(env.tokens(&alice.pubkey(), &coin), expected.tokens_out);
     let p = env.pool(&coin);
-    assert_eq!(p.real_sol, SOL - expected.fee);
-    assert_eq!(p.treasury_fees, expected.fee / 2);
-    assert_eq!(p.creator_fees, expected.fee - expected.fee / 2);
+    // A fifth of the fee stays in the reserve; the treasury and the creator split the rest.
+    let owed = expected.fee - expected.to_pool;
+    assert_eq!((expected.fee, expected.to_pool), (SOL / 100, SOL / 500));
+    assert_eq!(p.real_sol, SOL - expected.fee + expected.to_pool);
+    assert_eq!(p.treasury_fees, owed / 2);
+    assert_eq!(p.creator_fees, owed - owed / 2);
     env.check_books(&coin);
 
     env.buy(&coin, &bob, 2 * SOL).unwrap();
     let half = env.tokens(&alice.pubkey(), &coin) / 2;
     let expected = math::sell(reserves(&env.pool(&coin)), half, FEE_BPS).unwrap();
+    let owed_before = env.pool(&coin).creator_fees + env.pool(&coin).treasury_fees;
     let before = env.lamports(&alice.pubkey());
     env.sell(&coin, &alice, half).unwrap();
     // Alice pays the transaction fee herself.
     assert_eq!(env.lamports(&alice.pubkey()) + 5_000, before + expected.sol_out);
+    let p = env.pool(&coin);
+    assert_eq!(reserves(&p), expected.after);
+    assert_eq!(p.creator_fees + p.treasury_fees, owed_before + expected.fee - expected.to_pool);
     env.check_books(&coin);
 
     // A minimum that can't be met fails the buy and moves nothing.
@@ -602,35 +635,206 @@ fn trades_follow_the_math() {
     env.buy_min(&coin, &bob, SOL, quote).unwrap();
 }
 
+/// Graduation is a mark on the one curve, live: the coin is graduated while its market cap on the full supply is at the
+/// line chosen at launch or above it. Crossing up says so (Graduated), each time; nothing is burned, the virtual SOL
+/// stays, the price is the curve's.
 #[test]
-fn graduation_burns_and_the_pool_carries_on() {
+fn graduation_is_a_live_mark_on_one_curve() {
     let mut env = Env::new();
     let coin = env.launch();
-    let alice = env.alice.insecure_clone();
-    let line = env.pool(&coin).graduation_sol;
-
-    // One buy far past the line: the curve stops at it, the rest goes through the new pool.
-    let expected = math::buy(reserves(&env.pool(&coin)), 200 * SOL, FEE_BPS).unwrap();
-    env.buy(&coin, &alice, 200 * SOL).unwrap();
+    let (alice, bob) = (env.alice.insecure_clone(), env.bob.insecure_clone());
+    // the real SOL that takes the pool, just launched, to the line: written down, for reading
     let p = env.pool(&coin);
-    assert_eq!(p.graduated, 1);
-    assert_eq!(p.graduated_at, T0);
-    assert_eq!(p.burned, expected.burned);
-    assert!(p.burned.abs_diff(SUPPLY / 14) <= TOKEN, "about 7.14% burned, got {}", p.burned);
-    assert_eq!(p.real_sol, 198 * SOL);
-    assert!(line < 83 * SOL);
+    assert_eq!((p.graduation_sol, p.graduation_mcap), (82_249_721_604, GRADUATION_MCAP));
+    assert!(!over_the_line(&p));
+
+    // One buy far past the line: one leg on the curve.
+    let expected = math::buy(reserves(&env.pool(&coin)), 200 * SOL, FEE_BPS).unwrap();
+    let crossed = env.buy(&coin, &alice, 200 * SOL).unwrap();
+    let p = env.pool(&coin);
+    assert!(expected.graduates && over_the_line(&p) && mcap(&p) > 420.0);
+    assert_eq!((p.graduated, p.graduated_at, p.burned), (1, T0, 0));
+    // 198 SOL past the 2 SOL fee, and the fifth of it the pool keeps
+    assert_eq!((p.virtual_sol, p.real_sol), (VIRTUAL, 198 * SOL + 2 * SOL / 5));
+    assert_eq!(reserves(&p), expected.after);
+    assert_eq!(env.mint(&coin).0, SUPPLY, "nothing burned");
     assert_eq!(env.tokens(&alice.pubkey(), &coin), expected.tokens_out);
+    let g = event::<dex::Graduated>(&crossed);
+    assert_eq!((g.mint, g.real_sol, g.token_reserve, g.burned), (coin.mint, p.real_sol, p.token_reserve, 0));
+    let t = event::<dex::TradeEvent>(&crossed);
+    assert_eq!((t.graduated, t.fee, t.pool_fee), (true, expected.fee, expected.to_pool));
     env.check_books(&coin);
 
-    // After graduation the same pool trades, both ways.
-    env.sell(&coin, &alice, 100_000_000 * TOKEN).unwrap();
+    // Over the line a buy is only a buy.
+    let more = env.buy(&coin, &bob, SOL).unwrap();
+    assert!(events::<dex::Graduated>(&more).is_empty());
+    assert!(event::<dex::TradeEvent>(&more).graduated);
+
+    // Sold back under the line: no longer graduated, and the first time is kept.
+    env.warp(T0 + 60);
+    let half = env.tokens(&alice.pubkey(), &coin) / 2;
+    let quote = math::sell(reserves(&env.pool(&coin)), half, FEE_BPS).unwrap();
+    let sold = env.sell(&coin, &alice, half).unwrap();
+    let p = env.pool(&coin);
+    assert!(!over_the_line(&p) && mcap(&p) < 420.0);
+    assert_eq!((p.graduated, p.graduated_at), (0, T0));
+    assert_eq!(reserves(&p), quote.after);
+    assert!(events::<dex::Graduated>(&sold).is_empty());
+    let t = event::<dex::TradeEvent>(&sold);
+    assert_eq!((t.graduated, t.pool_fee), (false, quote.to_pool));
+    env.check_books(&coin);
+
+    // Over it again: graduated again, and said again.
+    let quote = math::buy(reserves(&env.pool(&coin)), 100 * SOL, FEE_BPS).unwrap();
+    let again = env.buy(&coin, &bob, 100 * SOL).unwrap();
+    let p = env.pool(&coin);
+    assert!(quote.graduates);
+    assert_eq!((p.graduated, p.graduated_at), (1, T0));
+    assert_eq!(reserves(&p), quote.after);
+    assert_eq!(event::<dex::Graduated>(&again).real_sol, p.real_sol);
+    env.check_books(&coin);
+
+    // Everyone can still leave, and the price is back at the opening one, or above it by what the pool kept.
+    for who in [&alice, &bob] {
+        let held = env.tokens(&who.pubkey(), &coin);
+        let quote = math::sell(reserves(&env.pool(&coin)), held, FEE_BPS).unwrap();
+        env.sell(&coin, who, held).unwrap();
+        assert_eq!(reserves(&env.pool(&coin)), quote.after);
+        env.check_books(&coin);
+    }
+    let p = env.pool(&coin);
+    assert_eq!((p.token_reserve, p.graduated, p.virtual_sol), (SUPPLY, 0, VIRTUAL));
+    assert!(p.real_sol > 0 && p.real_sol < 2 * SOL);
+}
+
+/// The line is the market cap, not the real SOL: a coin that trades a lot and is bought little gathers the pool's part
+/// of every fee in its real SOL, past the 82.25 SOL that takes a pool just launched to the line, and is still under it,
+/// its market cap far under 420. It graduates when the market cap gets there, with more real SOL in.
+#[test]
+fn much_volume_and_little_buying_does_not_graduate_before_the_market_cap() {
+    let mut env = Env::new();
+    let coin = env.launch();
+    let (alice, bob) = (env.alice.insecure_clone(), env.bob.insecure_clone());
+    env.buy(&coin, &alice, 10 * SOL).unwrap();
+    let line = env.pool(&coin).graduation_sol;
+    // round trips of 60 SOL, each keeping a fifth of its two fees, about 0.18 SOL, in the real SOL; small enough that
+    // not even a trip's buy takes the market cap to the line (it reaches 351 SOL at most): 403 of them
+    let mut trips = 0;
+    while env.pool(&coin).real_sol < line + 2 * SOL {
+        let before = env.tokens(&bob.pubkey(), &coin);
+        let bought = env.buy(&coin, &bob, 60 * SOL).unwrap();
+        let out = env.tokens(&bob.pubkey(), &coin) - before;
+        let sold = env.sell(&coin, &bob, out).unwrap();
+        for meta in [&bought, &sold] {
+            assert!(events::<dex::Graduated>(meta).is_empty() && !event::<dex::TradeEvent>(meta).graduated);
+        }
+        let p = env.pool(&coin);
+        assert_eq!(p.graduated, over_the_line(&p) as u8, "trip {trips}");
+        trips += 1;
+        assert!(trips < 600, "the round trips should take the real SOL past the line");
+    }
+    let p = env.pool(&coin);
+    assert!(p.real_sol > line && p.graduated == 0 && p.graduated_at == 0, "{} real SOL", p.real_sol);
+    // measured on the real SOL, the line would have come at a market cap of about 150 SOL
+    assert!(mcap(&p) < 160.0, "{} SOL market cap", mcap(&p));
+    env.check_books(&coin);
+
+    // Then buys of 2 SOL, until one takes the market cap to 420: that one graduates, and says so.
+    let mut buys = 0;
+    loop {
+        let before = env.pool(&coin);
+        let quote = math::buy(reserves(&before), 2 * SOL, FEE_BPS).unwrap();
+        let meta = env.buy(&coin, &alice, 2 * SOL).unwrap();
+        let p = env.pool(&coin);
+        assert_eq!(reserves(&p), quote.after);
+        assert_eq!(p.graduated, over_the_line(&p) as u8);
+        buys += 1;
+        if p.graduated == 1 {
+            assert!(quote.graduates && mcap(&before) < 420.0 && mcap(&p) >= 420.0);
+            assert_eq!(events::<dex::Graduated>(&meta).len(), 1);
+            assert_eq!(p.graduated_at, T0);
+            assert!(p.real_sol > line + 10 * SOL, "{} real SOL at the line", p.real_sol);
+            break;
+        }
+        assert!(buys < 100);
+    }
+    env.check_books(&coin);
+}
+
+/// One buy of exactly graduation_sol into a coin just launched: with the fee taken from it, it buys on less than that,
+/// and the market cap stays under the line. The program's flag is the market cap's, to the lamport, either way.
+#[test]
+fn a_buy_of_the_lines_real_sol_into_a_new_coin() {
+    let mut env = Env::new();
+    let alice = env.alice.insecure_clone();
+    let coin = env.launch();
+    let line = env.pool(&coin).graduation_sol;
+    let quote = math::buy(reserves(&env.pool(&coin)), line, FEE_BPS).unwrap();
+    let meta = env.buy(&coin, &alice, line).unwrap();
+    let p = env.pool(&coin);
+    assert_eq!(reserves(&p), quote.after);
+    assert!(!quote.graduates && p.graduated == 0 && !over_the_line(&p) && events::<dex::Graduated>(&meta).is_empty());
+    // the real SOL in is the line's less the fee and plus the pool's part of it: 82.25 less 0.66 SOL
+    assert_eq!(p.real_sol, line - quote.fee + quote.to_pool);
+    // a little more takes it there
+    let more = math::buy(reserves(&p), SOL, FEE_BPS).unwrap();
     env.buy(&coin, &alice, SOL).unwrap();
+    let p = env.pool(&coin);
+    assert!(more.graduates && p.graduated == 1 && over_the_line(&p));
+    env.check_books(&coin);
+}
+
+/// A fifth of every fee stays in the pool's real SOL and never leaves it in that trade: on a buy, on a sell and in the
+/// opening batch's buy. The creator and the treasury split the rest, and the claims pay exactly that. The split of the
+/// rest is the config's: at 3,750 for the treasury, a new coin's fee goes half to the creator, 30% to the treasury and
+/// 20% to the pool.
+#[test]
+fn a_fifth_of_every_fee_stays_in_the_pool() {
+    let mut env = Env::new();
+    let coin = env.launch();
+    let (admin, alice, bob) = (env.admin.insecure_clone(), env.alice.insecure_clone(), env.bob.insecure_clone());
+    let (mut kept, mut owed) = (0u64, 0u64);
+    for (who, sol) in [(&alice, 3 * SOL), (&bob, 7 * SOL + 13), (&alice, 90 * SOL), (&bob, SOL / 3)] {
+        let before = env.pool(&coin);
+        let quote = math::buy(reserves(&before), sol, FEE_BPS).unwrap();
+        let t = event::<dex::TradeEvent>(&env.buy(&coin, who, sol).unwrap());
+        let p = env.pool(&coin);
+        assert_eq!((t.fee, t.pool_fee), (quote.fee, quote.fee / 5));
+        assert_eq!(p.real_sol, before.real_sol + sol - t.fee + t.pool_fee);
+        assert_eq!(p.creator_fees + p.treasury_fees, before.creator_fees + before.treasury_fees + t.fee - t.pool_fee);
+        (kept, owed) = (kept + t.pool_fee, owed + t.fee - t.pool_fee);
+        env.check_books(&coin);
+    }
+    for who in [&alice, &bob, &alice] {
+        let before = env.pool(&coin);
+        let tokens = env.tokens(&who.pubkey(), &coin) / 2;
+        let quote = math::sell(reserves(&before), tokens, FEE_BPS).unwrap();
+        let t = event::<dex::TradeEvent>(&env.sell(&coin, who, tokens).unwrap());
+        let p = env.pool(&coin);
+        assert_eq!((t.sol, t.fee, t.pool_fee), (quote.sol_out, quote.fee, quote.fee / 5));
+        // the seller is paid the SOL less the whole fee; the pool's part of it stays in the reserve
+        assert_eq!(before.real_sol - p.real_sol, t.sol + t.fee - t.pool_fee);
+        (kept, owed) = (kept + t.pool_fee, owed + t.fee - t.pool_fee);
+        env.check_books(&coin);
+    }
+    let p = env.pool(&coin);
+    assert_eq!(p.creator_fees + p.treasury_fees, owed);
+    assert!(kept > 0 && kept * 4 <= owed && owed <= kept * 4 + 7 * 4, "a fifth to the pool, to the rounding");
+    // the claims pay what is owed, and the pool keeps its reserve
+    env.claim_creator(&coin, &admin).unwrap();
+    env.claim_treasury(&coin, &bob).unwrap();
+    let account = env.svm.get_account(&coin.pool).unwrap();
+    assert_eq!(account.lamports, env.svm.minimum_balance_for_rent_exemption(account.data.len()) + p.real_sol);
     env.check_books(&coin);
 
-    // Everyone can still leave.
-    let held = env.tokens(&alice.pubkey(), &coin);
-    env.sell(&coin, &alice, held).unwrap();
-    env.check_books(&coin);
+    // the split of the rest is the config's, for coins launched after a change: 50% creator, 30% treasury, 20% pool
+    env.update_config(&admin, ConfigArgs { treasury_share_bps: 3_750, ..env.config_args() }).unwrap();
+    let split = env.launch();
+    let t = event::<dex::TradeEvent>(&env.buy(&split, &alice, 10 * SOL).unwrap());
+    let p = env.pool(&split);
+    assert_eq!((t.fee, t.pool_fee, p.treasury_fees, p.creator_fees), (SOL / 10, SOL / 50, 3 * SOL / 100, SOL / 20));
+    assert_eq!(env.pool(&coin).treasury_share_bps, 5_000, "a coin launched before keeps its split");
+    env.check_books(&split);
 }
 
 #[test]
@@ -880,33 +1084,43 @@ fn random_trading_keeps_every_book_straight() {
         seed ^= seed << 17;
         seed % n.max(1)
     };
-    let mut graduated_on = None;
+    let (mut up, mut down) = (0u32, 0u32);
     for step in 0..300 {
         let trader = &traders[next(5) as usize];
         let held = env.tokens(&trader.pubkey(), &coin);
         let before = reserves(&env.pool(&coin));
-        if held == 0 || next(3) > 0 {
+        // stretches of mostly buys, then of mostly sells, so the walk crosses the line both ways
+        let buying = if (step / 50) % 2 == 0 { next(4) > 0 } else { next(4) == 0 };
+        let (meta, after, pool_fee) = if held == 0 || buying {
             let sol_in = next(8 * SOL) + 1_000_000;
             let expected = math::buy(before, sol_in, FEE_BPS).unwrap();
-            env.buy(&coin, trader, sol_in).unwrap();
+            let meta = env.buy(&coin, trader, sol_in).unwrap();
             assert_eq!(env.tokens(&trader.pubkey(), &coin), held + expected.tokens_out, "step {step}");
-            if expected.burned > 0 {
-                graduated_on = Some(step);
-            }
+            // said once, by the buy that crosses up
+            assert_eq!(events::<dex::Graduated>(&meta).len(), expected.graduates as usize, "step {step}");
+            up += expected.graduates as u32;
+            (meta, expected.after, expected.to_pool)
         } else {
-            let amount = next(held) + 1;
-            match math::sell(before, amount, FEE_BPS) {
-                Ok(_) => env.sell(&coin, trader, amount).unwrap(),
-                Err(_) => continue,
-            };
+            let amount = next(held) / 2 + 1;
+            let Ok(expected) = math::sell(before, amount, FEE_BPS) else { continue };
+            let meta = env.sell(&coin, trader, amount).unwrap();
             assert_eq!(env.tokens(&trader.pubkey(), &coin), held - amount, "step {step}");
-        }
+            assert!(events::<dex::Graduated>(&meta).is_empty(), "step {step}");
+            down += (before.graduated && !expected.after.graduated) as u32;
+            (meta, expected.after, expected.to_pool)
+        };
+        let t = event::<dex::TradeEvent>(&meta);
+        assert_eq!((t.real_sol, t.token_reserve, t.graduated, t.pool_fee), (after.real_sol, after.tokens, after.graduated, pool_fee));
         env.check_books(&coin);
         let holders: u64 = traders.iter().map(|t| env.tokens(&t.pubkey(), &coin)).sum();
         let p = env.pool(&coin);
-        assert_eq!(holders + p.token_reserve + p.burned, SUPPLY, "step {step}");
+        assert_eq!(reserves(&p), after, "step {step}");
+        // graduated exactly while the market cap is at the line or above it, and never raised by a sell
+        assert_eq!(p.graduated, over_the_line(&p) as u8, "step {step}");
+        assert!(buying || held == 0 || before.graduated || p.graduated == 0, "step {step}: a sell graduated the coin");
+        assert_eq!((holders + p.token_reserve, p.burned), (SUPPLY, 0), "step {step}");
     }
-    assert!(graduated_on.is_some(), "the walk should cross the line");
+    assert!(up > 1 && down > 0, "the walk should cross the line up more than once ({up}) and down ({down})");
 
     // Everyone sells out at the end, and the pool still owes nothing it doesn't hold.
     for t in &traders {
@@ -937,13 +1151,16 @@ fn compute_units() {
 
     let alice = env.alice.insecure_clone();
     let first_buy = units(env.buy(&coin, &alice, SOL));
-    let buy = units(env.buy(&coin, &alice, SOL));
-    let sell = units(env.sell(&coin, &alice, 1_000 * TOKEN));
-    let graduating = units(env.buy(&coin, &alice, 100 * SOL));
-    let after = units(env.buy(&coin, &alice, SOL));
+    let bought = env.buy(&coin, &alice, SOL).unwrap();
+    let sold = env.sell(&coin, &alice, 1_000 * TOKEN).unwrap();
+    let crossed = env.buy(&coin, &alice, 100 * SOL).unwrap();
+    let past = env.buy(&coin, &alice, SOL).unwrap();
+    let [buy, sell, graduating, after] = [&bought, &sold, &crossed, &past].map(|m| m.compute_units_consumed);
+    let [buy_own, sell_own, graduating_own, after_own] = [&bought, &sold, &crossed, &past].map(program_units);
     println!(
         "compute units: launch {usual} (longest metadata {long}); first buy with account creation {first_buy}, \
-         buy {buy}, sell {sell}, graduating buy {graduating}, buy after graduation {after}"
+         buy {buy}, sell {sell}, graduating buy {graduating}, buy after graduation {after}; the pool's own instruction: \
+         buy {buy_own}, sell {sell_own}, graduating buy {graduating_own}, buy after graduation {after_own}"
     );
     // under the limits the site's package asks for (site/chain/src/index.mjs); a_first_buy_fits_the_compute_the_site_asks_for
     // and a_launch_fits_the_compute_the_site_asks_for take them at their dearest
@@ -993,8 +1210,9 @@ fn opening_reserves() -> math::Reserves {
         virtual_sol: VIRTUAL,
         real_sol: 0,
         tokens: SUPPLY,
-        graduation_sol: math::graduation_sol(VIRTUAL, GRADUATION_MCAP).unwrap(),
+        graduation_mcap: GRADUATION_MCAP,
         graduated: false,
+        pool_share_bps: POOL_SHARE_BPS,
     }
 }
 
@@ -1057,7 +1275,9 @@ fn an_opening_batch_gives_every_seat_one_price() {
     let expected = math::buy(opening_reserves(), 4 * SOL, FEE_BPS).unwrap();
     assert_eq!(p.opening_state, OPENING_SETTLED);
     assert_eq!((p.opening_total_sol, p.opening_tokens, p.token_reserve), (4 * SOL, expected.tokens_out, expected.after.tokens));
-    assert_eq!(p.creator_fees + p.treasury_fees, expected.fee);
+    // the fee less the pool's fifth, which stays in the reserve
+    assert_eq!(p.creator_fees + p.treasury_fees, expected.fee - expected.to_pool);
+    assert_eq!(p.real_sol, 4 * SOL - expected.fee + expected.to_pool);
     assert_eq!(error(env.settle(&coin, &bob)), pool_error(PoolError::NoOpening));
     env.check_books(&coin);
 
@@ -1180,19 +1400,28 @@ fn a_batch_too_small_to_buy_with_gives_the_sol_back() {
     env.check_books(&coin);
 }
 
+/// A batch past the line is one buy on the curve like any other: the coin is graduated at the settle, nothing is burned,
+/// and the events come as the site reads them, Graduated before Settled, then the batch's trade.
 #[test]
-fn a_batch_past_the_graduation_line_graduates_and_shares_what_is_left() {
+fn a_batch_past_the_graduation_line_graduates_on_the_curve() {
     let mut env = Env::new();
     let (alice, bob) = (env.alice.insecure_clone(), env.bob.insecure_clone());
     let coin = launch_with_batch(&mut env, 120, 0);
     env.commit(&coin, &alice, 60 * SOL).unwrap();
     env.commit(&coin, &bob, 40 * SOL).unwrap();
-    env.warp(env.pool(&coin).opens_at);
-    env.settle(&coin, &alice).unwrap();
+    let opens = env.pool(&coin).opens_at;
+    env.warp(opens);
+    let settled = env.settle(&coin, &alice).unwrap();
     let p = env.pool(&coin);
     let expected = math::buy(opening_reserves(), 100 * SOL, FEE_BPS).unwrap();
-    assert!(p.graduated == 1 && p.burned == expected.burned && p.burned > 0);
-    assert_eq!(p.opening_tokens, expected.tokens_out);
+    assert!(expected.graduates && expected.to_pool > 0);
+    assert_eq!((p.graduated, p.graduated_at, p.burned), (1, opens, 0));
+    assert_eq!(reserves(&p), expected.after);
+    assert_eq!((p.opening_tokens, env.mint(&coin).0), (expected.tokens_out, SUPPLY));
+    assert_eq!(kinds(&settled), ["Graduated", "Settled", "TradeEvent"]);
+    let g = event::<dex::Graduated>(&settled);
+    assert_eq!((g.real_sol, g.token_reserve, g.burned), (p.real_sol, p.token_reserve, 0));
+    assert_eq!(event::<dex::TradeEvent>(&settled).pool_fee, expected.to_pool);
     env.check_books(&coin);
     env.claim_seat(&coin, &alice, true).unwrap();
     env.claim_seat(&coin, &bob, true).unwrap();
@@ -1217,10 +1446,24 @@ fn the_opening_window_stays_in_its_bounds() {
     env.check_books(&coin);
 }
 
-/// A TradeEvent's last field, read off a transaction's logs.
+/// A TradeEvent's `by_creator`, read off a transaction's logs at its byte, the same in every version (`pool_fee` came
+/// after it).
 fn traded_by_creator(meta: &TransactionMetadata) -> Option<bool> {
     let tag = <dex::TradeEvent as anchor_lang::Discriminator>::DISCRIMINATOR;
-    meta.logs.iter().filter_map(|l| l.strip_prefix("Program data: ")).map(base64).find(|b| b.starts_with(tag)).map(|b| b[b.len() - 1] == 1)
+    meta.logs.iter().filter_map(|l| l.strip_prefix("Program data: ")).map(base64).find(|b| b.starts_with(tag)).map(|b| b[146] == 1)
+}
+
+/// The pool's events in a transaction's logs, by name, in the order they came.
+fn kinds(meta: &TransactionMetadata) -> Vec<&'static str> {
+    use anchor_lang::Discriminator;
+    let names: [(&[u8], &str); 4] = [
+        (dex::Graduated::DISCRIMINATOR, "Graduated"),
+        (dex::Settled::DISCRIMINATOR, "Settled"),
+        (dex::TradeEvent::DISCRIMINATOR, "TradeEvent"),
+        (dex::SeatClaimed::DISCRIMINATOR, "SeatClaimed"),
+    ];
+    let lines = meta.logs.iter().filter_map(|l| l.strip_prefix("Program data: ")).map(base64);
+    lines.map(|b| names.iter().find(|(tag, _)| b.starts_with(tag)).map_or("other", |(_, name)| *name)).collect()
 }
 
 fn base64(s: &str) -> Vec<u8> {
@@ -1261,11 +1504,12 @@ fn check_wire(meta: &TransactionMetadata) {
     };
     for b in meta.logs.iter().filter_map(|l| l.strip_prefix("Program data: ")).map(base64) {
         if let Some(e) = decoded::<dex::TradeEvent>(&b) {
-            assert_eq!(b.len(), 147, "TradeEvent's length");
+            // the first version's 147 bytes, then pool_fee
+            assert_eq!(b.len(), 155, "TradeEvent's length");
             assert_eq!((key(&b, 8), key(&b, 40), key(&b, 72), flag(&b, 104)), (e.mint, e.trader, e.recipient, e.buy));
             let amounts = [num(&b, 105), num(&b, 113), num(&b, 121), num(&b, 129), num(&b, 137)];
             assert_eq!(amounts, [e.sol, e.tokens, e.fee, e.real_sol, e.token_reserve]);
-            assert_eq!((flag(&b, 145), flag(&b, 146)), (e.graduated, e.by_creator));
+            assert_eq!((flag(&b, 145), flag(&b, 146), num(&b, 147)), (e.graduated, e.by_creator, e.pool_fee));
         } else if let Some(e) = decoded::<dex::Launched>(&b) {
             assert_eq!(b.len(), 130, "Launched's length");
             assert_eq!((key(&b, 8), key(&b, 40), key(&b, 72)), (e.mint, e.creator, e.hook_program));
@@ -1678,8 +1922,8 @@ fn random_batches_keep_every_book_straight() {
     assert!(p.opening_tokens_left < seated as u64, "only the rounding dust stays in the vault");
 }
 
-/// The coin trades, and graduates, while the seats' tokens still wait in the vault: buys and the burn come out of the
-/// reserve alone, every seat still gets the share the settle gave it, and everyone can sell out after, as the math says.
+/// The coin trades, and graduates, while the seats' tokens still wait in the vault: buys come out of the reserve alone,
+/// every seat still gets the share the settle gave it, and everyone can sell out after, as the math says.
 #[test]
 fn the_coin_trades_and_graduates_before_the_seats_claim() {
     let mut env = Env::new();
@@ -1705,12 +1949,12 @@ fn the_coin_trades_and_graduates_before_the_seats_claim() {
     assert_eq!(reserves(&env.pool(&coin)), quote.after);
     env.check_books(&coin);
 
-    // the buy that graduates burns from the same vault, out of the reserve
+    // the buy that crosses the line pays out of the reserve too, and burns nothing
     let quote = math::buy(reserves(&env.pool(&coin)), 200 * SOL, FEE_BPS).unwrap();
     env.buy(&coin, &carol, 200 * SOL).unwrap();
     let p = env.pool(&coin);
-    assert!(p.graduated == 1 && quote.burned > 0);
-    assert_eq!((p.burned, p.opening_tokens_left), (quote.burned, batch.tokens_out));
+    assert!(p.graduated == 1 && quote.graduates);
+    assert_eq!((p.burned, p.opening_tokens_left, p.token_reserve), (0, batch.tokens_out, quote.after.tokens));
     env.check_books(&coin);
 
     // only now do the seats claim, each the share the settle gave it
@@ -1723,7 +1967,7 @@ fn the_coin_trades_and_graduates_before_the_seats_claim() {
     assert_eq!(p.opening_seats, 0);
     assert!(p.opening_tokens_left < 3, "only the rounding dust stays in the vault");
 
-    // everyone sells out, each sale as the math says, down to the pool's floor
+    // everyone sells out, each sale as the math says, back down the curve to the opening price
     for who in [&alice, &carol, &bob, &admin] {
         let held = env.tokens(&who.pubkey(), &coin);
         let quote = math::sell(reserves(&env.pool(&coin)), held, FEE_BPS).unwrap();
@@ -1732,7 +1976,8 @@ fn the_coin_trades_and_graduates_before_the_seats_claim() {
         env.check_books(&coin);
     }
     let p = env.pool(&coin);
-    assert_eq!(p.token_reserve + p.opening_tokens_left + p.burned, SUPPLY, "every token back in the pool, or burned");
+    assert_eq!(p.token_reserve + p.opening_tokens_left, SUPPLY, "every token back in the pool, the batch's dust in the vault");
+    assert_eq!((p.burned, p.graduated), (0, 0));
 }
 
 /// The edges of the batch's numbers: the smallest commitment, the smallest batch that buys, the last second before the
@@ -1835,7 +2080,7 @@ fn the_batch_events_say_what_happened() {
     assert_eq!((s.mint, s.sol, s.tokens, s.seats, s.refund), (coin.mint, 4 * SOL, batch.tokens_out, 3, false));
     let t = event::<dex::TradeEvent>(&settled);
     assert_eq!((t.mint, t.trader, t.recipient, t.buy), (coin.mint, coin.pool, coin.pool, true));
-    assert_eq!((t.sol, t.tokens, t.fee), (4 * SOL, batch.tokens_out, batch.fee));
+    assert_eq!((t.sol, t.tokens, t.fee, t.pool_fee), (4 * SOL, batch.tokens_out, batch.fee, batch.to_pool));
     assert_eq!((t.real_sol, t.token_reserve, t.graduated, t.by_creator), (batch.after.real_sol, batch.after.tokens, false, false));
     assert!(events::<dex::Graduated>(&settled).is_empty());
     for (who, sol) in [(&admin, SOL), (&alice, 2 * SOL), (&bob, SOL)] {
@@ -1851,9 +2096,11 @@ fn the_batch_events_say_what_happened() {
     let settled = env.settle(&big, &alice).unwrap();
     let batch = math::buy(opening_reserves(), 100 * SOL, FEE_BPS).unwrap();
     let g = event::<dex::Graduated>(&settled);
-    assert_eq!((g.mint, g.real_sol, g.token_reserve, g.burned), (big.mint, batch.after.graduation_sol, batch.after.tokens, batch.burned));
+    assert_eq!((g.mint, g.real_sol, g.token_reserve, g.burned), (big.mint, batch.after.real_sol, batch.after.tokens, 0));
     let t = event::<dex::TradeEvent>(&settled);
     assert_eq!((t.trader, t.real_sol, t.graduated, t.by_creator), (big.pool, batch.after.real_sol, true, false));
+    assert_eq!(t.pool_fee, batch.to_pool);
+    assert_eq!(kinds(&settled), ["Graduated", "Settled", "TradeEvent"], "the order check-opening.mjs reads");
 
     // a refused batch and an empty one make no trade
     let small = launch_with_batch(&mut env, 120, 0);
@@ -2203,199 +2450,426 @@ fn upgrade(env: &mut Env, binary: &[u8]) {
     next_slot(env);
 }
 
-/// `launch` as the version before the opening batch reads it: today's arguments without the last, `opening_secs`.
-fn launch_ix_before_batch(env: &Env, creator: &Address, mint: &Address, args: LaunchArgs) -> Instruction {
-    let mut ix = env.launch_ix(creator, mint, args);
-    ix.data.truncate(ix.data.len() - 4);
-    ix
+/// The pool's numbers a trade, a settle or a claim moves, to hold two pools to the lamport.
+fn numbers(p: &Pool) -> [u64; 17] {
+    [
+        p.virtual_sol, p.real_sol, p.token_reserve, p.graduation_sol, p.burned, p.creator_fees, p.treasury_fees,
+        p.volume_sol, p.graduated as u64, p.graduated_at as u64, p.opens_at as u64, p.opening_sol, p.opening_total_sol,
+        p.opening_tokens, p.opening_tokens_left, p.opening_seats as u64, p.opening_state as u64,
+    ]
 }
 
-/// A coin launched by `creator` the way the version before the batch launches.
-fn launch_before_batch(env: &mut Env, creator: &Keypair) -> Coin {
-    let salt = fresh_salt();
-    let coin = Coin::of(mint_for(&creator.pubkey(), salt));
-    let ix = launch_ix_before_batch(env, &creator.pubkey(), &coin.mint, LaunchArgs { salt, ..env.args() });
-    env.send(creator, vec![ix], &[]).unwrap();
-    coin
+/// Who makes a step, the same role in both chains of the test below.
+type Who = fn(&Env) -> Keypair;
+
+fn alice(env: &Env) -> Keypair {
+    env.alice.insecure_clone()
 }
 
-/// The pool's bytes from the opening batch's first field to the end of the account: the 64 that were reserved before.
-fn batch_bytes(env: &Env, coin: &Coin) -> Vec<u8> {
-    let data = env.svm.get_account(&coin.pool).unwrap().data;
-    assert_eq!(data.len(), Pool::LEN, "the pool's size never changes");
-    data[8 + std::mem::offset_of!(Pool, opens_at)..].to_vec()
+fn bob(env: &Env) -> Keypair {
+    env.bob.insecure_clone()
 }
 
-/// Anchor's "fallback functions are not supported": an instruction the binary does not have.
-const NO_SUCH_INSTRUCTION: InstructionError = InstructionError::Custom(101);
-/// Anchor's "the program could not deserialize the given instruction".
-const UNREADABLE_ARGS: InstructionError = InstructionError::Custom(102);
+fn admin(env: &Env) -> Keypair {
+    env.admin.insecure_clone()
+}
 
-/// Coins launched by the binary from before the opening batch (b73a4b1), traded and one graduated, then the current
-/// binary in its place at the same address, as a mainnet upgrade does it: there each pool holds real SOL and nothing
-/// migrates it. The batch's fields, in what were reserved bytes, read zeros, so the old coins have no batch: they buy
-/// at once, graduate, pay their fees, change hands and sell out, with the books straight. A coin launched after the
-/// upgrade has a batch and goes through it to the end next to them. The old half is written in that version's
-/// formats and expects its errors, so this test holds for that one upgrade only.
-#[test]
-#[ignore = "needs the binary from before the batch in POOL_SO_OLD: upgrade-test.sh builds it and runs this"]
-fn upgrade_keeps_the_coins_launched_before_the_batch() {
-    let binary = std::fs::read(so("POOL_SO", "pool/deploy/dex.so")).unwrap();
-    let mut env = Env::new_from(&so("POOL_SO_OLD", "old/deploy/dex.so"));
-    let (admin, launcher) = (env.admin.insecure_clone(), env.launcher.insecure_clone());
-    let (alice, bob) = (env.alice.insecure_clone(), env.bob.insecure_clone());
-
-    // the old binary: two coins in its own launch format, traded, and one graduated
-    let early = launch_before_batch(&mut env, &admin);
-    let curve = launch_before_batch(&mut env, &launcher);
-    env.buy(&early, &alice, 3 * SOL).unwrap();
-    env.buy(&curve, &alice, 2 * SOL).unwrap();
+/// What the live binary is given before the upgrade, the same in both chains of the test below: a coin it graduates (it
+/// burns there), one it trades under the line, and one whose batch is still open. The steps use today's formats, which
+/// the live binary shares.
+fn live_coins(env: &mut Env) -> [Coin; 3] {
+    let (launcher, a, b) = (env.launcher.insecure_clone(), alice(env), bob(env));
+    let early = env.launch();
+    let curve = env.launch_as(&launcher, env.args()).unwrap();
+    let batch = launch_with_batch(env, 300, SOL);
+    env.buy(&early, &a, 3 * SOL).unwrap();
+    env.buy(&early, &b, 200 * SOL).unwrap();
+    let held = env.tokens(&a.pubkey(), &early);
+    env.sell(&early, &a, held / 2).unwrap();
+    env.buy(&curve, &a, 2 * SOL).unwrap();
     env.buy(&curve, &launcher, SOL).unwrap();
-    let held = env.tokens(&alice.pubkey(), &curve);
-    env.sell(&curve, &alice, held / 2).unwrap();
-    env.buy(&early, &bob, 200 * SOL).unwrap();
-    assert_eq!((env.pool(&early).graduated, env.pool(&curve).graduated), (1, 0));
-    // A launch in today's format reaches the old binary as one without a batch: the bytes after the salt are not read.
-    // So the site must not offer a batch until the program it talks to has one.
-    let salt = fresh_salt();
-    let quiet = Coin::of(mint_for(&admin.pubkey(), salt));
-    let ix = env.launch_ix(&admin.pubkey(), &quiet.mint, LaunchArgs { salt, opening_secs: 300, ..env.args() });
-    env.send(&admin, vec![ix], &[]).unwrap();
-    assert_eq!(error(env.commit(&quiet, &alice, SOL)), NO_SUCH_INSTRUCTION, "the old binary has no batch");
-    let coins = [early, curve, quiet];
-    for coin in &coins {
-        env.check_books(coin);
-        assert!(batch_bytes(&env, coin).iter().all(|&b| b == 0), "the old binary left the reserved bytes at zero");
-    }
-    let creator_owed = env.pool(&early).creator_fees;
-
-    // The loader's Upgrade lists none of the pools' accounts, so nothing of theirs can move: this checks the helper,
-    // not the program. What counts is how the new binary reads them, below.
-    let watched: Vec<Address> = coins.iter().flat_map(|c| [c.pool, c.vault, c.mint]).chain([config_address()]).collect();
-    let before = env.snapshot(&watched);
-    upgrade(&mut env, &binary);
-    assert_eq!(env.snapshot(&watched), before, "the upgrade touched no account of the pools'");
-
-    // the old coins have no batch: nothing waits for a settle, and the batch's instructions refuse them
-    for coin in &coins {
-        let quote = math::buy(reserves(&env.pool(coin)), SOL / 10, FEE_BPS).unwrap();
-        env.buy(coin, &bob, SOL / 10).unwrap();
-        assert_eq!(env.pool(coin).token_reserve, quote.after.tokens, "bought at once, as the math says");
-        assert_eq!(env.pool(coin).opening_state, OPENING_NONE);
-        assert_eq!(error(env.commit(coin, &alice, SOL)), pool_error(PoolError::NoOpening));
-        assert_eq!(error(env.settle(coin, &bob)), pool_error(PoolError::NoOpening));
-        assert_eq!(error(env.withdraw(coin, &alice, SOL)), NO_SEAT);
-        assert_eq!(error(env.claim_seat(coin, &alice, false)), NO_SEAT);
-        assert!(batch_bytes(&env, coin).iter().all(|&b| b == 0), "a trade leaves the batch's fields at zero");
+    let held = env.tokens(&a.pubkey(), &curve);
+    env.sell(&curve, &a, held / 2).unwrap();
+    env.commit(&batch, &a, 60 * SOL).unwrap();
+    env.commit(&batch, &b, 40 * SOL).unwrap();
+    for coin in [&early, &curve, &batch] {
         env.check_books(coin);
     }
-    // and an old page's launch is refused now, not read wrong
-    let salt = fresh_salt();
-    let mint = mint_for(&admin.pubkey(), salt);
-    let ix = launch_ix_before_batch(&env, &admin.pubkey(), &mint, LaunchArgs { salt, ..env.args() });
-    assert_eq!(error(env.send(&admin, vec![ix], &[])), UNREADABLE_ARGS);
+    [early, curve, batch]
+}
 
-    // on the curve: trades as the math says, each event read where the site reads it, the creator's marked as theirs
-    let quote = math::buy(reserves(&env.pool(&curve)), SOL, FEE_BPS).unwrap();
-    let bought = env.buy(&curve, &alice, SOL).unwrap();
-    assert_eq!(reserves(&env.pool(&curve)), quote.after);
-    let trade = event::<dex::TradeEvent>(&bought);
-    assert_eq!((trade.tokens, trade.by_creator), (quote.tokens_out, false));
-    assert!(event::<dex::TradeEvent>(&env.buy(&curve, &launcher, SOL).unwrap()).by_creator);
-    let held = env.tokens(&alice.pubkey(), &curve);
-    let quote = math::sell(reserves(&env.pool(&curve)), held, FEE_BPS).unwrap();
-    env.sell(&curve, &alice, held).unwrap();
-    assert_eq!(reserves(&env.pool(&curve)), quote.after);
-    env.check_books(&curve);
-    // it graduates in the buy that crosses the line, and goes on as a plain pool
-    let quote = math::buy(reserves(&env.pool(&curve)), 200 * SOL, FEE_BPS).unwrap();
-    env.buy(&curve, &bob, 200 * SOL).unwrap();
-    let p = env.pool(&curve);
-    assert!(p.graduated == 1 && quote.burned > 0);
-    assert_eq!((p.burned, p.graduated_at), (quote.burned, T0));
-    env.check_books(&curve);
-    // the coin that graduated under the old binary trades both ways
-    env.sell(&early, &bob, 100_000_000 * TOKEN).unwrap();
-    env.buy(&early, &alice, SOL).unwrap();
-    env.check_books(&early);
+/// Two chains that started alike on the live binary: `up` upgraded to the current one, `live` left as it was.
+struct Twins {
+    up: Env,
+    live: Env,
+}
 
-    // fees owed from before the upgrade and after are paid in full, to the creator and to the recorded treasury
-    let p = env.pool(&early);
-    assert!(p.creator_fees > creator_owed && creator_owed > 0);
-    let before = env.lamports(&admin.pubkey());
-    env.claim_creator(&early, &admin).unwrap();
-    assert_eq!(env.lamports(&admin.pubkey()) + 5_000, before + p.creator_fees);
-    for coin in &coins {
-        let owed = env.pool(coin).treasury_fees;
-        let before = env.lamports(&env.treasury);
-        env.claim_treasury(coin, &bob).unwrap();
-        assert_eq!(env.lamports(&env.treasury), before + owed);
-        env.check_books(coin);
-    }
-    // the creator hands the coin over: what was owed goes to them in the same call, the new creator collects after
-    let owed = env.pool(&curve).creator_fees;
-    let accounts = dex::accounts::SetCreator { creator: launcher.pubkey(), pool: curve.pool };
-    let ix = pool_ix(accounts, dex::instruction::SetCreator { new_creator: alice.pubkey() });
-    let before = env.lamports(&launcher.pubkey());
-    env.send(&launcher, vec![ix], &[]).unwrap();
-    assert_eq!(env.lamports(&launcher.pubkey()) + 5_000, before + owed);
-    assert_eq!(env.pool(&curve).creator, alice.pubkey());
-    env.buy(&curve, &bob, SOL).unwrap();
-    assert_eq!(error(env.claim_creator(&curve, &launcher)), pool_error(PoolError::WrongAccount));
-    env.claim_creator(&curve, &alice).unwrap();
-    env.check_books(&curve);
-
-    // everyone can still leave, each sale as the math says
-    for (coin, who) in [(&early, &alice), (&early, &bob), (&curve, &bob), (&curve, &launcher), (&quiet, &bob)] {
-        let held = env.tokens(&who.pubkey(), coin);
-        let quote = math::sell(reserves(&env.pool(coin)), held, FEE_BPS).unwrap();
-        env.sell(coin, who, held).unwrap();
-        assert_eq!(reserves(&env.pool(coin)), quote.after);
-        env.check_books(coin);
+impl Twins {
+    /// The same buy in both; the compute the pool's own instruction used in each, the live binary's first.
+    fn buy(&mut self, coins: [&Coin; 2], who: Who, sol: u64) -> (TransactionMetadata, [u64; 2]) {
+        let was = self.live.buy(coins[1], &who(&self.live), sol).unwrap();
+        let now = self.up.buy(coins[0], &who(&self.up), sol).unwrap();
+        let units = [program_units(&was), program_units(&now)];
+        (now, units)
     }
 
-    // a coin launched now has its batch, and goes through it to the end
-    let carol = env.wallet(10 * SOL);
-    let coin = launch_with_batch(&mut env, 300, SOL);
-    assert_eq!(env.pool(&coin).opening_state, OPENING_OPEN);
-    assert_eq!(error(env.buy(&coin, &alice, SOL)), pool_error(PoolError::NotOpenYet));
-    env.commit(&coin, &alice, 2 * SOL).unwrap();
-    env.commit(&coin, &carol, SOL).unwrap();
-    env.withdraw(&coin, &carol, SOL / 2).unwrap();
-    env.check_books(&coin);
-    env.warp(env.pool(&coin).opens_at);
-    env.settle(&coin, &bob).unwrap();
-    let total = 3 * SOL + SOL / 2;
-    let expected = math::buy(opening_reserves(), total, FEE_BPS).unwrap();
-    let share = |sol: u64| (expected.tokens_out as u128 * sol as u128 / total as u128) as u64;
-    assert_eq!((env.pool(&coin).opening_state, env.pool(&coin).opening_tokens), (OPENING_SETTLED, expected.tokens_out));
-    for (who, sol) in [(&admin, SOL), (&alice, 2 * SOL), (&carol, SOL / 2)] {
-        env.claim_seat(&coin, who, true).unwrap();
-        assert_eq!(env.tokens(&who.pubkey(), &coin), share(sol));
-        env.check_books(&coin);
+    fn sell(&mut self, coins: [&Coin; 2], who: Who, tokens: u64) -> [u64; 2] {
+        let was = self.live.sell(coins[1], &who(&self.live), tokens).unwrap();
+        let now = self.up.sell(coins[0], &who(&self.up), tokens).unwrap();
+        [program_units(&was), program_units(&now)]
     }
-    assert_eq!(env.pool(&coin).opening_seats, 0);
-    env.buy(&coin, &bob, SOL).unwrap();
-    for who in [&alice, &carol, &bob, &admin] {
-        let held = env.tokens(&who.pubkey(), &coin);
-        env.sell(&coin, who, held).unwrap();
-        env.check_books(&coin);
+
+    /// The same claim on a seat in both, its event; the compute the pool's own instruction used in each, the live
+    /// binary's first.
+    fn claim_seat(&mut self, coins: [&Coin; 2], who: Who, open_account: bool) -> (dex::SeatClaimed, [u64; 2]) {
+        let was = self.live.claim_seat(coins[1], &who(&self.live), open_account).unwrap();
+        let now = self.up.claim_seat(coins[0], &who(&self.up), open_account).unwrap();
+        assert_eq!(events::<dex::SeatClaimed>(&was).len(), 1);
+        (event::<dex::SeatClaimed>(&now), [program_units(&was), program_units(&now)])
     }
-    env.claim_creator(&coin, &admin).unwrap();
-    env.claim_treasury(&coin, &bob).unwrap();
-    for coin in coins.iter().chain([&coin]) {
-        env.check_books(coin);
+
+    /// The trader's SOL in both chains, `up` first.
+    fn sol(&self, who: Who) -> [u64; 2] {
+        [self.up.lamports(&who(&self.up).pubkey()), self.live.lamports(&who(&self.live).pubkey())]
+    }
+
+    /// The two pools hold the same numbers to the lamport, the trader the same tokens and SOL, and both books are
+    /// straight.
+    fn alike(&self, coins: [&Coin; 2], who: Who) {
+        self.alike_since(coins, who, [0; 2]);
+    }
+
+    /// The same, with the trader's SOL held to the change since `was`: the admin paid for the upgrade in `up` alone.
+    fn alike_since(&self, coins: [&Coin; 2], who: Who, was: [u64; 2]) {
+        assert_eq!(numbers(&self.up.pool(coins[0])), numbers(&self.live.pool(coins[1])), "the pools");
+        let (a, b) = (who(&self.up).pubkey(), who(&self.live).pubkey());
+        assert_eq!(self.up.tokens(&a, coins[0]), self.live.tokens(&b, coins[1]), "the trader's tokens");
+        let moved = |env: &Env, key: &Address, was: u64| env.lamports(key) as i128 - was as i128;
+        assert_eq!(moved(&self.up, &a, was[0]), moved(&self.live, &b, was[1]), "the trader's SOL");
+        self.up.check_books(coins[0]);
+        self.live.check_books(coins[1]);
     }
 }
 
-/// An upgrade while a batch is under way: the live binary replaced by the current one while a batch is open with seats
-/// in it, and again once it is settled with seats still to claim, next to a refused batch whose SOL is still owed.
-/// Each batch goes on where it was: the same seats, window and books. The live binary comes in `POOL_SO_LIVE`: the live
-/// commit built again for this address (`COMMIT=<live commit> deploy/build.sh CbAjrr…`), since a dump of the live one
-/// would refuse to run here (DeclaredProgramIdMismatch). Without it both sides are the current binary, and this is
-/// only a frame: it runs the batch through the loader's upgrade, and would not notice a change in the pool's or the
-/// seat's layout. The steps before each upgrade use today's formats; if the next version changes them, they must be
-/// written as the live one's.
+/// Coins launched by the live binary, then the current binary in its place at the same address, as an upgrade does it:
+/// nothing migrates a pool. The live binary comes in `POOL_SO_LIVE`, the live commit built again for this address
+/// (upgrade-test.sh builds 671ae17, the program as it has been on devnet since the opening batch). A twin chain keeps
+/// the live binary and gets the same steps, so each step is held to what the live binary does with it:
+/// - the coin the live binary graduated (it burned, and dropped its virtual SOL) trades to the lamport as before, past
+///   its line for good, its whole fee owed;
+/// - the coin under the line trades as before until the line, where the live binary burns and the current one goes on
+///   along the one curve, burning nothing;
+/// - the batch open through the upgrade settles past the line on the curve, Graduated before Settled.
+/// None of them keeps a part of the fee: they read the new field from bytes the live binary left at zero. A coin
+/// launched after the upgrade keeps its fifth. The compute of each step is printed for both binaries.
+#[test]
+#[ignore = "needs the live binary in POOL_SO_LIVE: upgrade-test.sh builds it and runs this"]
+fn upgrade_keeps_the_coins_the_live_binary_launched() {
+    let live = std::env::var("POOL_SO_LIVE").expect("the live binary in POOL_SO_LIVE");
+    let binary = std::fs::read(so("POOL_SO", "pool/deploy/dex.so")).unwrap();
+    assert!(std::fs::read(&live).unwrap() != binary, "POOL_SO_LIVE holds the current binary");
+    let mut t = Twins { up: Env::new_from(&live), live: Env::new_from(&live) };
+    let [early, curve, batch] = live_coins(&mut t.up);
+    let [early_l, curve_l, batch_l] = live_coins(&mut t.live);
+    let (early2, curve2) = ([&early, &early_l], [&curve, &curve_l]);
+    for c in [early2, curve2, [&batch, &batch_l]] {
+        assert_eq!(numbers(&t.up.pool(c[0])), numbers(&t.live.pool(c[1])), "the twins start alike");
+    }
+    let p = t.up.pool(&early);
+    assert!(p.graduated == 1 && p.burned > 0 && p.virtual_sol == VIRTUAL && p.graduated_at == T0);
+    assert_eq!(t.up.mint(&early).0, SUPPLY - p.burned);
+    let p = t.up.pool(&curve);
+    assert_eq!((p.graduated, p.burned, p.opening_state), (0, 0, OPENING_NONE));
+    assert_eq!(t.up.pool(&batch).opening_state, OPENING_OPEN);
+    for coin in [&early, &curve, &batch] {
+        assert_eq!(t.up.pool(coin).pool_share_bps, 0, "the live binary left the bytes of the pool's share at zero");
+    }
+
+    let coins = [early, curve, batch];
+    let watched: Vec<Address> = coins.iter().flat_map(|c| [c.pool, c.vault, c.mint]).chain([config_address()]).collect();
+    let before = t.up.snapshot(&watched);
+    upgrade(&mut t.up, &binary);
+    assert_eq!(t.up.snapshot(&watched), before, "the upgrade touched no account of the pools'");
+
+    // The coin the live binary graduated: each trade to the lamport as the live binary makes it.
+    let mut legacy = [0; 2];
+    let buys: [(Who, u64); 4] = [(alice, SOL), (bob, 7 * SOL), (alice, SOL / 3), (bob, 50 * SOL)];
+    for (who, sol) in buys {
+        let quote = math::buy(reserves(&t.up.pool(&early)), sol, FEE_BPS).unwrap();
+        let (meta, units) = t.buy(early2, who, sol);
+        t.alike(early2, who);
+        assert_eq!(reserves(&t.up.pool(&early)), quote.after);
+        let e = event::<dex::TradeEvent>(&meta);
+        assert_eq!((e.fee, e.pool_fee, e.graduated), (quote.fee, 0, true));
+        assert!(events::<dex::Graduated>(&meta).is_empty());
+        legacy = units;
+    }
+    // and sold out, far under the line it once crossed: still graduated, as the live binary keeps it
+    let sells: [(Who, u64); 4] = [(alice, 3), (bob, 2), (alice, 1), (bob, 1)];
+    for (who, part) in sells {
+        let held = t.up.tokens(&who(&t.up).pubkey(), &early);
+        let quote = math::sell(reserves(&t.up.pool(&early)), held / part, FEE_BPS).unwrap();
+        t.sell(early2, who, held / part);
+        t.alike(early2, who);
+        assert_eq!(reserves(&t.up.pool(&early)), quote.after);
+    }
+    let p = t.up.pool(&early);
+    assert!(p.graduated == 1 && p.real_sol < p.graduation_sol && p.virtual_sol == VIRTUAL);
+    // graduated for good, though read as a coin launched now it would be far under its market cap's line
+    assert!(over_the_line(&p) && !over_the_line(&Pool { burned: 0, ..p }) && mcap(&p) < 100.0);
+
+    // The coin under the line: as before, until the line.
+    let mut buy_units = [0; 2];
+    let buys: [(Who, u64); 3] = [(alice, SOL), (bob, 4 * SOL), (alice, SOL / 2)];
+    for (who, sol) in buys {
+        let quote = math::buy(reserves(&t.up.pool(&curve)), sol, FEE_BPS).unwrap();
+        let (meta, units) = t.buy(curve2, who, sol);
+        t.alike(curve2, who);
+        assert_eq!(reserves(&t.up.pool(&curve)), quote.after);
+        assert_eq!(event::<dex::TradeEvent>(&meta).pool_fee, 0, "a coin launched before keeps no part of the fee");
+        buy_units = units;
+    }
+    let held = t.up.tokens(&alice(&t.up).pubkey(), &curve);
+    let sell_units = t.sell(curve2, alice, held / 3);
+    t.alike(curve2, alice);
+    // At the line the live binary stops, drops the virtual SOL and burns; the current one goes on along the curve.
+    let quote = math::buy(reserves(&t.up.pool(&curve)), 200 * SOL, FEE_BPS).unwrap();
+    let (crossed, crossing_units) = t.buy(curve2, bob, 200 * SOL);
+    let (now, was) = (t.up.pool(&curve), t.live.pool(&curve_l));
+    assert!(was.burned > 0 && was.graduated == 1, "the live binary burned");
+    assert!(quote.graduates && quote.to_pool == 0);
+    assert_eq!((now.burned, now.graduated, now.graduated_at, now.virtual_sol), (0, 1, T0, VIRTUAL));
+    assert_eq!(reserves(&now), quote.after);
+    assert_eq!(t.up.mint(&curve).0, SUPPLY, "nothing burned");
+    let g = event::<dex::Graduated>(&crossed);
+    assert_eq!((g.real_sol, g.token_reserve, g.burned), (now.real_sol, now.token_reserve, 0));
+    // the curve past the line is deeper than the live binary's pool of real reserves: more tokens for the same SOL
+    let (b_up, b_live) = (bob(&t.up).pubkey(), bob(&t.live).pubkey());
+    assert!(t.up.tokens(&b_up, &curve) > t.live.tokens(&b_live, &curve_l));
+    t.up.check_books(&curve);
+    t.live.check_books(&curve_l);
+    // back under the line, and over it again: graduated again and said again, the first time kept
+    t.up.warp(T0 + 60);
+    let held = t.up.tokens(&b_up, &curve);
+    t.up.sell(&curve, &bob(&t.up), held / 2).unwrap();
+    assert_eq!((t.up.pool(&curve).graduated, t.up.pool(&curve).graduated_at), (0, T0));
+    let again = t.up.buy(&curve, &alice(&t.up), 150 * SOL).unwrap();
+    assert_eq!(events::<dex::Graduated>(&again).len(), 1);
+    assert_eq!((t.up.pool(&curve).graduated, t.up.pool(&curve).graduated_at), (1, T0));
+    t.up.check_books(&curve);
+
+    // The batch open through the upgrade: settled past the line on the curve, Graduated before Settled.
+    let opens = t.up.pool(&batch).opens_at;
+    t.up.warp(opens);
+    t.live.warp(opens);
+    let was = t.live.settle(&batch_l, &bob(&t.live)).unwrap();
+    let settled = t.up.settle(&batch, &bob(&t.up)).unwrap();
+    let settle_units = [program_units(&was), program_units(&settled)];
+    let total = 101 * SOL;
+    let expected = math::buy(math::Reserves { pool_share_bps: 0, ..opening_reserves() }, total, FEE_BPS).unwrap();
+    let p = t.up.pool(&batch);
+    assert!(expected.graduates && t.live.pool(&batch_l).burned > 0);
+    assert_eq!((p.graduated, p.graduated_at, p.burned, p.opening_tokens), (1, opens, 0, expected.tokens_out));
+    assert_eq!(reserves(&p), expected.after);
+    assert_eq!(kinds(&settled), ["Graduated", "Settled", "TradeEvent"]);
+    let env = &mut t.up;
+    env.check_books(&batch);
+    let (admin, launcher, a, b) = (env.admin.insecure_clone(), env.launcher.insecure_clone(), alice(env), bob(env));
+    let share = |sol: u64| (expected.tokens_out as u128 * sol as u128 / total as u128) as u64;
+    for (who, sol) in [(&admin, SOL), (&a, 60 * SOL), (&b, 40 * SOL)] {
+        env.claim_seat(&batch, who, true).unwrap();
+        assert_eq!(env.tokens(&who.pubkey(), &batch), share(sol));
+        env.check_books(&batch);
+    }
+
+    // everyone can leave, each sale as the math says
+    for coin in &coins {
+        for who in [&admin, &launcher, &a, &b] {
+            let held = env.tokens(&who.pubkey(), coin);
+            if held > 0 {
+                let quote = math::sell(reserves(&env.pool(coin)), held, FEE_BPS).unwrap();
+                env.sell(coin, who, held).unwrap();
+                assert_eq!(reserves(&env.pool(coin)), quote.after);
+                env.check_books(coin);
+            }
+        }
+    }
+    // fees owed from before the upgrade and after are paid in full, to the creator and to the recorded treasury
+    for (coin, creator) in [(&coins[0], &admin), (&coins[1], &launcher), (&coins[2], &admin)] {
+        let p = env.pool(coin);
+        let before = env.lamports(&creator.pubkey());
+        env.claim_creator(coin, creator).unwrap();
+        assert_eq!(env.lamports(&creator.pubkey()) + 5_000, before + p.creator_fees);
+        let before = env.lamports(&env.treasury);
+        env.claim_treasury(coin, &b).unwrap();
+        assert_eq!(env.lamports(&env.treasury), before + p.treasury_fees);
+        env.check_books(coin);
+    }
+    // and a coin launched now keeps its fifth
+    let fresh = env.launch();
+    assert_eq!(env.pool(&fresh).pool_share_bps, POOL_SHARE_BPS);
+    let e = event::<dex::TradeEvent>(&env.buy(&fresh, &a, SOL).unwrap());
+    assert_eq!(e.pool_fee, e.fee / 5);
+    env.check_books(&fresh);
+
+    println!(
+        "compute units of the pool's own instruction, live binary -> current: buy {} -> {}, buy that crosses the line \
+         {} -> {}, sell {} -> {}, settle that crosses the line {} -> {}, buy on a coin the live binary graduated {} -> {}",
+        buy_units[0], buy_units[1], crossing_units[0], crossing_units[1], sell_units[0], sell_units[1],
+        settle_units[0], settle_units[1], legacy[0], legacy[1]
+    );
+}
+
+/// What the live binary is given before the upgrade, the same in both chains of the test below: three batches it ends
+/// itself, one settled under the line, one settled past it (it burns there), one refused, with a seat of each settled
+/// batch claimed and the other seats still to claim. The steps use today's formats, which the live binary shares.
+fn live_batches(env: &mut Env) -> [Coin; 3] {
+    let (a, b) = (alice(env), bob(env));
+    let under = launch_with_batch(env, 120, SOL);
+    let past = launch_with_batch(env, 120, SOL);
+    let refused = launch_with_batch(env, 120, 0);
+    env.commit(&under, &a, 2 * SOL).unwrap();
+    env.commit(&under, &b, 3 * SOL).unwrap();
+    env.commit(&past, &a, 60 * SOL).unwrap();
+    env.commit(&past, &b, 50 * SOL).unwrap();
+    // under the minimum: it buys nothing
+    env.commit(&refused, &a, SOL / 200).unwrap();
+    env.commit(&refused, &b, SOL / 400).unwrap();
+    let opens = env.pool(&under).opens_at;
+    env.warp(opens);
+    for coin in [&under, &past, &refused] {
+        env.settle(coin, &b).unwrap();
+    }
+    env.claim_seat(&under, &a, true).unwrap();
+    env.claim_seat(&past, &a, true).unwrap();
+    for coin in [&under, &past, &refused] {
+        env.check_books(coin);
+    }
+    [under, past, refused]
+}
+
+/// Batches the live binary ended, then the current binary in its place with seats still to claim: each claim gives
+/// the same tokens or SOL, to the lamport, as in a twin chain that keeps the live binary, and the coins trade as in it.
+/// The batch the live binary settled past the line (it burned, and dropped its virtual SOL) trades as a coin it
+/// graduated, past its line for good; the one it settled under the line goes on along the one curve past it, burning
+/// nothing. The live binary comes in `POOL_SO_LIVE`, as in the test above.
+#[test]
+#[ignore = "needs the live binary in POOL_SO_LIVE: upgrade-test.sh builds it and runs this"]
+fn upgrade_keeps_the_batches_the_live_binary_ended() {
+    let live = std::env::var("POOL_SO_LIVE").expect("the live binary in POOL_SO_LIVE");
+    let binary = std::fs::read(so("POOL_SO", "pool/deploy/dex.so")).unwrap();
+    assert!(std::fs::read(&live).unwrap() != binary, "POOL_SO_LIVE holds the current binary");
+    let mut t = Twins { up: Env::new_from(&live), live: Env::new_from(&live) };
+    let [under, past, refused] = live_batches(&mut t.up);
+    let [under_l, past_l, refused_l] = live_batches(&mut t.live);
+    let (under2, past2, refused2) = ([&under, &under_l], [&past, &past_l], [&refused, &refused_l]);
+    for c in [under2, past2, refused2] {
+        assert_eq!(numbers(&t.up.pool(c[0])), numbers(&t.live.pool(c[1])), "the twins start alike");
+        assert_eq!(t.up.pool(c[0]).pool_share_bps, 0, "the live binary left the bytes of the pool's share at zero");
+    }
+    let p = t.up.pool(&past);
+    assert!(p.burned > 0 && p.graduated == 1 && p.opening_state == OPENING_SETTLED, "the live binary graduated a batch");
+    let p = t.up.pool(&under);
+    assert_eq!((p.burned, p.graduated, p.opening_state, p.opening_seats), (0, 0, OPENING_SETTLED, 2));
+    assert_eq!((t.up.pool(&refused).opening_state, t.up.pool(&refused).opening_seats), (OPENING_REFUND, 2));
+
+    let coins = [&under, &past, &refused];
+    let owners = [t.up.admin.pubkey(), alice(&t.up).pubkey(), bob(&t.up).pubkey()];
+    let mut watched: Vec<Address> = coins.iter().flat_map(|c| [c.pool, c.vault, c.mint]).collect();
+    watched.extend(coins.iter().flat_map(|c| owners.iter().map(|o| Env::seat_of(c, o))));
+    let before = t.up.snapshot(&watched);
+    upgrade(&mut t.up, &binary);
+    assert_eq!(t.up.snapshot(&watched), before, "the upgrade touched no account of the pools'");
+
+    // The seats left in the settled batches: the same tokens and SOL as the live binary gives.
+    let mut claim_units = [0; 2];
+    for c in [under2, past2] {
+        let left: [Who; 2] = [bob, admin];
+        for who in left {
+            let was = t.sol(who);
+            let (e, units) = t.claim_seat(c, who, true);
+            assert!(!e.refund && e.tokens > 0);
+            t.alike_since(c, who, was);
+            claim_units = units;
+        }
+        assert_eq!(t.up.pool(c[0]).opening_seats, 0);
+    }
+    // and the refused batch's SOL back
+    let refunded: [Who; 2] = [alice, bob];
+    for who in refunded {
+        let (e, _) = t.claim_seat(refused2, who, false);
+        assert!(e.refund && e.tokens == 0);
+        t.alike(refused2, who);
+    }
+    assert_eq!(t.up.pool(&refused).opening_sol, 0);
+
+    // The batch the live binary graduated: each trade to the lamport as the live binary makes it, its whole fee owed.
+    let (meta, legacy_units) = t.buy(past2, alice, 5 * SOL);
+    t.alike(past2, alice);
+    let e = event::<dex::TradeEvent>(&meta);
+    assert_eq!((e.pool_fee, e.graduated), (0, true));
+    let sells: [(Who, u64); 4] = [(bob, 2), (alice, 1), (admin, 1), (bob, 1)];
+    for (who, part) in sells {
+        let held = t.up.tokens(&who(&t.up).pubkey(), &past);
+        let quote = math::sell(reserves(&t.up.pool(&past)), held / part, FEE_BPS).unwrap();
+        let was = t.sol(who);
+        t.sell(past2, who, held / part);
+        t.alike_since(past2, who, was);
+        assert_eq!(reserves(&t.up.pool(&past)), quote.after);
+    }
+    let p = t.up.pool(&past);
+    assert!(p.graduated == 1 && p.real_sol < p.graduation_sol, "graduated for good, far under its old line");
+
+    // The batch settled under the line: as before, until the line.
+    let (_, buy_units) = t.buy(under2, alice, 3 * SOL);
+    t.alike(under2, alice);
+    let held = t.up.tokens(&bob(&t.up).pubkey(), &under);
+    let sell_units = t.sell(under2, bob, held / 3);
+    t.alike(under2, bob);
+    // then past it, on the current binary alone: on the curve, the virtual SOL kept, nothing burned
+    let env = &mut t.up;
+    let b = bob(env);
+    let quote = math::buy(reserves(&env.pool(&under)), 150 * SOL, FEE_BPS).unwrap();
+    let crossed = env.buy(&under, &b, 150 * SOL).unwrap();
+    let p = env.pool(&under);
+    assert!(quote.graduates && quote.to_pool == 0);
+    assert_eq!((p.graduated, p.burned, p.pool_share_bps, p.virtual_sol), (1, 0, 0, VIRTUAL));
+    assert_eq!(reserves(&p), quote.after);
+    assert_eq!(kinds(&crossed), ["Graduated", "TradeEvent"]);
+    assert_eq!(env.mint(&under).0, SUPPLY, "nothing burned");
+    env.check_books(&under);
+    // everyone can leave both coins, each sale as the math says
+    let holders: [Who; 3] = [alice, bob, admin];
+    for coin in [&under, &past] {
+        for who in holders {
+            let key = who(env);
+            let held = env.tokens(&key.pubkey(), coin);
+            if held > 0 {
+                let quote = math::sell(reserves(&env.pool(coin)), held, FEE_BPS).unwrap();
+                env.sell(coin, &key, held).unwrap();
+                assert_eq!(reserves(&env.pool(coin)), quote.after);
+                env.check_books(coin);
+            }
+        }
+    }
+
+    println!(
+        "compute units of the pool's own instruction on batches the live binary ended, live binary -> current: \
+         claim_seat {} -> {}, buy on the batch it graduated {} -> {}, buy on the one under the line {} -> {}, sell {} -> {}",
+        claim_units[0], claim_units[1], legacy_units[0], legacy_units[1], buy_units[0], buy_units[1],
+        sell_units[0], sell_units[1]
+    );
+}
+
+/// An upgrade while batches are under way: the live binary replaced by the current one while two batches are open with
+/// seats in them. Each goes on where it was, the same seats, window and books: one settles on the curve and every seat
+/// claims its part, the other falls under the minimum and gives the SOL back. The batches the live binary ended itself,
+/// with seats still to claim through the upgrade, are in the test above. The live binary comes in `POOL_SO_LIVE`: the
+/// live commit built again for this address (upgrade-test.sh builds it; `COMMIT=<live commit> deploy/build.sh CbAjrr…`),
+/// since a dump of the live one would refuse to run here (DeclaredProgramIdMismatch). Without it both sides are the
+/// current binary, and this is only a frame: it runs the batch through the loader's upgrade, and would not notice a
+/// change in the pool's or the seat's layout. The steps before the upgrade use today's formats; if the next version
+/// changes them, they must be written as the live one's.
 #[test]
 fn upgrade_in_the_middle_of_an_opening_batch() {
     let current = so("POOL_SO", "pool/deploy/dex.so");
@@ -2415,7 +2889,7 @@ fn upgrade_in_the_middle_of_an_opening_batch() {
     let mut watched = vec![coin.pool, coin.vault, small.pool, Env::seat_of(&small, &carol.pubkey())];
     watched.extend(seats(&[&admin, &alice, &bob]));
 
-    // open, with three seats (the snapshot checks the helper, as in the upgrade before the batch)
+    // open, with three seats (the snapshot checks the helper, as in the upgrade over the coins the live binary launched)
     let before = env.snapshot(&watched);
     upgrade(&mut env, &binary);
     assert_eq!(env.snapshot(&watched), before, "the upgrade touched no account of the pools'");
@@ -2428,21 +2902,17 @@ fn upgrade_in_the_middle_of_an_opening_batch() {
     assert_eq!(error(env.commit(&coin, &alice, SOL)), pool_error(PoolError::OpeningLocked));
     env.check_books(&coin);
     env.warp(opens);
+    // a pool the live binary launched keeps no part of the fee (it left those bytes at zero); in the frame, its fifth
+    let total = 4 * SOL + SOL / 2;
+    let opening = math::Reserves { pool_share_bps: env.pool(&coin).pool_share_bps, ..opening_reserves() };
+    let expected = math::buy(opening, total, FEE_BPS).unwrap();
     env.settle(&coin, &bob).unwrap();
     env.settle(&small, &bob).unwrap();
     assert_eq!(env.pool(&small).opening_state, OPENING_REFUND);
-    let total = 4 * SOL + SOL / 2;
-    let expected = math::buy(opening_reserves(), total, FEE_BPS).unwrap();
+    assert_eq!(reserves(&env.pool(&coin)), expected.after);
+    assert_eq!(env.pool(&coin).opening_tokens, expected.tokens_out);
     let share = |sol: u64| (expected.tokens_out as u128 * sol as u128 / total as u128) as u64;
-    env.claim_seat(&coin, &admin, true).unwrap();
-    assert_eq!(env.tokens(&admin.pubkey(), &coin), share(SOL));
-
-    // settled, with three seats to claim, and the refused batch's SOL still owed
-    watched.extend(seats(&[&carol]));
-    let before = env.snapshot(&watched);
-    upgrade(&mut env, &binary);
-    assert_eq!(env.snapshot(&watched), before, "the upgrade touched no account of the pools'");
-    for (who, sol) in [(&alice, 2 * SOL), (&bob, SOL / 2), (&carol, SOL)] {
+    for (who, sol) in [(&admin, SOL), (&alice, 2 * SOL), (&bob, SOL / 2), (&carol, SOL)] {
         env.claim_seat(&coin, who, true).unwrap();
         assert_eq!(env.tokens(&who.pubkey(), &coin), share(sol));
         env.check_books(&coin);

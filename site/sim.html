@@ -328,7 +328,7 @@ dialog.dlg::backdrop { background: rgba(7, 4, 13, .84); }
 
 <!-- ===== what is real here ===== -->
 <section class="wrap s-real" aria-label="What is real in the simulator">
-  <div><h3>Real: the math.</h3><p>Every quote and every trade runs on the pool program's own integers: the same fee, rounded the same way, the same graduation, the same burn. A trade here gets what it would get on <span data-net="place">devnet</span> from the same pool.</p></div>
+  <div><h3>Real: the math.</h3><p>Every quote and every trade runs on the pool program's own integers: the same fee, rounded the same way, the same one curve, the same 20% of every fee kept in the pool. A trade here gets what it would get on <span data-net="place">devnet</span> from the same pool.</p></div>
   <div><h3>Made up: the crowd.</h3><p>About sixty traders with random wallets, a few whales, newcomers now and then. They buy, take profit and panic on a roll of the dice, more or less often by mood.</p></div>
   <div><h3>Not here: a chain.</h3><p>No wallet, no signatures, no network fees, and play SOL is worth nothing. <span id="goReal">To trade a real coin, go to <a href="/coins">the <span data-net="label">devnet</span> coins</a>.</span></p></div>
 </section>
@@ -455,8 +455,11 @@ BH.mark($('#sym'), 2); BH.mark($('#sym1'), 2); BH.favicon();
 
 /* ================= the hole: the pool's real SOL as its disk ================= */
 var holeCv = $('#hole'), holeBox = $('#holeBox'), LOOK = BH.look();
-var hole = BH.live(holeCv, { look: LOOK, state: BH.stateOf({}), w: 168, h: 100, onGraduate: function () { setText('#holeKey', 'disk: real SOL in the pool · jets: graduated'); } });
-function holeState() { var p = S.pool; return BH.stateOf({ virtualSol: p.virtualSol, realSol: p.realSol, graduationSol: p.graduationSol, graduated: p.graduated }); }
+var KEY = 'disk: real SOL in the pool, full at the graduation line', KEY_GRAD = 'disk: real SOL in the pool · jets: graduated';
+// the jets light once the graduating buy's SOL has landed, and go out when sells take the market cap under the line
+// again; the disk is full at the real SOL that takes the pool, as it stands, to the line (PoolMath.lineSol)
+var hole = BH.live(holeCv, { look: LOOK, state: BH.stateOf({}), w: 168, h: 100, onGraduate: function () { setText('#holeKey', KEY_GRAD); } });
+function holeState() { var p = S.pool; return BH.stateOf({ virtualSol: p.virtualSol, realSol: p.realSol, lineSol: PM.lineSol(p), graduated: p.graduated }); }
 holeBox.addEventListener('pointermove', function (e) { if (e.pointerType !== 'mouse') return; var r = holeCv.getBoundingClientRect(); hole.lean(((e.clientY - r.top) / r.height - .5) * 2); });
 holeBox.addEventListener('pointerleave', function () { hole.lean(0); });
 
@@ -493,7 +496,8 @@ function pushChart(force) {
   var key = [CS.upto, L.length, TF, SERIES, LOG, S.pool.graduated, lc && lc.c].join('|');
   if (key === chartKey && !force) return;
   chartKey = key;
-  var g = SERIES === 'price' ? SET.M / 1000 : SET.M;
+  // the goal is the graduation line: the market cap chosen at launch, whatever the coin has traded
+  var m = lam(S.pool.graduationMcap), g = SERIES === 'price' ? m / 1000 : m;
   chart.set({ candles: L, marks: CS.marks, events: CS.events, log: LOG, fmt: fmtV, tfmt: fClock,
     goal: S.pool.graduated ? null : { v: g, label: 'graduation at ' + fmtV(g) } });
   // the canvas's name changes only with what it shows (the read line above has the numbers), so a screen reader on it
@@ -533,9 +537,9 @@ chartCv.addEventListener('keydown', function (e) {
 function renderHead() {
   document.title = SET.name + ' · Nox sim';
   $('#name').innerHTML = esc(SET.name) + '<span class="sym">$' + esc(SET.symbol) + '</span>';
-  setText('#setLine', fAmt(SET.V) + ' virtual SOL · graduates at a ' + fAmt(SET.M) + ' SOL market cap · ' + (SET.fee / 100) + '% fee' +
+  setText('#setLine', fAmt(SET.V) + ' virtual SOL · graduates at a ' + fAmt(SET.M) + ' SOL market cap, ' + fSol(lam(S.pool.graduationSol)) + ' real SOL from launch · ' + (SET.fee / 100) + '% fee' +
     (SET.first > 0 && S.trades.length && S.trades[0].w === 0 ? ' · you bought ' + fSol(SET.first) + ' SOL of it at launch' : ''));
-  setText('#holeKey', 'disk: real SOL in the pool, full at graduation');
+  setText('#holeKey', KEY);
   $('#quick').innerHTML = '';
   paintQuick();
 }
@@ -547,8 +551,14 @@ function renderStats() {
   setText('#sCap', fSol(S.marketCap()));
   setText('#sAth', ATH > 0 ? 'highest ' + fSol(ATH) : 'no trades yet');
   setText('#sSol', fSol(lam(p.realSol)));
-  setText('#sGoal', p.graduated ? 'graduated at ' + fClock(S.gradAt) + ', same pool' : 'of ' + fSol(lam(p.graduationSol)) + ' to graduate');
-  var w = p.graduated ? '100%' : Math.min(100, lam(p.realSol) / lam(p.graduationSol) * 100).toFixed(1) + '%';
+  // graduated while the market cap is at the line or over it; gradAt is the first time it got there. In real SOL the
+  // line is where the pool as it stands reaches it (PoolMath.lineSol): more than at launch as the pool keeps its part
+  // of the fees, and the bar is the way there, (x − V) ÷ (x at the line − V), as the program measures it
+  var to = PM.lineSol(p);
+  setText('#sGoal', p.graduated ? 'market cap over the ' + fAmt(lam(p.graduationMcap)) + ' SOL line: graduated' + (S.gradAt != null ? ', first at ' + fClock(S.gradAt) : '')
+    : 'of ' + fSol(lam(to)) + ' to graduate, as the pool stands' + (S.gradAt != null ? '; over it at ' + fClock(S.gradAt) + ', under it now' : ''));
+  if (!hole.graduated) setText('#holeKey', KEY);
+  var w = (PM.progressOf(p) * 100).toFixed(1) + '%';
   var bar = $('#sBar'); if (bar.style.width !== w) bar.style.width = w;
   setText('#sVol', fSol(lam(p.volume)));
   setText('#sTr', S.trades.length.toLocaleString('en-US') + ' trade' + (S.trades.length === 1 ? '' : 's'));
@@ -584,24 +594,26 @@ function makeQuote() {
     if (l > W.sol) return { msg: 'You have ' + fSol(lam(W.sol)) + ' play SOL.', bad: true };
     var q = S.quoteBuy(l);
     if (q.tokensOut <= 0n) return { msg: 'Too small to trade.', bad: true };
-    return { side: 'buy', l: l, q: q, after: PM.priceOf(q.after, S.pool.burned + q.burned).price };
+    return { side: 'buy', l: l, q: q, after: PM.priceOf(q.after).price };
   }
   var u = (maxUnits != null && amt.value === maxText) ? maxUnits : BigInt(Math.round(v * 1e6));
   if (u <= 0n) return { msg: 'Too small to trade.', bad: true };
   if (u > W.tokens) return { msg: W.tokens > 0n ? 'You hold ' + tok(units(W.tokens)) + '.' : 'You hold none yet. Buy some first.', bad: true };
   var q2 = S.quoteSell(u);
   if (q2.solOut <= 0n) return { msg: 'Too small to trade.', bad: true };
-  return { side: 'sell', u: u, q: q2, after: PM.priceOf(q2.after, S.pool.burned).price };
+  return { side: 'sell', u: u, q: q2, after: PM.priceOf(q2.after).price };
 }
+// the part of a quote's fee that stays in the pool, in words
+function kept(q) { return q.poolFee > 0n ? ', ' + fSol(lam(q.poolFee)) + ' of it stays in the pool' : ''; }
 function renderQuote() {
   try { Q = makeQuote(); } catch (e) { report(e); Q = { msg: 'Could not quote that amount.', bad: true }; }
   var t, sym = esc(S.symbol), px = S.price();
   if (!Q.q) t = esc(Q.msg);
   else if (Q.side === 'buy') {
-    t = 'You get <b>' + tok(units(Q.q.tokensOut)) + '</b> ' + sym + '. Fee <b>' + fSol(lam(Q.q.fee)) + '</b> SOL. ';
-    t += Q.q.graduates ? 'This buy <b>graduates the coin</b>: the ' + fAmt(SET.V) + ' virtual SOL drops out and ' + fTok(units(Q.q.burned)) + ' tokens burn, so the price does not jump.'
-      : 'Price after it: <b>' + fPx(Q.after) + '</b> per 1M, ' + pctS(Q.after / px - 1) + '.';
-  } else t = 'You get <b>' + fSol(lam(Q.q.solOut)) + '</b> SOL. Fee <b>' + fSol(lam(Q.q.fee)) + '</b> SOL. Price after it: <b>' + fPx(Q.after) + '</b> per 1M, ' + pctS(Q.after / px - 1) + '.';
+    t = 'You get <b>' + tok(units(Q.q.tokensOut)) + '</b> ' + sym + '. Fee <b>' + fSol(lam(Q.q.fee)) + '</b> SOL' + kept(Q.q) + '. ';
+    if (Q.q.graduates) t += 'This buy takes the market cap to the graduation line: the coin <b>graduates</b>, on the same curve. ';
+    t += 'Price after it: <b>' + fPx(Q.after) + '</b> per 1M, ' + pctS(Q.after / px - 1) + '.';
+  } else t = 'You get <b>' + fSol(lam(Q.q.solOut)) + '</b> SOL. Fee <b>' + fSol(lam(Q.q.fee)) + '</b> SOL' + kept(Q.q) + '. Price after it: <b>' + fPx(Q.after) + '</b> per 1M, ' + pctS(Q.after / px - 1) + '.';
   var key = (Q.bad ? '!' : '') + t;
   if (quoteEl._h !== key) { quoteEl._h = key; quoteEl.classList.toggle('bad', !!Q.bad); quoteEl.innerHTML = t; }
   goBtn.disabled = !Q.q;
@@ -683,7 +695,8 @@ function renderTrades() {
   var rows = [], T = S.trades;
   for (var i = T.length - 1; i >= 0 && rows.length < 40; i--) {
     var tr = T[i];
-    if (tr.graduates) rows.push('<tr class="grad"><td>' + fClock(tr.t) + '</td><td><i class="k"></i>graduated</td><td>−' + fAmt(SET.V) + '</td><td>−' + fTok(units(tr.burned)) + '</td><td>' + fPx(tr.price) + '</td></tr>');
+    // the real SOL crossing the line: a mark, at the price its trade left; it comes again after a fall under the line
+    if (tr.graduates) rows.push('<tr class="grad"><td>' + fClock(tr.t) + '</td><td><i class="k"></i>graduated</td><td></td><td></td><td>' + fPx(tr.price) + '</td></tr>');
     rows.push('<tr class="' + (tr.buy ? 'buy' : 'sell') + (tr.w === 0 ? ' me' : '') + '"><td>' + fClock(tr.t) + '</td><td><i class="k"></i>' + who(tr.w) + '</td><td>' + fSol(lam(tr.sol)) + '</td><td>' + tok(units(tr.tokens)) + '</td><td>' + fPx(tr.price) + '</td></tr>');
   }
   $('#rows').innerHTML = rows.join('');
@@ -692,7 +705,6 @@ function renderTrades() {
 function renderHolders() {
   var hs = S.holders(), p = S.pool, rows = [];
   rows.push('<tr class="ev"><td></td><td>the pool</td><td>' + tok(units(p.tokens)) + '</td><td>' + share(p.tokens) + '</td></tr>');
-  if (p.burned > 0n) rows.push('<tr class="ev"><td></td><td>burned at graduation</td><td>' + tok(units(p.burned)) + '</td><td>' + share(p.burned) + '</td></tr>');
   hs.slice(0, 12).forEach(function (w, i) {
     rows.push('<tr class="' + (w === 0 ? 'buy me' : 'buy') + '"><td>' + (i + 1) + '</td><td>' + who(w) + '</td><td>' + tok(units(S.wallets[w].tokens)) + '</td><td>' + share(S.wallets[w].tokens) + '</td></tr>');
   });
@@ -706,7 +718,7 @@ function renderTape() {
     var tr = T[i], cls = (tr.buy ? 'buy' : 'sell') + (tr.w === 0 ? ' me' : '');
     seen[tr.n] = 1;
     if (tapeSeen && !tapeSeen[tr.n] && !BH.reduced) cls += ' new';
-    if (tr.graduates) items.push('<span class="grad' + (cls.indexOf('new') >= 0 ? ' new' : '') + '"><i></i><b>' + sym + '</b> graduated · ' + fTok(units(tr.burned)) + ' tokens burned</span>');
+    if (tr.graduates) items.push('<span class="grad' + (cls.indexOf('new') >= 0 ? ' new' : '') + '"><i></i><b>' + sym + '</b> graduated · at a ' + fAmt(lam(S.pool.graduationMcap)) + ' SOL market cap</span>');
     items.push('<span class="' + cls + '"><i></i>◎' + fSol(lam(tr.sol)) + ' ' + (tr.w === 0 ? '<b>you</b> ' + (tr.buy ? 'bought ' : 'sold ') : tr.buy ? '<b>bought</b> ' : 'sold ') + sym + ' · ' + fClock(tr.t) + '</span>');
   }
   tapeSeen = seen;
@@ -747,7 +759,7 @@ function start(set, seed) {
     first: BigInt(Math.round(set.first * 1e9)), seed: seed, mood: MOOD });
   CS = null; ATH = 0; tapeSeen = null; seenN = -1; chartKey = '';
   LOOK = BH.look({ virtualSol: set.V, graduationMcap: set.M, feeBps: set.fee });
-  hole.put(LOOK, BH.stateOf({ virtualSol: S.pool.virtualSol, realSol: 0n, graduationSol: S.pool.graduationSol, graduated: false }));
+  hole.put(LOOK, BH.stateOf({ virtualSol: S.pool.virtualSol, realSol: 0n, lineSol: S.pool.graduationSol, graduated: false }));
   chart.fit(); chart.hover = -1;
   renderHead();
   side = ''; setSide('buy');
@@ -774,9 +786,10 @@ function checkForm(show) {
   var d = $('#derived');
   if (bad.V || bad.M || bad.fee) d.textContent = '';
   else {
-    var G = lam(PM.graduationSol(BigInt(Math.round(s.V * 1e9)), BigInt(Math.round(s.M * 1e9)))), lk = BH.look({ virtualSol: s.V, graduationMcap: s.M, feeBps: s.fee });
-    d.innerHTML = 'It starts at <b>' + fPx(s.V / 1e9) + '</b> SOL per 1M tokens and graduates when <b>' + fSol(G) + '</b> real SOL is in, at <b>' + fPx(s.M / 1e9) + '</b> per 1M: ' +
-      '<b>' + fAmt(s.M / s.V) + '×</b> the launch price. Then ' + fTok(lk.burn) + ' tokens burn.';
+    var G = lam(PM.graduationSol(BigInt(Math.round(s.V * 1e9)), BigInt(Math.round(s.M * 1e9))));
+    d.innerHTML = 'It starts at <b>' + fPx(s.V / 1e9) + '</b> SOL per 1M tokens and graduates when its market cap reaches <b>' + fAmt(s.M) + '</b> SOL, <b>' + fPx(s.M / 1e9) + '</b> per 1M: ' +
+      '<b>' + fAmt(s.M / s.V) + '×</b> the launch price. From launch, <b>' + fSol(G) + '</b> real SOL takes it there. One curve for life, the same before and after; ' + PM.POOL_SHARE_BPS / 100 + '% of every fee stays in the pool, ' +
+      'so the more the coin trades, the more real SOL it takes to reach that line.';
   }
   return bad;
 }

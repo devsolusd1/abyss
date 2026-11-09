@@ -37,6 +37,8 @@ const SUPPLY = 1_000_000_000n * TOKEN;
 const VIRTUAL_SOL = 30n * SOL;
 const GRADUATION_MCAP = 420n * SOL;
 const FEE_BPS = 100;
+/** The part of each fee every new pool keeps in its real SOL (state.rs POOL_SHARE_BPS). */
+const POOL_SHARE_BPS = 2_000;
 const lamportsOf = (sol) => BigInt(Math.round(Number(sol) * 1e9));
 const FIRST_BUY = lamportsOf(process.env.FIRST_BUY_SOL ?? 0.5);
 const SECOND_BUY = lamportsOf(process.env.SECOND_BUY_SOL ?? 0.2);
@@ -95,7 +97,8 @@ function launch({ creator, coin, treasury, name, symbol, uri, maxLaunchFee, salt
   ], disc("launch"), args);
 }
 
-/** buy and sell share their accounts. The mint is writable: the buy that graduates burns. */
+/** buy and sell share their accounts. The mint is writable, as the first version needed it to burn at graduation;
+ * nothing writes to it now, and the program still asks for it so. */
 function swapKeys(trader, coin) {
   return [
     meta(trader, { signer: true, writable: true }), meta(coin.pool, { writable: true }),
@@ -110,53 +113,48 @@ const sell = (trader, coin, tokensIn, minSolOut) => ix(swapKeys(trader, coin), d
 
 /* ---------------- The pool's math, to quote before signing (same as src/math.rs) ---------------- */
 
+// One curve for the coin's whole life: every trade is one constant-product leg against virtual + real SOL, the
+// virtual SOL never leaves, and the pool keeps a part of each fee in its real SOL. A coin is graduated while its market
+// cap on the whole supply, (virtual + real)·S/T, is at the line chosen at launch or above it; nothing happens to the
+// reserves there.
+
 const ceilDiv = (a, b) => (a + b - 1n) / b;
 const feeOf = (amount, bps) => ceilDiv(amount * BigInt(bps), 10_000n);
-
-function isqrtCeil(n) {
-  if (n < 2n) return n;
-  let x = BigInt(Math.floor(Math.sqrt(Number(n))));
-  while (x * x > n) x -= 1n;
-  while ((x + 1n) * (x + 1n) <= n) x += 1n;
-  return x * x === n ? x : x + 1n;
-}
+/** The pool's part of a fee: rounded down, the share held to the whole fee. */
+const poolPart = (fee, shareBps) => fee * BigInt(Math.min(shareBps, 10_000)) / 10_000n;
 
 function leg(sol, tokens, solIn) {
   const left = ceilDiv(sol * tokens, sol + solIn);
   return [tokens - left, left];
 }
 
+/** x·S ≥ M·T, as Reserves::over_the_line: the market cap on the whole supply at the line or above it. */
+const overTheLine = (r) => (r.virtualSol + r.realSol) * SUPPLY >= r.graduationMcap * r.tokens;
+
+/** Reserves as the math reads them: { virtualSol, realSol, tokens, graduationMcap, graduated, poolShareBps }. */
 function quoteBuy(r, solIn, bps) {
   const fee = feeOf(solIn, bps);
-  let rest = solIn - fee;
-  const after = { ...r };
-  let out = 0n;
-  if (!after.graduated) {
-    const room = after.graduationSol - after.realSol;
-    const onCurve = rest < room ? rest : room;
-    if (onCurve > 0n) {
-      const [o, left] = leg(after.virtualSol + after.realSol, after.tokens, onCurve);
-      out += o; after.tokens = left; after.realSol += onCurve; rest -= onCurve;
-    }
-    if (after.realSol === after.graduationSol) {
-      after.tokens -= after.tokens * after.virtualSol / (after.virtualSol + after.realSol);
-      after.graduated = true;
-    }
-  }
-  if (after.graduated && rest > 0n) {
-    const [o, left] = leg(after.realSol, after.tokens, rest);
-    out += o; after.tokens = left; after.realSol += rest;
-  }
-  return { fee, tokensOut: out, after };
+  const toPool = poolPart(fee, r.poolShareBps);
+  const rest = solIn - fee;
+  const [tokensOut, left] = leg(r.virtualSol + r.realSol, r.tokens, rest);
+  // the pool's part of the fee joins the real SOL after the leg
+  const realSol = r.realSol + rest + toPool;
+  const after = { ...r, realSol, tokens: left };
+  after.graduated = overTheLine(after);
+  return { fee, toPool, tokensOut, graduates: !r.graduated && after.graduated, after };
 }
 
 function quoteSell(r, tokensIn, bps) {
-  const offset = r.graduated ? 0n : r.virtualSol;
-  const x = offset + r.realSol;
-  const newX = ceilDiv(x * r.tokens, r.tokens + tokensIn);
+  const x = r.virtualSol + r.realSol;
+  let newX = ceilDiv(x * r.tokens, r.tokens + tokensIn);
+  if (newX < r.virtualSol) newX = r.virtualSol;          // never under the virtual SOL: the real SOL stops at 0
   const gross = x - newX;
   const fee = feeOf(gross, bps);
-  return { fee, solOut: gross - fee };
+  const toPool = poolPart(fee, r.poolShareBps);
+  const realSol = newX - r.virtualSol + toPool;
+  const after = { ...r, realSol, tokens: r.tokens + tokensIn };
+  after.graduated = overTheLine(after);
+  return { fee, toPool, solOut: gross - fee, after };
 }
 
 const withSlippage = (amount) => amount * (10_000n - SLIPPAGE_BPS) / 10_000n;
@@ -168,10 +166,21 @@ const n64 = (data, at) => data.readBigUInt64LE(at);
 /** The pool account: 8 bytes of discriminator, then the fields in `state.rs` order. */
 async function readPool(connection, coin) {
   const d = (await connection.getAccountInfo(coin.pool)).data;
-  return {
+  const p = {
     virtualSol: n64(d, 168), realSol: n64(d, 176), tokens: n64(d, 184), graduationSol: n64(d, 192),
-    burned: n64(d, 208), creatorFees: n64(d, 216), treasuryFees: n64(d, 224), volume: n64(d, 248),
-    feeBps: d.readUInt16LE(272), graduated: d[276] === 1,
+    graduationMcap: n64(d, 200), burned: n64(d, 208), creatorFees: n64(d, 216), treasuryFees: n64(d, 224), volume: n64(d, 248),
+    feeBps: d.readUInt16LE(272), graduated: d[276] === 1, poolShareBps: d.readUInt16LE(326),
+  };
+  return p;
+}
+
+/** What Pool::reserves gives the math. A pool the first version graduated (it burned) goes on as it left it: no
+ * virtual SOL, a line of 0 so past it for good, the whole fee owed. */
+function reservesOf(p) {
+  const first = p.burned > 0n;
+  return {
+    virtualSol: first ? 0n : p.virtualSol, realSol: p.realSol, tokens: p.tokens,
+    graduationMcap: first ? 0n : p.graduationMcap, graduated: first || p.graduated, poolShareBps: first ? 0 : p.poolShareBps,
   };
 }
 
@@ -227,8 +236,7 @@ const mint = mintAddress(me, salt);
 const coin = coinAddresses(mint);
 record.salt = salt.toString();
 const opening = {
-  virtualSol: VIRTUAL_SOL, realSol: 0n, tokens: SUPPLY,
-  graduationSol: isqrtCeil(VIRTUAL_SOL * GRADUATION_MCAP) - VIRTUAL_SOL, graduated: false,
+  virtualSol: VIRTUAL_SOL, realSol: 0n, tokens: SUPPLY, graduationMcap: GRADUATION_MCAP, graduated: false, poolShareBps: POOL_SHARE_BPS,
 };
 const first = quoteBuy(opening, FIRST_BUY, FEE_BPS);
 const launchIxs = [
@@ -248,10 +256,10 @@ Object.assign(record, Object.fromEntries(Object.entries(coin).map(([k, v]) => [k
 let pool = await readPool(connection, coin);
 const held = await tokensOf(connection, me, mint);
 const quarter = held / 4n;
-const sold = quoteSell({ ...pool }, quarter, pool.feeBps);
+const sold = quoteSell(reservesOf(pool), quarter, pool.feeBps);
 record.signatures.sell = await run(connection, wallet, [sell(me, coin, quarter, withSlippage(sold.solOut))], [], "sell a quarter");
 pool = await readPool(connection, coin);
-const second = quoteBuy({ ...pool }, SECOND_BUY, pool.feeBps);
+const second = quoteBuy(reservesOf(pool), SECOND_BUY, pool.feeBps);
 record.signatures.buy = await run(connection, wallet, [buy(me, coin, SECOND_BUY, withSlippage(second.tokensOut))], [], "second buy");
 
 // 4. What the chain says now.

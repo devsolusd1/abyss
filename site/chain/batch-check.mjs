@@ -2,7 +2,8 @@
 // with the shortest window (2 minutes) and the creator's seat in the launch, checks that nobody can buy before the
 // settle, adds to the seat and takes some back, then in the window's last minute checks that no SOL goes in and some
 // still comes out, waits out the window, settles and claims the seat in one transaction, then trades. Every number is
-// checked against the pool and the program's own math. One wallet does it all (the devnet wallet, which may launch
+// checked against the pool and the program's own math (the one curve, 20% of each fee kept in the pool: the program on
+// devnet must be upgraded to it). One wallet does it all (the devnet wallet, which may launch
 // while launches are closed). The waits are on the chain's clock (the Clock sysvar), not this machine's.
 //
 //   KEYPAIR=~/.config/solana/devnet.json node batch-check.mjs            (sends; about 3 minutes, about 0.05 SOL)
@@ -108,6 +109,9 @@ line(Boolean(settled), "anyone can settle once the window is over, and a seat's 
 pool = await readPool(built.mint); o = pool.opening;
 line(o.state === "settled" && o.totalSol === L(0.024) && o.tokens === expected.tokens, `the batch bought ${t(o.tokens)} tokens with ${s(o.totalSol)} SOL, as quoted (${t(expected.tokens)})`);
 line(pool.tokens === Chain.SUPPLY - o.tokens && pool.realSol === expected.batch.after.realSol, `the reserve moved by that one buy: ${s(pool.realSol)} real SOL in`);
+const parts = Chain.feeParts(expected.batch.fee, pool);
+line(pool.poolShareBps === Chain.POOL_SHARE_BPS && parts.pool === expected.batch.poolFee && pool.creatorFees === parts.creator && pool.treasuryFees === parts.treasury,
+  `its fee ${s(expected.batch.fee)}: ${s(parts.pool)} kept in the pool, ${s(parts.creator)} owed to the creator, ${s(parts.treasury)} to the treasury`);
 const w = await Chain.readWallet(me, pool.mint);
 line(w.tokens === expected.tokens && o.seats === 0 && o.tokensLeft === 0n, `the seat took all ${t(w.tokens)} tokens; no seat or token left waiting`);
 line((await Chain.readSeat(pool.address, me)) === null, "the seat account is closed, its rent back");
@@ -131,6 +135,7 @@ line(h.events.some((e) => e.kind === "settle" && e.signature === settled) && h.e
 const trades = h.events.filter((e) => e.kind === "trade");
 const batchBuy = trades.find((e) => e.batch);
 line(batchBuy && batchBuy.sol === o.totalSol && batchBuy.byCreator === false, "the batch's buy is a trade by the pool itself, not by the creator");
+line(batchBuy && batchBuy.poolFee === expected.batch.poolFee, `its event says ${batchBuy?.poolFee == null ? "nothing" : s(batchBuy.poolFee)} of its fee stayed in the pool, the quote ${s(expected.batch.poolFee)}`);
 line(trades.filter((e) => !e.batch).length === 2 && trades.filter((e) => !e.batch).every((e) => e.byCreator === true), "the later buy and sell say the creator made them");
 const launchEv = h.events.find((e) => e.kind === "launch");
 line(launchEv && launchEv.opensAt === o.opensAt, "the launch event carries when the batch closed");

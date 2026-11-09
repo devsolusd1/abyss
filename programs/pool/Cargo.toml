@@ -2,7 +2,7 @@
 name = "dex"
 version = "0.1.0"
 edition = "2021"
-description = "One pool per coin, for life: a bonding curve that becomes a constant-product pool in the same place."
+description = "One pool per coin, for life: one constant-product curve on virtual and real SOL, graduated while its market cap is over the line."
 license = "MIT"
 publish = false
 

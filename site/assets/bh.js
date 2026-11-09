@@ -8,9 +8,11 @@
  * towards us is blue-shifted and bright, the side going away is dim: that is the yellow and the purple.
  *
  * A coin is a black hole. Its disk is the SOL in its pool: the disk's edge goes from 10 M (nothing in)
- * to its reach at graduation; every buy is a clump that spirals in, and the SOL counts when it lands;
- * at graduation the jets light and stay lit. The reach grows with how far the coin has to go
- * (graduation market cap over virtual SOL), and the fee makes it glow hotter.
+ * to its reach at the graduation line, the real SOL that takes the pool as it stands to the market cap
+ * chosen at launch; every buy is a clump that spirals in, and the SOL counts when it lands. Graduated is
+ * a live state, the market cap at the line or over it: the jets light when it crosses the line and go
+ * out if sells take it back under. The reach grows with how far the coin has to go (graduation market
+ * cap over virtual SOL), and the fee makes it glow hotter.
  *
  * Units: a Number is SOL, a BigInt is lamports (as chain.js reads the program's u64s).
  *
@@ -21,15 +23,17 @@
  *     .drop(sol) a clump in from the edge; .step(dt); .onEat(clump) when one lands; .paint(); .size(w, h)
  *   BH.run(hole, frame)    frame(dt) at up to 30 fps while the canvas is on screen and the tab visible; { stop, wake }
  * A coin
- *   BH.look(settings)      { V, M, fee, G, reach, span, heat, burn } from { virtualSol, graduationMcap, feeBps }
+ *   BH.look(settings)      { V, M, fee, G, reach, span, heat } from { virtualSol, graduationMcap, feeBps }
  *                          (or graduationSol in place of graduationMcap); bad input gives 30 / 420 / 1%
- *   BH.stateOf(p)          { virtualSol, realSol, graduationSol, graduated } in SOL
+ *   BH.stateOf(p)          { virtualSol, realSol, graduationSol, graduated } in SOL; graduationSol is the real SOL at
+ *                          the line for the pool as it stands: p.lineSol (Chain.lineSol) when p has one, else its own
  *   BH.fromPool(p)         { look, state } for a pool from Chain.readPool or listPools, or a launch event
- *   BH.progress(state)     0..1 toward graduation (1 once graduated); BH.rAt(look, progress) the disk's edge
+ *   BH.progress(state)     0..1 toward the graduation line (1 while graduated); BH.rAt(look, progress) the disk's edge
  *   BH.still(cv, { look | settings, state | progress, w = 64, h = 40, theta, t, px, zoom, clear, stars }) a still
  *   BH.live(cv, { look, state, w = 168, h = 92, theta, rock, onLand(shownSol), onGraduate() }) a moving one:
  *     .show(state) new SOL comes in as clumps, SOL that goes out leaves the disk at once (the clumps still falling
- *     keep falling), a graduation plays once they land; .follow(look, state) new settings;
+ *     keep falling), a graduation plays once they land and the jets go out when a state comes in under the line;
+ *     .follow(look, state) new settings;
  *     .put(look, state) at once; .lean(-1..1) a little tilt (a hand over it); .size(px); .paint(); .stop() for good;
  *     .perf() { frames, fps, avgMs, worstMs }; readable .hole .look .state .shown (SOL drawn so far) .busy .graduated
  * The page
@@ -315,11 +319,11 @@ function look(o) {
   if (!(V > 0) || !isFinite(V) || !(M > V) || !isFinite(M)) { V = 30; M = 420; }
   if (!(fee >= 0) || !isFinite(fee)) fee = 100;
   var reach = Math.max(10.5, Math.min(28, 8 + 4.9 * Math.log(M / V)));
-  return { V: V, M: M, fee: fee, G: Math.sqrt(M * V) - V, reach: reach, span: 2 * (reach + 2.4), heat: 1.5 + Math.min(300, fee) / 100 * .22, burn: 1e9 * V / M };
+  return { V: V, M: M, fee: fee, G: Math.sqrt(M * V) - V, reach: reach, span: 2 * (reach + 2.4), heat: 1.5 + Math.min(300, fee) / 100 * .22 };
 }
 function stateOf(p) {
   p = p || {};
-  var V = sol(p.virtualSol), G = p.graduationSol != null ? sol(p.graduationSol) : NaN;
+  var V = sol(p.virtualSol), G = p.lineSol != null ? sol(p.lineSol) : p.graduationSol != null ? sol(p.graduationSol) : NaN;
   if (!(G > 0) || !(V > 0)) { var lk = look(p); V = lk.V; G = lk.G; }
   return { virtualSol: V, realSol: Math.max(0, sol(p.realSol) || 0), graduationSol: G, graduated: !!p.graduated };
 }
@@ -347,7 +351,7 @@ function still(cv, o) {
 }
 
 /* a coin's hole that moves: trades come in as clumps, the disk's edge follows the SOL that has landed, a
-   graduation plays once the last clump is in */
+   graduation plays once the last clump is in, and the jets go out when the pool falls under the line again */
 function live(cv, o) {
   o = o || {};
   var lk = o.look || look(), st = o.state || stateOf({}), w = o.w || 168, hh = o.h || 92, base = o.theta || 1.43, rock = o.rock !== false;
@@ -361,7 +365,8 @@ function live(cv, o) {
     if (o.onLand) o.onLand(ctl.shown);
     settle();
   };
-  function shownProgress() { return ctl.graduated ? 1 : lk.G > 0 ? Math.min(1, ctl.shown / lk.G) : 0; }
+  // the way to the line as the pool stands (the state's), else as the coin's settings put it at launch (the look's)
+  function shownProgress() { var g = ctl.state.graduationSol > 0 ? ctl.state.graduationSol : lk.G; return ctl.graduated ? 1 : g > 0 ? Math.min(1, ctl.shown / g) : 0; }
   // a clump numbered n or lower still waiting or falling
   function inFlight(n) {
     var i;

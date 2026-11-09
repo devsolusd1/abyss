@@ -12,7 +12,7 @@
 <link rel="stylesheet" href="/assets/nox.css">
 <style>
 /* ===== the board: every coin on devnet as a still black hole (assets/bh.js), its disk as far as its real SOL
-   reaches, jets once it has graduated; the shared look is assets/nox.css ===== */
+   reaches, jets while it is graduated (its market cap over the line); the shared look is assets/nox.css ===== */
 
 /* ---------- head: the count over a few pixel stars ---------- */
 .sky { position: relative; background-repeat: repeat; image-rendering: pixelated; }
@@ -127,10 +127,10 @@ a.coin:hover .card, a.coin:focus-visible .card { background: var(--f-line2); }
 <main>
 <section class="sky" id="top" aria-labelledby="h">
   <div class="wrap head">
-    <p class="kick">one pool per coin, for life</p>
+    <p class="kick">one curve per coin, for life</p>
     <h1 id="h">Coins on <span data-net="place">devnet</span>.</h1>
     <p class="totals" id="totals" aria-live="polite">reading <span data-net="place">devnet</span>…</p>
-    <p class="key">Each coin is a black hole. Its disk is the real SOL in its pool, and reaches its full width at graduation. Jets mean the coin has graduated.</p>
+    <p class="key">Each coin is a black hole. Its disk is the real SOL in its pool, and reaches its full width at the graduation line. Jets mean the coin is graduated: its market cap is at the line set at launch, or over it.</p>
   </div>
 </section>
 
@@ -139,7 +139,7 @@ a.coin:hover .card, a.coin:focus-visible .card { background: var(--f-line2); }
     <div class="ctl" role="search">
       <div class="seg" role="group" aria-label="Show" id="show">
         <button type="button" class="btn sm" data-show="all" aria-pressed="true">all<span class="c" data-n="all"></span></button>
-        <button type="button" class="btn sm ghost" data-show="curve" aria-pressed="false">on the curve<span class="c" data-n="curve"></span></button>
+        <button type="button" class="btn sm ghost" data-show="curve" aria-pressed="false">below the line<span class="c" data-n="curve"></span></button>
         <button type="button" class="btn sm ghost" data-show="graduated" aria-pressed="false">graduated<span class="c" data-n="graduated"></span></button>
       </div>
       <div class="sort">
@@ -270,8 +270,8 @@ $('#q').addEventListener('input', function () {
 
 /* ================= the coins ================= */
 // every tile is a still of its pool (BH.fromPool): the look of its launch settings, its disk as far as its real SOL
-// reaches, jets once it has graduated; framed as the landing frames its devnet coins
-var SP = 3, ZOOM = 1;   // 1: the frame holds the full disk a coin reaches at graduation
+// reaches, jets while it is graduated; framed as the landing frames its devnet coins
+var SP = 3, ZOOM = 1;   // 1: the frame holds the full disk a coin reaches at the graduation line
 var coins = [], byMint = {}, live = false, lastRead = 0, paints = 0, ghostCvs = [], moves = [], allCoins = 0;   // allCoins: the program's pools, when the board has fewer
 
 function nameOf(p) { var n = String(p.name || '').trim(); if (/^DESKTOP-/i.test(n)) return 'Test coin'; return n || 'Unnamed coin'; }
@@ -287,8 +287,8 @@ function makeTile(c) {
   c.el = a; c.cv = $('canvas', a); c.txt = $('.txt', a);
   return c;
 }
-// what the drawing depends on: the launch settings (its look) and the real SOL against graduation (its disk)
-function sigOf(p) { return [p.virtualSol, p.graduationMcap, p.feeBps, p.realSol, p.graduationSol, p.graduated ? 1 : 0].map(String).join('/'); }
+// what the drawing depends on: the launch settings (its look) and the real SOL against the line as the pool stands (its disk)
+function sigOf(p) { return [p.virtualSol, p.graduationMcap, p.feeBps, p.realSol, p.lineSol, p.graduated ? 1 : 0].map(String).join('/'); }
 function absorb(c, p) {
   c.p = p; c.mint = String(p.mint); c.name = nameOf(p); c.symbol = String(p.symbol || '').trim();
   var sig = sigOf(p);
@@ -315,7 +315,7 @@ function settingsOf(lk) {
 function txtHtml(c) {
   var p = c.p, st = c.st, set = settingsOf(c.look);
   // a coin with an opening batch did not open at its launch: nobody could buy before the batch settled
-  var when = p.graduated && num(p.graduatedAt) ? 'graduated ' + ago(num(p.graduatedAt)) : (p.opening ? 'launched ' : 'opened ') + ago(num(p.openedAt));
+  var when = p.graduated && num(p.graduatedAt) ? 'first graduated ' + ago(num(p.graduatedAt)) : (p.opening ? 'launched ' : 'opened ') + ago(num(p.openedAt));
   var h = '<b class="nm">' + esc(c.name) + '</b>', bw = batchWhen(p);
   h += '<span class="sy">' + (c.symbol ? '<i>' + esc(c.symbol) + '</i>' : '') + '<i>' + esc(shortKey(c.mint)) + '</i><i>' + esc(when) + '</i>' + (bw ? '<i>' + esc(bw) + '</i>' : '') + '</span>';
   h += '<p class="in">' + (p.graduated ? fSol(st.realSol) + ' SOL in the pool' : fSol(st.realSol) + ' of ' + fSol(st.graduationSol) + ' SOL in') + '</p>';
@@ -384,7 +384,7 @@ function applyView() {
   }
   if (!coins.length) { showState(''); return; }
   if (!list.length) {
-    var what = view.q ? 'No coin matches “' + esc(view.q) + '”' + (view.show !== 'all' ? ' here' : '') + '.' : view.show === 'graduated' ? 'No coin has graduated yet.' : 'Every coin here has graduated.';
+    var what = view.q ? 'No coin matches “' + esc(view.q) + '”' + (view.show !== 'all' ? ' here' : '') + '.' : view.show === 'graduated' ? 'No coin has graduated yet.' : 'Every coin here is graduated.';
     showState('<p>' + what + '</p><button type="button" class="btn sm ghost" id="showAll">show every coin</button>');
     $('#showAll').addEventListener('click', function () { view = { show: 'all', sort: view.sort, q: '' }; syncControls(); writeQuery(); applyView(); });
   } else showState('');
@@ -409,7 +409,8 @@ function ghostSlots(n, empty) {
 }
 
 function withTimeout(p, ms) { return Promise.race([p, new Promise(function (_, no) { setTimeout(function () { no(new Error('timeout')); }, ms); })]); }
-// fees ever charged: what is still owed plus what has been paid out, to the creators and to the treasury
+// the fees owed or paid out to the creators and the treasury; the pool's part of each fee stays in its real SOL and no
+// field of the account counts it, so this is not every fee charged
 function totals() {
   var n = coins.length, g = 0, vol = 0, fees = 0, toCreators = 0, half = true;
   coins.forEach(function (c) {
@@ -421,7 +422,7 @@ function totals() {
   var all = Math.max(n, allCoins), h = all ? fmt(all, 0) + (all === 1 ? ' coin' : ' coins') + ' on ' + N.place + '.' : 'Coins on ' + N.place + '.';
   if ($('#h').textContent !== h) $('#h').textContent = h;
   setTotals(n
-    ? (all > n ? 'of the newest ' + fmt(n, 0) + ': ' : '') + '<b>' + g + '</b> graduated · <b>' + fSol(vol) + '</b> SOL traded · <b>' + fSol(fees) + '</b> SOL in fees, ' + (half ? 'half to the creators' : '<b>' + fSol(toCreators) + '</b> to the creators')
+    ? (all > n ? 'of the newest ' + fmt(n, 0) + ': ' : '') + '<b>' + g + '</b> graduated · <b>' + fSol(vol) + '</b> SOL traded · <b>' + fSol(fees) + '</b> SOL in creator and platform fees, ' + (half ? 'half to the creators' : '<b>' + fSol(toCreators) + '</b> to the creators')
     : 'nothing launched yet.');
 }
 function readAgo() {

@@ -141,8 +141,16 @@ export const ata = (owner, mint) =>
 
 /* ---------------- The program's math (same integers as math.rs) ---------------- */
 
+// One constant-product curve for the coin's whole life, on virtual + real SOL and the token reserve: the virtual SOL
+// never leaves and nothing is burned, so the price never goes under the opening price. Graduation is the market cap on
+// the whole supply at the line chosen at launch or over it, nothing more. A pool that graduated under the program's
+// first rules (burned > 0) lost its virtual SOL then: it trades on its real SOL alone, stays graduated, and keeps no
+// part of the fee.
+
 const ceilDiv = (a, b) => (a + b - 1n) / b;
 export const feeOf = (amount, bps) => ceilDiv(amount * BigInt(bps), 10_000n);
+/** The part of every fee a coin launched now keeps in its pool (state.rs POOL_SHARE_BPS), in basis points of the fee. */
+export const POOL_SHARE_BPS = 2_000;
 
 export function isqrtCeil(n) {
   if (n < 2n) return n;
@@ -152,55 +160,89 @@ export function isqrtCeil(n) {
   return x * x === n ? x : x + 1n;
 }
 
+/** The real SOL that takes a pool just launched to its line (the program's graduation_sol): for reading only. */
 export const graduationSol = (virtualSol, mcap) => isqrtCeil(virtualSol * mcap) - virtualSol;
+
+/** A pool that graduated under the first rules: its virtual SOL was dropped and tokens burned. */
+export const isLegacy = (r) => r.burned > 0n;
+/** The virtual SOL the curve counts: the pool's own, or none in a pool that graduated under the first rules. */
+export const curveVirtual = (r) => (isLegacy(r) ? 0n : r.virtualSol);
+/** The pool's part of each fee, in basis points: 0 in a pool from before it, never more than the whole fee. */
+export const poolShareOf = (r) => (isLegacy(r) ? 0 : Math.min(10_000, Number(r.poolShareBps) || 0));
+/**
+ * Graduated while the market cap on the whole supply is at the line or over it, x·S ≥ M·T as the program has it
+ * (Reserves::over_the_line); for good in a pool that graduated under the first rules. Not graduated without a line.
+ */
+export const graduatedOf = (r) => isLegacy(r) || (r.graduationMcap != null && (curveVirtual(r) + r.realSol) * SUPPLY >= r.graduationMcap * r.tokens);
+/**
+ * The real SOL at which the pool as it stands reaches its line, were only buys to come and none of their fee kept:
+ * x² = M·k/S, rounded up, less the virtual SOL. At launch it is graduationSol; the pool's part of each fee lifts k, and
+ * with it this. null for a pool that graduated under the first rules, or one with no line.
+ */
+export function lineSol(r) {
+  if (isLegacy(r) || r.graduationMcap == null) return null;
+  const x = isqrtCeil(ceilDiv(r.graduationMcap * (r.virtualSol + r.realSol) * r.tokens, SUPPLY));
+  return x > r.virtualSol ? x - r.virtualSol : 0n;
+}
+/** How far the pool has come to its line, in the program's terms: (x − V) ÷ (x at the line − V), 1 while graduated. */
+export function progressOf(r) {
+  if (r.graduated) return 1;
+  const to = lineSol(r);
+  return to ? Math.min(1, Number(r.realSol) / Number(to)) : 0;
+}
+
+/**
+ * A fee as the program shares it: the pool's part first, rounded down, then the rest between the treasury
+ * (treasuryShareBps of it, rounded down) and the creator, as Pool::owe does. In lamports: { pool, treasury, creator }.
+ */
+export function feeParts(fee, r) {
+  fee = BigInt(fee);
+  const pool = fee * BigInt(poolShareOf(r)) / 10_000n, rest = fee - pool;
+  const treasury = rest * BigInt(Number(r.treasuryShareBps) || 0) / 10_000n;
+  return { pool, treasury, creator: rest - treasury };
+}
 
 function leg(sol, tokens, solIn) {
   const left = ceilDiv(sol * tokens, sol + solIn);
   return [tokens - left, left];
 }
 
-/** Reserves as the math reads them: { virtualSol, realSol, tokens, graduationSol, graduated }. */
+/**
+ * Reserves as the math reads them: { virtualSol, realSol, tokens, graduationMcap, graduated, burned, poolShareBps }, a
+ * pool as readPool gives it. The fee comes off the SOL paid and the rest buys on the curve; that rest and the pool's
+ * part of the fee (poolFee) go into the real SOL. `graduates`: the pool was not graduated, and the buy takes its market
+ * cap to the line or over it (the program emits Graduated then).
+ */
 export function quoteBuy(r, solIn, feeBps) {
   solIn = BigInt(solIn);
-  const fee = feeOf(solIn, feeBps);
-  let rest = solIn - fee;
-  const after = { ...r };
-  let out = 0n;
-  let burned = 0n;
-  if (!after.graduated) {
-    const room = after.graduationSol - after.realSol;
-    const onCurve = rest < room ? rest : room;
-    if (onCurve > 0n) {
-      const [o, left] = leg(after.virtualSol + after.realSol, after.tokens, onCurve);
-      out += o; after.tokens = left; after.realSol += onCurve; rest -= onCurve;
-    }
-    if (after.realSol === after.graduationSol) {
-      burned = after.tokens * after.virtualSol / (after.virtualSol + after.realSol);
-      after.tokens -= burned;
-      after.graduated = true;
-    }
-  }
-  if (after.graduated && rest > 0n) {
-    const [o, left] = leg(after.realSol, after.tokens, rest);
-    out += o; after.tokens = left; after.realSol += rest;
-  }
-  return { fee, tokensOut: out, burned, graduates: burned > 0n, after };
+  const fee = feeOf(solIn, feeBps), poolFee = fee * BigInt(poolShareOf(r)) / 10_000n, rest = solIn - fee;
+  const [out, left] = leg(curveVirtual(r) + r.realSol, r.tokens, rest);
+  const after = { ...r, realSol: r.realSol + rest + poolFee, tokens: left };
+  after.graduated = graduatedOf(after);
+  return { fee, poolFee, tokensOut: out, graduates: !(isLegacy(r) || r.graduated) && after.graduated, after };
 }
 
+/**
+ * A sell: the curve pays out the gross, the seller gets it less the fee, and the pool's part of the fee stays in the
+ * pool. The price never ends higher than it was, so a sell never graduates a coin.
+ */
 export function quoteSell(r, tokensIn, feeBps) {
   tokensIn = BigInt(tokensIn);
-  const offset = r.graduated ? 0n : r.virtualSol;
-  const x = offset + r.realSol;
-  const newX = ceilDiv(x * r.tokens, r.tokens + tokensIn);
-  const gross = x - newX;
-  const fee = feeOf(gross, feeBps);
-  return { fee, solOut: gross - fee, after: { ...r, realSol: newX - offset, tokens: r.tokens + tokensIn } };
+  const offset = curveVirtual(r), x = offset + r.realSol, tokens = r.tokens + tokensIn;
+  let newX = ceilDiv(x * r.tokens, tokens);
+  if (newX < offset) newX = offset;                      // never so: k only grows, and the pool never holds more than the supply
+  const gross = x - newX, fee = feeOf(gross, feeBps), poolFee = fee * BigInt(poolShareOf(r)) / 10_000n;
+  const after = { ...r, realSol: newX - offset + poolFee, tokens };
+  after.graduated = graduatedOf(after);
+  return { fee, poolFee, solOut: gross - fee, after };
 }
 
-/** Price in SOL per whole token, and market cap in SOL on the supply still in existence. */
-export function priceOf(r, burned = 0n) {
-  const sol = r.graduated ? r.realSol : r.virtualSol + r.realSol;
-  const price = (Number(sol) / 1e9) / (Number(r.tokens) / 1e6);
+/**
+ * Price in SOL per whole token, and market cap in SOL on the supply still in existence: `burned` is the pool's own by
+ * default, 0 for every coin but those that graduated under the first rules.
+ */
+export function priceOf(r, burned = r.burned ?? 0n) {
+  const price = (Number(curveVirtual(r) + r.realSol) / 1e9) / (Number(r.tokens) / 1e6);
   return { price, marketCap: price * (Number(SUPPLY - burned) / 1e6) };
 }
 
@@ -218,17 +260,23 @@ function parsePool(address, data, keys = true) {
     burned: r.u64(), creatorFees: r.u64(), treasuryFees: r.u64(), creatorFeesPaid: r.u64(), treasuryFeesPaid: r.u64(),
     volume: r.u64(), openedAt: Number(r.i64()), graduatedAt: Number(r.i64()), feeBps: r.u16(), treasuryShareBps: r.u16(),
   });
+  // live: 1 while the market cap is at the line or over it (for good in a pool that graduated under the first rules)
   p.graduated = r.u8() === 1;
   r.skip(3);                                             // bump, padding
   const opensAt = Number(r.i64()), openingSol = r.u64(), totalSol = r.u64(), batchTokens = r.u64(), tokensLeft = r.u64();
   const seats = r.u32(), state = OPENING_STATES[r.u8()] ?? "none";
   // a coin's opening batch: null when it opened at once
   p.opening = state === "none" ? null : { state, opensAt, sol: openingSol, totalSol, tokens: batchTokens, tokensLeft, seats };
+  // the pool's part of each fee, after a byte of padding: zeros in a pool launched before it, and read as 0 in one that
+  // graduated under the first rules, as the program reads it
+  r.skip(1);
+  p.poolShareBps = poolShareOf({ burned: p.burned, poolShareBps: r.u16() });
   const { price, marketCap } = priceOf(p, p.burned);
   p.price = price;
   p.marketCap = marketCap;
-  // Share of the way to graduation, by real SOL in.
-  p.progress = p.graduated ? 1 : Number(p.realSol) / Number(p.graduationSol);
+  // The real SOL at the line for the pool as it stands, and the share of the way there: the real SOL against it.
+  p.lineSol = lineSol(p);
+  p.progress = progressOf(p);
   return p;
 }
 
@@ -467,6 +515,8 @@ async function decodeEvent(b64) {
           tokens: r.u64(), fee: r.u64(), realSol: r.u64(), tokenReserve: r.u64(), graduated: r.bool(),
         };
         e.byCreator = bytes.length > r.at ? r.bool() : null;
+        // the part of the fee that stayed in the pool (in realSol already); null in a trade from before it
+        e.poolFee = bytes.length >= r.at + 8 ? r.u64() : null;
         e.batch = e.trader.equals(e.recipient) && e.trader.equals(poolAddress(e.mint));   // the opening batch's one buy
         return e;
       }
@@ -824,10 +874,16 @@ export async function history(mint, { limit = 100 } = {}) {
   return r.events;
 }
 
+/**
+ * The virtual SOL the curve counted after a trade: the pool's, except after the graduation of a pool that graduated
+ * under the first rules (burned > 0), whose virtual SOL went then.
+ */
+export const tradeVirtual = (e, pool) => (isLegacy(pool) && e.graduated ? 0n : pool.virtualSol);
+
 /** Price points for a chart, from the trades: { time, price } with price in SOL per token. */
 export function pricePoints(events, pool) {
   return events.filter((e) => e.kind === "trade").map((e) => {
-    const r = { virtualSol: pool.virtualSol, realSol: e.realSol, tokens: e.tokenReserve, graduated: e.graduated };
+    const r = { virtualSol: tradeVirtual(e, pool), realSol: e.realSol, tokens: e.tokenReserve };
     return { time: e.time, price: priceOf(r).price, buy: e.buy, sol: e.sol, tokens: e.tokens, trader: e.trader, signature: e.signature };
   });
 }
@@ -877,7 +933,7 @@ export async function buildBuy({ pool, owner, sol, slippageBps = 100 }) {
   const quote = quoteBuy(pool, lamports, pool.feeBps);
   const minOut = minus(quote.tokensOut, slippageBps);
   const tx = new Transaction().add(
-    ComputeBudgetProgram.setComputeUnitLimit({ units: 80_000 }),   // a first buy that opens the account and graduates took up to 61k
+    ComputeBudgetProgram.setComputeUnitLimit({ units: 80_000 }),   // a first buy that opens the account took up to 61k (with the first rules' burn)
     openAccount(owner, owner, pool.mint),
     await ix("buy", swapKeys(pool, owner), u64(lamports), u64(minOut)),
   );
@@ -1103,8 +1159,8 @@ export async function buildLaunch({
     opening = { secs: openingSecs, commit: lamports };
   } else if (Number(firstBuySol) > 0) {
     const opening = {
-      address: pool, mint, vault, feeBps, virtualSol, realSol: 0n,
-      tokens: SUPPLY, graduationSol: gradSol, graduated: false,
+      address: pool, mint, vault, feeBps, virtualSol, realSol: 0n, tokens: SUPPLY, graduationSol: gradSol, graduationMcap,
+      graduated: false, burned: 0n, poolShareBps: POOL_SHARE_BPS, treasuryShareBps: config.treasuryShareBps,
     };
     const buy = await buildBuy({ pool: opening, owner: creator, sol: firstBuySol });
     tx.add(...buy.tx.instructions.slice(1));

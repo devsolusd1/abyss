@@ -224,7 +224,7 @@
 </header>
 
 <main>
-<!-- ===== the coin's pool as its black hole: the disk is the real SOL in the pool, full size at graduation; the jets are graduation ===== -->
+<!-- ===== the coin's pool as its black hole: the disk is the real SOL in the pool, full size at the graduation line; the jets are lit while its market cap is over the line ===== -->
 <section class="hero" id="top">
   <div class="wrap c-grid">
     <div class="c-main" id="main">
@@ -426,7 +426,9 @@ if (BH.reduced) document.documentElement.classList.add('still');
 
 /* ================= the hero: the coin's own black hole, on its real pool ================= */
 // before the pool is read it is an empty hole; then the coin's SOL comes in as clumps. Every later read and every
-// confirmed trade goes in through .show (or .follow), so new SOL spirals in and a graduation plays by itself
+// confirmed trade goes in through .show (or .follow), so new SOL spirals in, the jets light when the market cap crosses
+// the graduation line and go out when it falls under it again. The disk is full at the real SOL that takes the pool, as
+// it stands, to that line (Chain.lineSol)
 var heroCv = $('#heroCv'), stage = $('#stage'), hole = null, holeStill = false;
 function makeHole() {
   if (hole) hole.stop();
@@ -452,14 +454,15 @@ stage.addEventListener('pointermove', function (e) {
 });
 stage.addEventListener('pointerleave', function () { hole.lean(0); });
 
-var KEY = 'disk: real SOL in the pool, full at graduation', KEY_GRAD = 'disk: real SOL in the pool · jets: graduated';   // one line on a phone
+var KEY = 'disk: real SOL in the pool, full at the graduation line', KEY_GRAD = 'disk: real SOL in the pool · jets: graduated';   // one line on a phone
 function renderHero() {
   if (!POOL || !ST) return;
   var grad = ST.graduated && hole.graduated;           // the words switch when the picture graduates
   setText('#nPx', fPx(POOL.price));
   setText('#nCap', fSol(POOL.marketCap) + ' SOL market cap');
   setText('#nSol', fSol(ST.realSol));
-  setText('#nSolL', grad ? 'graduated, same pool' : 'of ' + fSol(ST.graduationSol) + ' to graduate');
+  // a coin from the program's first rules is graduated for good, sold down or not: no line in real SOL to be over
+  setText('#nSolL', !grad ? 'of ' + fSol(ST.graduationSol) + ' to graduate' : Chain.isLegacy(POOL) ? 'graduated under the program\'s first rules' : 'over the ' + fSol(ST.graduationSol) + ' line: graduated');
   setText('#legend', grad ? KEY_GRAD : KEY);
   paintStatus();
 }
@@ -493,7 +496,8 @@ function renderTape() {
   for (var i = EVENTS.length - 1; i >= 0 && items.length < 12; i--) {
     var e = EVENTS[i], html = null, cls = '';
     if (e.kind === 'trade') { cls = e.buy ? 'buy' : 'sell'; html = '◎' + esc(fSol(lam(e.sol))) + ' ' + (e.buy ? '<b>bought</b> ' : 'sold ') + esc(sym) + ' · ' + esc(ago(e.time)); }
-    else if (e.kind === 'graduation') { cls = 'grad'; html = '<b>' + esc(sym) + '</b> graduated · ' + esc(fTok(units(e.burned))) + ' tokens burned'; }
+    // a graduation under the program's first rules burned tokens; now it is the market cap crossing the line, and can repeat
+    else if (e.kind === 'graduation') { cls = 'grad'; html = '<b>' + esc(sym) + '</b> graduated · ' + (e.burned > 0n ? esc(fTok(units(e.burned))) + ' tokens burned' : esc(fSol(lam(e.realSol))) + ' real SOL in'); }
     if (!html) continue;
     if (i > cut && !BH.reduced) cls += ' new';
     var u = explorer('tx', e.signature);
@@ -505,30 +509,28 @@ function renderTape() {
 }
 
 /* ================= in numbers: the pool account as a short list ================= */
-function split(bps) {
-  if (bps === 5000) return 'half to the creator, half to the platform';
-  return pct((1e4 - bps) / 1e4) + ' to the creator, ' + pct(bps / 1e4) + ' to the platform';
+// a trade's fee as the pool shares it (Chain.feeParts), in percent of the trade: the pool's part first, which stays in
+// its real SOL, then the rest between the creator and the platform. A fee of 1% today: 0.4%, 0.4% and 0.2%
+function split(p) {
+  var whole = 1e8, x = Chain.feeParts(BigInt(Math.round(whole * p.feeBps / 1e4)), p);
+  function of(n) { return +(Number(n) / whole * 100).toFixed(3) + '%'; }
+  if (!(p.feeBps > 0)) return 'no fee';
+  return of(x.creator) + ' to the creator, ' + of(x.treasury) + ' to the platform' + (x.pool > 0n ? ', ' + of(x.pool) + ' stays in the pool' : '');
 }
 function row(k, v) { return '<div class="f"><dt>' + k + '</dt><dd>' + v + '</dd></div>'; }
 // the pool's floor: the price per whole token if every token outside the pool were sold back to it. A constant product
-// x·y = k with all S tokens in it holds k/S SOL, so the price is k/S². Before graduation that is the opening price; at
-// graduation the virtual SOL goes and it drops to about 0.62× that (30 / 420); after it the fees stay out of the
-// reserves and nothing burns again, so it stays put. Not a guarantee of anything: the worst case as the pool stands
+// x·y = k with all S tokens in it holds k/S SOL, so the price is k/S². On the one curve k starts at V·S, so that is the
+// opening price, and no trade lowers k: the pool's part of each fee (and the rounding) lifts it as the coin trades. A pool that
+// graduated under the program's first rules lost its virtual SOL then and keeps no part of the fee: there it stays put.
+// Not a guarantee of anything: the worst case as the pool stands
 function floorPrice(p) {
   if (!p) return 0;
-  var x = (p.graduated ? 0 : lam(p.virtualSol)) + lam(p.realSol), t = units(p.tokens), s = units(Chain.SUPPLY - p.burned);
+  var x = lam(Chain.curveVirtual(p)) + lam(p.realSol), t = units(p.tokens), s = units(Chain.SUPPLY - p.burned);
   return s > 0 ? x * t / (s * s) : 0;
 }
-// the floor just after graduation, for a pool still on its curve: the virtual SOL gone, the burn done (the same
-// formula as the program: B = T·V/x at the line, here with the line's numbers)
-function floorAfterGrad(p) {
-  var G = lam(p.graduationSol), V = lam(p.virtualSol), x = V + G, T = units(Chain.SUPPLY) * V / x, B = T * V / x, s = units(Chain.SUPPLY) - B, t = T - B;
-  return s > 0 ? G * t / (s * s) : 0;
-}
-// what the floor is, in words: on the curve it is not the last word, since graduation lowers it
 function floorWords(p) {
-  return p.graduated ? 'the worst case now; it stays here'
-    : 'the worst case on the curve; at graduation it drops to ' + pct(floorPrice(p) > 0 ? floorAfterGrad(p) / floorPrice(p) : 0) + ' of this';
+  if (Chain.isLegacy(p)) return 'the worst case now; it stays here (this coin graduated under the program\'s first rules)';
+  return 'never under the opening price' + (Chain.poolShareOf(p) > 0 ? '; the pool\'s part of each fee lifts it as the coin trades' : '') + '; in SOL, not a promise of value';
 }
 /* ================= born: from /api/birth (server/birth.mjs) and the history ================= */
 // The answer: { complete, tooOld, read, more, launch, buyers } (server/birth.mjs). read: the pool's own transactions read
@@ -666,15 +668,20 @@ function renderBorn() {
   note.hidden = false;
 }
 function renderFacts() {
-  var p = POOL, st = ST, V = lam(p.virtualSol), G = lam(p.graduationSol), M = lam(p.graduationMcap), out = '';
+  var p = POOL, st = ST, V = lam(p.virtualSol), M = lam(p.graduationMcap), out = '';
   // the count of trades only when the whole life of the pool is read
   var trades = EVENTS && HIST && HIST.complete && HIST.whole ? EVENTS.filter(function (e) { return e.kind === 'trade'; }).length : null;
   var cO = lam(p.creatorFees), cP = lam(p.creatorFeesPaid), tO = lam(p.treasuryFees), tP = lam(p.treasuryFeesPaid);
   // the first column is the pool (six rows), the second its money and keys
-  out += row('virtual SOL', fAmt(V) + ' SOL' + mute(st.graduated ? 'dropped at graduation' : 'sets where the price starts; never in the vault'));
-  out += row('graduation', st.graduated
-    ? esc(when(p.graduatedAt)) + mute(fTok(units(p.burned)) + ' tokens burned, same price, same pool')
-    : 'at a ' + fAmt(M) + ' SOL market cap' + mute(fSol(st.realSol) + ' of ' + fSol(G) + ' real SOL in, ' + fSol(Math.max(0, G - st.realSol)) + ' to go'));
+  var legacy = Chain.isLegacy(p), first = p.graduatedAt > 0 ? '; first over it ' + esc(when(p.graduatedAt)) : '';
+  out += row('virtual SOL', fAmt(V) + ' SOL' + mute(legacy ? 'dropped at graduation, under the program\'s first rules' : 'sets where the price starts; stays in the curve for life, never in the vault'));
+  // graduated while the market cap on the whole supply is at the line or over it: a mark that can come and go, nothing
+  // happens to the pool at it. In real SOL the line is where the pool as it stands gets there (st.graduationSol, from
+  // Chain.lineSol): graduation_sol at launch, more as the pool keeps its part of the fees
+  out += row('graduation', legacy
+    ? esc(when(p.graduatedAt)) + mute(fTok(units(p.burned)) + ' tokens burned, under the program\'s first rules')
+    : (st.graduated ? 'graduated' : 'at a ' + fAmt(M) + ' SOL market cap') + mute((st.graduated ? 'its market cap is at the ' + fAmt(M) + ' SOL line or over it; graduated while it stays there'
+      : fSol(st.realSol) + ' of ' + fSol(st.graduationSol) + ' real SOL in, where the pool as it stands reaches it') + first));
   var o = p.opening, before = o && o.state === 'open' && nowS() < o.opensAt;
   if (o) {
     var left = o.seats ? '; ' + o.seats + (o.seats === 1 ? ' seat' : ' seats') + ' still to claim' : '';
@@ -690,11 +697,9 @@ function renderFacts() {
   }
   out += row('market cap', fSol(p.marketCap) + ' SOL' + mute('on ' + fTok(units(Chain.SUPPLY - p.burned)) + ' tokens'));
   out += row('in the pool', fTok(units(p.tokens)) + ' tokens' + mute('of the 1B made'));
-  out += row('pool floor', fPx(floorPrice(p)) + ' SOL per 1M' + mute(st.graduated
-    ? 'the price if every token outside the pool were sold back to it; it stays here now'
-    : 'the price if every token outside the pool were sold back to it; at graduation it drops to ' + pct(floorPrice(p) > 0 ? floorAfterGrad(p) / floorPrice(p) : 0) + ' of this'));
+  out += row('pool floor', fPx(floorPrice(p)) + ' SOL per 1M' + mute('the price if every token outside the pool were sold back to it; ' + floorWords(p)));
   out += row('volume', fSol(lam(p.volume)) + ' SOL' + mute(trades == null ? 'traded so far' : 'in ' + trades + ' trade' + (trades === 1 ? '' : 's')));
-  out += row('fee', (p.feeBps / 100) + '% of every trade' + mute(split(p.treasuryShareBps)));
+  out += row('fee', (p.feeBps / 100) + '% of every trade' + mute(split(p)));
   out += row('fees owed', fSol(cO) + ' creator · ' + fSol(tO) + ' platform' + mute('SOL, waiting in the pool' + (cP + tP > 0 ? '; ' + fSol(cP) + ' and ' + fSol(tP) + ' paid out' : '; none claimed yet')));
   // with an opening batch the coin did not open at its launch: nobody could buy before the batch settled
   out += o
@@ -751,8 +756,9 @@ function ordered(events) {
   });
   return launch.concat(chain);
 }
-// SOL per whole token: after a trade (from its reserves), at launch, after graduation
-function priceAt(e) { var x = (e.graduated ? 0 : lam(POOL.virtualSol)) + lam(e.realSol), t = units(e.tokenReserve); return t > 0 ? x / t : 0; }
+// SOL per whole token: after a trade (from its reserves), at launch. The curve counts the virtual SOL after every trade,
+// but after the graduation of a coin that graduated under the program's first rules (Chain.tradeVirtual)
+function priceAt(e) { var x = lam(Chain.tradeVirtual(e, POOL)) + lam(e.realSol), t = units(e.tokenReserve); return t > 0 ? x / t : 0; }
 function launchPrice() { return lam(POOL.virtualSol) / units(Chain.SUPPLY); }
 function tr(cls, i, cells) { return '<tr class="' + cls + '" data-i="' + i + '" data-k="' + esc(evKey(EVENTS[i])) + '">' + cells.map(function (c, j) { return '<td>' + (j === 1 ? '<i class="k"></i>' : '') + c + '</td>'; }).join('') + '</tr>'; }
 var SHOWN = 15, allRows = false;                        // the list shows the newest 15 rows until "show all"
@@ -768,7 +774,10 @@ function renderHistory() {
     else if (e.kind === 'settle' && e.refund) rows.push(tr('ev', i, [t, 'batch bought nothing', fSol(lam(e.sol)), '', '']));
     else if (e.kind === 'seat') rows.push(tr('ev', i, [t, e.refund ? 'seat refunded' : 'seat claimed', e.refund ? fSol(lam(e.sol)) : '', e.refund ? '' : tok(units(e.tokens)), '']));
     else if (e.kind === 'launch') rows.push(tr('ev', i, [t, 'launch', '', '1B', fPx(launchPrice())]));
-    else if (e.kind === 'graduation') rows.push(tr('ev grad', i, [t, 'graduated', '−' + fAmt(lam(POOL.virtualSol)), '−' + fTok(units(e.burned)), fPx(lam(POOL.graduationMcap) / 1e9)]));   // the price it graduates at: the graduation market cap over the 1B made
+    // under the first rules the virtual SOL dropped and tokens burned, at the graduation market cap's price; now the
+    // market cap reaches the line, at the price its trade left
+    else if (e.kind === 'graduation') rows.push(e.burned > 0n ? tr('ev grad', i, [t, 'graduated', '−' + fAmt(lam(POOL.virtualSol)), '−' + fTok(units(e.burned)), fPx(lam(POOL.graduationMcap) / 1e9)])
+      : tr('ev grad', i, [t, 'graduated', fSol(lam(e.realSol)) + ' in', '', fPx(priceAt(e))]));
     else if (e.kind === 'claim') rows.push(tr('ev', i, [t, (e.creator ? 'creator' : 'platform') + ' claim', fSol(lam(e.amount)), '', '']));
   });
   rows.reverse();
@@ -843,17 +852,20 @@ function autoTf() {
   }
   return 0;
 }
-// the price after a trade per 1M tokens, or the market cap on the tokens then in existence (the burn comes with graduation)
+// the price after a trade per 1M tokens, or the market cap on the tokens then in existence (only a coin that graduated
+// under the program's first rules burned any, at its graduation)
 function valOf(p, supply) { var v = SERIES === 'price' ? p * 1e6 : p * supply; return inUsd() ? v * USD : v; }
 function supplyAt(e) { return units(Chain.SUPPLY - (e.graduated ? POOL.burned : 0n)); }
 // the value just before a trade, from the trade itself: the first candle's open when the launch is older than the
-// history read. A buy's sol is paid in with its fee, a sell's is received after it; a graduating buy also burned
+// history read. A buy's sol is paid in with its fee, a sell's is received after it; the pool's part of the fee stayed
+// in its real SOL. Under the program's first rules a graduating buy also burned, and dropped the virtual SOL after it
 function valBefore(e) {
   var g = null;
   EVENTS.forEach(function (x) { if (x.kind === 'graduation' && x.signature === e.signature) g = x; });
-  var real = e.buy ? e.realSol - (e.sol - e.fee) : e.realSol + e.sol + e.fee;
-  var toks = e.buy ? e.tokenReserve + e.tokens + (g ? g.burned : 0n) : e.tokenReserve - e.tokens;
-  var was = e.graduated && !g;                              // graduated before this trade
+  var kept = e.poolFee || 0n, burnt = g && g.burned > 0n ? g.burned : 0n;
+  var real = e.buy ? e.realSol - (e.sol - e.fee) - kept : e.realSol + e.sol + e.fee - kept;
+  var toks = e.buy ? e.tokenReserve + e.tokens + burnt : e.tokenReserve - e.tokens;
+  var was = Chain.isLegacy(POOL) && e.graduated && !burnt;   // graduated, the first rules' way, before this trade
   if (real < 0n || toks <= 0n) return null;
   return valOf(((was ? 0 : lam(POOL.virtualSol)) + lam(real)) / units(toks), units(Chain.SUPPLY - (was ? POOL.burned : 0n)));
 }
@@ -954,6 +966,7 @@ function drawChart(view) {
   if (tf > 0 && s && countFor(tf, s) > MAX_CANDLES) tf = autoTf();
   paintTfs(tf);
   if (shownTf != null && tf !== shownTf) chart.fit();    // the interval picked itself anew (more trades read): a new set of candles
+  // the goal is the graduation line: the market cap chosen at launch, whatever the coin has traded
   var C = buildCandles(tf), M = lam(POOL.graduationMcap), g = (SERIES === 'price' ? M / 1000 : M) * (inUsd() ? USD : 1), lines = [];
   CANDLES = C.list;
   var off = anchorAt(view, tf);
@@ -1037,8 +1050,11 @@ chartCv.addEventListener('keydown', function (e) {
 });
 
 /* ================= trading ================= */
-function reservesOf(p) { return { virtualSol: p.virtualSol, realSol: p.realSol, tokens: p.tokens, graduationSol: p.graduationSol, graduated: p.graduated }; }
-function afterOf(a, burned) { var pr = Chain.priceOf(a, burned); return { realSol: lam(a.realSol), graduated: !!a.graduated, price: pr.price, mcap: pr.marketCap }; }
+function reservesOf(p) {
+  return { virtualSol: p.virtualSol, realSol: p.realSol, tokens: p.tokens, graduationMcap: p.graduationMcap, graduated: p.graduated,
+    burned: p.burned, poolShareBps: p.poolShareBps, treasuryShareBps: p.treasuryShareBps };
+}
+function afterOf(a) { var pr = Chain.priceOf(a); return { realSol: lam(a.realSol), graduated: !!a.graduated, price: pr.price, mcap: pr.marketCap }; }
 function parseAmt(s) {
   s = String(s || '').trim().toLowerCase().replace(/[\s_]/g, '');
   s = /^\d{1,3}(,\d{3})+(\.\d*)?[kmb]?$/.test(s) ? s.replace(/,/g, '') : s.replace(',', '.');
@@ -1078,17 +1094,19 @@ function makeQuote() {
     if (low2) return low2;
     var q = Chain.quoteBuy(r, lamports, fee);
     if (q.tokensOut <= 0n) return { msg: 'Too small to trade.', bad: true };
-    return { side: 'buy', sol: v, q: q, minOut: q.tokensOut * (10000n - SLIP) / 10000n, after: afterOf(q.after, POOL.burned + q.burned) };
+    return { side: 'buy', sol: v, q: q, minOut: q.tokensOut * (10000n - SLIP) / 10000n, after: afterOf(q.after) };
   }
   var u = (maxUnits != null && amt.value === maxText) ? maxUnits : BigInt(Math.round(v * 1e6));
-  var outside = Chain.SUPPLY - POOL.burned - POOL.tokens;
+  var outside = Chain.SUPPLY - POOL.burned - POOL.tokens;    // burned: only a coin from the program's first rules
   if (u <= 0n) return { msg: 'Too small to trade.', bad: true };
   if (WAL && u > WAL.tokens) return { msg: WAL.tokens > 0n ? 'You hold ' + tok(units(WAL.tokens)) + ' of these tokens.' : 'This wallet holds none of these tokens.', bad: true };
   if (u > outside) return { msg: 'Only ' + tok(units(outside)) + ' tokens are outside the pool.', bad: true };
   var q2 = Chain.quoteSell(r, u, fee);
   if (q2.solOut <= 0n) return { msg: 'Too small to trade.', bad: true };
-  return { side: 'sell', units: u, q: q2, minOut: q2.solOut * (10000n - SLIP) / 10000n, after: afterOf(q2.after, POOL.burned) };
+  return { side: 'sell', units: u, q: q2, minOut: q2.solOut * (10000n - SLIP) / 10000n, after: afterOf(q2.after) };
 }
+// the part of a quote's fee that stays in the pool, in words
+function kept(q) { return q.poolFee > 0n ? ', ' + fSol(lam(q.poolFee)) + ' of it stays in the pool' : ''; }
 function renderQuote() {
   try { Q = makeQuote(); } catch (e) { report(e); Q = { msg: 'Could not quote that amount.', bad: true }; }
   var t;
@@ -1100,11 +1118,12 @@ function renderQuote() {
       : 'If the batch closed now with it, ' + (Q.mine > Q.lamports ? 'your seat of <b>' + fSol(lam(Q.mine)) + '</b> SOL' : 'it') + ' would take about <b>' + tok(units(Q.q.tokens)) + '</b> tokens: <b>' + fSol(lam(Q.total)) + '</b> SOL buying at once, fee <b>' + fSol(lam(Q.q.batch.fee)) + '</b> SOL. More SOL in the batch means fewer tokens per SOL, the same for every seat.';
   }
   else if (Q.side === 'buy') {
-    t = 'You get <b>' + tok(units(Q.q.tokensOut)) + '</b> tokens, at least <b>' + tok(units(Q.minOut)) + '</b> or it stops (1% slippage). Fee <b>' + fSol(lam(Q.q.fee)) + '</b> SOL. ';
-    if (Q.q.graduates) t += 'This buy <b>graduates the coin</b>: the ' + fAmt(lam(POOL.virtualSol)) + ' virtual SOL drops out and ' + fTok(units(Q.q.burned)) + ' tokens burn, so the price does not jump. Same pool after.';
-    else t += 'Price after it: <b>' + fPx(Q.after.price) + '</b> per 1M.';
+    t = 'You get <b>' + tok(units(Q.q.tokensOut)) + '</b> tokens, at least <b>' + tok(units(Q.minOut)) + '</b> or it stops (1% slippage). Fee <b>' + fSol(lam(Q.q.fee)) + '</b> SOL' + kept(Q.q) + '. ';
+    if (Q.q.graduates) t += 'This buy takes the market cap to the ' + fAmt(lam(POOL.graduationMcap)) + ' SOL line: the coin <b>graduates</b>, on the same curve. ';
+    t += 'Price after it: <b>' + fPx(Q.after.price) + '</b> per 1M.';
   } else {
-    t = 'You get <b>' + fSol(lam(Q.q.solOut)) + '</b> SOL, at least <b>' + fSol(lam(Q.minOut)) + '</b> or it stops (1% slippage). Fee <b>' + fSol(lam(Q.q.fee)) + '</b> SOL. Price after it: <b>' + fPx(Q.after.price) + '</b> per 1M.';
+    t = 'You get <b>' + fSol(lam(Q.q.solOut)) + '</b> SOL, at least <b>' + fSol(lam(Q.minOut)) + '</b> or it stops (1% slippage). Fee <b>' + fSol(lam(Q.q.fee)) + '</b> SOL' + kept(Q.q) + '. Price after it: <b>' + fPx(Q.after.price) + '</b> per 1M.';
+    if (POOL.graduated && !Q.q.after.graduated) t += ' The market cap goes back under the graduation line.';
   }
   // the quote is a live region: written only when its words change, so a read that changes nothing says nothing
   var key = (Q.bad ? '!' : '') + t;
@@ -1463,6 +1482,7 @@ function applyPool(p) {
   var first = !POOL || String(POOL.mint) !== String(p.mint), diff = first || changed(p, POOL);
   // this coin's batch settled while the page was open (a refund too)
   var settledNow = !first && POOL.opening && POOL.opening.state === 'open' && p.opening && p.opening.state !== 'open';
+  if (p.lineSol === undefined && window.Chain && Chain.lineSol) p.lineSol = Chain.lineSol(p);   // a pool shown by hand (__coin.show) may come without it
   POOL = p; lastRead = Date.now(); readFail = 0;
   if (!diff) { paintStatus(); return false; }
   showState(first);
@@ -1717,13 +1737,12 @@ window.__coin = {
   show: function (p) { PINNED = true; applyPool(p); renderHead(false); paintStatus(); return p; },
   simBuy: function (solIn) {
     if (!POOL) return null;
-    var lamports = BigInt(Math.round(solIn * 1e9)), q = Chain.quoteBuy(reservesOf(POOL), lamports, POOL.feeBps), a = q.after;
-    var toT = q.fee * BigInt(POOL.treasuryShareBps) / 10000n;
-    var p = Object.assign({}, POOL, { realSol: a.realSol, tokens: a.tokens, graduated: a.graduated, burned: POOL.burned + q.burned, volume: POOL.volume + lamports,
-      treasuryFees: POOL.treasuryFees + toT, creatorFees: POOL.creatorFees + q.fee - toT });
-    if (a.graduated && !POOL.graduated) p.graduatedAt = Math.floor(Date.now() / 1000);
-    var pr = Chain.priceOf(a, p.burned); p.price = pr.price; p.marketCap = pr.marketCap;
-    p.progress = p.graduated ? 1 : Number(p.realSol) / Number(p.graduationSol);
+    var lamports = BigInt(Math.round(solIn * 1e9)), q = Chain.quoteBuy(reservesOf(POOL), lamports, POOL.feeBps), a = q.after, x = Chain.feeParts(q.fee, POOL);
+    var p = Object.assign({}, POOL, { realSol: a.realSol, tokens: a.tokens, graduated: a.graduated, volume: POOL.volume + lamports,
+      treasuryFees: POOL.treasuryFees + x.treasury, creatorFees: POOL.creatorFees + x.creator });
+    if (a.graduated && !POOL.graduatedAt) p.graduatedAt = Math.floor(Date.now() / 1000);   // the first time only, as the program keeps it
+    var pr = Chain.priceOf(a); p.price = pr.price; p.marketCap = pr.marketCap;
+    p.lineSol = Chain.lineSol(p); p.progress = Chain.progressOf(p);
     return this.show(p);
   },
   quote: function (v) { amt.value = String(v); renderQuote(); return quoteEl.textContent; },

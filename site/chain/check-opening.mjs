@@ -79,7 +79,7 @@ const wallet = { publicKey: me.publicKey, signTransaction: async (tx) => { tx.pa
 /** A pool as a page holds it, with its batch as read. */
 const poolAs = (opening) => ({
   address: POOL, mint: MINT, vault: Chain.ata(POOL, MINT), feeBps: 100, virtualSol: 30_000_000_000n, realSol: 0n, tokens: Chain.SUPPLY,
-  graduationSol: 82_000_000_000n, graduated: false, opening: { state: "open", opensAt: 0, sol: 0n, totalSol: 0n, tokens: 0n, tokensLeft: 0n, seats: 1, ...opening },
+  graduationSol: 82_000_000_000n, graduationMcap: 420_000_000_000n, graduated: false, opening: { state: "open", opensAt: 0, sol: 0n, totalSol: 0n, tokens: 0n, tokensLeft: 0n, seats: 1, ...opening },
 });
 const E = (code, at = 1) => ({ err: { InstructionError: [at, { Custom: code }] } });
 const said = (name) => Chain.POOL_ERRORS.find((e) => e[0] === name)[1];
@@ -192,10 +192,12 @@ const STRUCTS = Object.fromEntries([...LIB.matchAll(/#\[event\]\s*pub struct (\w
     [event("Launched")],
     [event("Committed")],
     [event("Withdrawn")],
-    // a settle that graduates, with the seat's claim in it: the program logs them in this order
-    [event("Graduated"), event("Settled", { refund: false }), event("TradeEvent", { trader: POOL, recipient: POOL, buy: true, graduated: true, by_creator: false }), event("SeatClaimed", { refund: false })],
+    // a settle that takes the real SOL over the line, with the seat's claim in it: the program logs them in this order
+    // (a graduation burns nothing now)
+    [event("Graduated", { burned: 0n }), event("Settled", { refund: false }), event("TradeEvent", { trader: POOL, recipient: POOL, buy: true, graduated: true, by_creator: false }), event("SeatClaimed", { refund: false })],
     [event("TradeEvent", { trader, recipient: trader, buy: true, graduated: false, by_creator: true })],
-    [event("TradeEvent", { buy: false, graduated: false }, 1)],    // from before by_creator
+    [event("TradeEvent", { buy: false, graduated: true }, 1)],     // from before pool_fee
+    [event("TradeEvent", { buy: false, graduated: false }, 2)],    // from before by_creator
     [event("Settled", { refund: true, tokens: 0n }), event("SeatClaimed", { refund: true, tokens: 0n })],
     [event("Launched", {}, 1)],                                   // from before opens_at
     [event("FeesClaimed", { creator: true }), event("CreatorChanged")],
@@ -218,8 +220,13 @@ const STRUCTS = Object.fromEntries([...LIB.matchAll(/#\[event\]\s*pub struct (\w
   const at = (i, n) => r.events.find((e) => e.signature === list[i].signature && e.n === n);
   line(at(3, 2)?.batch === true && at(4, 0)?.batch === false && at(5, 0)?.batch === false,
     "the batch's buy (trader and recipient the pool) is marked as the batch's; a trade with trader and recipient one wallet is not");
-  line(STRUCTS.TradeEvent.at(-1).name === "by_creator" && at(5, 0)?.byCreator === null, "a trade from before by_creator reads byCreator as null, not false");
-  line(STRUCTS.Launched.at(-1).name === "opens_at" && at(7, 0)?.opensAt === 0 && at(0, 0)?.opensAt === Number(list[0].evs[0].values.opens_at),
+  line(STRUCTS.TradeEvent.at(-1).name === "pool_fee" && STRUCTS.TradeEvent.at(-1).type === "u64" && typeof at(4, 0)?.poolFee === "bigint" && at(5, 0)?.poolFee === null,
+    "TradeEvent ends with pool_fee, the fee's part kept in the pool: read as a u64, and as null in a trade from before it");
+  line(STRUCTS.TradeEvent.at(-2).name === "by_creator" && at(6, 0)?.byCreator === null && at(6, 0)?.poolFee === null && at(5, 0)?.byCreator !== null,
+    "a trade from before by_creator reads byCreator (and poolFee) as null, not false");
+  line(STRUCTS.Graduated.map((f) => f.name).join(" ") === "mint real_sol token_reserve burned" && at(3, 0)?.burned === 0n,
+    "Graduated keeps its form (mint, real_sol, token_reserve, burned), with 0 burned");
+  line(STRUCTS.Launched.at(-1).name === "opens_at" && at(8, 0)?.opensAt === 0 && at(0, 0)?.opensAt === Number(list[0].evs[0].values.opens_at),
     "a launch from before opens_at reads opensAt as 0; a new one, its time");
   const settle = r.events.filter((e) => e.signature === list[3].signature).sort((a, b) => a.n - b.n);
   line(settle.map((e) => `${e.n}:${e.kind}`).join(" ") === "0:graduation 1:settle 2:trade 3:seat", `a settle that graduates, in its logs' order: ${settle.map((e) => `${e.n}:${e.kind}`).join(" ")}`);
@@ -289,7 +296,7 @@ const clockAccount = (ts) => ({
     treasury_fees: "treasuryFees", creator_fees_paid: "creatorFeesPaid", treasury_fees_paid: "treasuryFeesPaid", volume_sol: "volume",
     opened_at: "openedAt", graduated_at: "graduatedAt", fee_bps: "feeBps", treasury_share_bps: "treasuryShareBps", graduated: "graduated",
     opens_at: "opening.opensAt", opening_sol: "opening.sol", opening_total_sol: "opening.totalSol", opening_tokens: "opening.tokens",
-    opening_tokens_left: "opening.tokensLeft", opening_seats: "opening.seats", opening_state: "opening.state",
+    opening_tokens_left: "opening.tokensLeft", opening_seats: "opening.seats", opening_state: "opening.state", pool_share_bps: "poolShareBps",
   };
   const NOT_READ = new Set(["bump", "_pad", "_pad2", "_reserved"]);
   const unknown = PF.filter((f) => !READS[f.name] && !NOT_READ.has(f.name)).map((f) => f.name);
@@ -305,9 +312,20 @@ const clockAccount = (ts) => ({
     const got = get(READS[f.name]), want = vals[f.name];
     if (f.name === "opening_state") return got !== STATES[want];
     if (f.name === "graduated") return got !== true;
+    if (f.name === "pool_share_bps") return got !== 0;   // burned > 0 here: a pool from the first rules keeps no part
     return !same(f.type, got, want);
   }).map((f) => f.name);
   line(p && !wrong.length, `a Pool laid out as state.rs has it reads back field by field${wrong.length ? `; wrong: ${wrong.join(", ")}` : ""}`);
+  // the pool's part of the fee: a u16 after opening_state and one byte of padding, read as written in a pool that
+  // burned nothing, and as 0 in one that graduated under the first rules (burned > 0), as Pool::reserves reads it
+  const at2 = place.pool_share_bps, fresh = poolData({ ...vals, burned: 0n, pool_share_bps: Number(K.POOL_SHARE_BPS) });
+  node.accounts.set(Chain.poolAddress(M2).toBase58(), { data: fresh, owner: P, pool: true });
+  const p2 = await Chain.readPool(M2);
+  node.accounts.set(Chain.poolAddress(M2).toBase58(), { data, owner: P, pool: true });
+  line(at2 === place.opening_state + 2 && PF.find((f) => f.name === "pool_share_bps")?.type === "u16" && LEN === 8 + 336,
+    `state.rs: pool_share_bps a u16 at byte ${at2}, one past opening_state's padding byte (${place.opening_state + 1}); the Pool still ${LEN - 8} bytes`);
+  line(K.POOL_SHARE_BPS === BigInt(Chain.POOL_SHARE_BPS) && p2.poolShareBps === Number(K.POOL_SHARE_BPS) && p2.graduated === true,
+    `POOL_SHARE_BPS ${Chain.POOL_SHARE_BPS}, state.rs ${K.POOL_SHARE_BPS ?? "(not found)"}; a pool that burned nothing reads it back: ${p2.poolShareBps}`);
   const states = [];
   for (const s of Object.keys(STATES).map(Number)) {
     data[place.opening_state] = s;

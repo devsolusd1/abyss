@@ -1,6 +1,9 @@
 // Checks the chain layer against devnet by SIMULATION ONLY: nothing is signed or sent. It loads
-// the built bundle (../vendor/chain.js), the very file the site ships. The trades go on a coin that trades (no opening
-// batch, or one that is over, and not graduated); the opening batch's calls go on the first devnet coin in each state
+// the built bundle (../vendor/chain.js), the very file the site ships, whose math is the one curve with 20% of each fee
+// kept in the pool. A simulation checks a trade's tokens or SOL out against the quote's slippage limit only, so it
+// passes on the program from before that too, on a coin launched before it and away from the graduation line; the
+// numbers to the lamport are send-check.mjs's. The trades go on a coin that trades (no opening batch, or one that is
+// over; graduated or not, it is the same curve); the opening batch's calls go on the first devnet coin in each state
 // (for a batch that is over, a settled one, or a refunded one only when no settled coin fits) and on the first seat
 // waiting in a batch that is over. A state no coin is in is said to be skipped, as is a call on a coin whose window
 // moved on past that state by the time of the call. The batch's offline checks are check-opening.mjs.
@@ -28,12 +31,13 @@ line(!!config, `config: admin ${config && Chain.short(config.admin)}, launches $
 
 const pools = await Chain.listPools();
 line(pools.length > 0, `${pools.length} pool(s) on the program`);
-// a coin that takes buys and sells now: a batch still open takes none, a graduated coin is another curve
-const trades = (p) => !p.graduated && (!p.opening || p.opening.state === "settled" || p.opening.state === "refund");
-const pool = pools.find(trades);
-if (!pool) { line(false, "no coin on devnet that trades now (every one is graduated or in its opening batch)"); process.exit(1); }
+// a coin that takes buys and sells now: a batch still open takes none; one below the line first, so a pool from the
+// program's first rules (graduated, burned > 0) is taken only when no other trades
+const trades = (p) => !p.opening || p.opening.state === "settled" || p.opening.state === "refund";
+const pool = pools.find((p) => trades(p) && !p.graduated) ?? pools.find(trades);
+if (!pool) { line(false, "no coin on devnet that trades now (every one is in its opening batch)"); process.exit(1); }
 console.log(`         ${pool.name} (${pool.symbol})  price ${pool.price.toExponential(4)} SOL  market cap ${pool.marketCap.toFixed(3)} SOL  `
-  + `to graduation ${(pool.progress * 100).toFixed(2)}%  fee ${pool.feeBps / 100}%${pool.opening ? `  batch ${pool.opening.state}` : ""}`);
+  + `to graduation ${(pool.progress * 100).toFixed(2)}%  fee ${pool.feeBps / 100}% (${pool.poolShareBps / 100}% of it kept)${pool.opening ? `  batch ${pool.opening.state}` : ""}`);
 
 // the history of the busiest coin, read at the public node's pace (see readHistory)
 const busiest = [...pools].sort((a, b) => (b.volume > a.volume ? 1 : b.volume < a.volume ? -1 : 0))[0];

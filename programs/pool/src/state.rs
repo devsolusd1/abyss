@@ -13,6 +13,8 @@ pub const SEAT_SEED: &[u8] = b"seat";
 /// Every coin has the same supply and decimals.
 pub const DECIMALS: u8 = 6;
 pub const SUPPLY: u64 = 1_000_000_000 * 1_000_000;
+// The math measures the graduation line on this same supply.
+const _: () = assert!(SUPPLY == crate::math::SUPPLY);
 
 const SOL: u64 = 1_000_000_000;
 /// Ceilings written into the program, which neither the config nor a creator can pass. A fee
@@ -24,6 +26,9 @@ pub const MAX_VIRTUAL_SOL: u64 = 1_000 * SOL;
 pub const MIN_GRADUATION_MULTIPLE: u64 = 2;
 pub const MAX_GRADUATION_MULTIPLE: u64 = 100;
 pub const MAX_LAUNCH_FEE: u64 = SOL;
+/// The part of every trading fee that stays in the pool's real SOL, written into each pool at launch. The creator and
+/// the treasury split the rest by the config's `treasury_share_bps`.
+pub const POOL_SHARE_BPS: u16 = 2_000;
 /// The opening batch: a window of 2 to 15 minutes before the first trade, in which anyone puts in SOL and may take it
 /// back out; at its end one buy is made with all of it, and every seat gets tokens for its share, at one price.
 pub const MIN_OPENING_SECS: u32 = 120;
@@ -83,9 +88,14 @@ pub struct Pool {
     /// Tokens the pool counts as its own. Read from here, never from the vault's balance, so
     /// tokens sent straight to the vault don't move the price.
     pub token_reserve: u64,
+    /// Real SOL that takes the pool, just launched, to its line (`math::graduation_sol`): for reading only. The
+    /// pool's part of each fee lifts k, and with it the real SOL at the line.
     pub graduation_sol: u64,
-    /// Market cap on the full supply at graduation, as chosen at launch.
+    /// The graduation line, chosen at launch: the coin is graduated while the market cap on the full supply is at it
+    /// or above it (`math::Reserves::over_the_line`), exactly, after every buy, sell and settle.
     pub graduation_mcap: u64,
+    /// Tokens the first version burned when the coin graduated. 0 for every coin since, which burns nothing: above 0,
+    /// the pool goes on as that version left it (`reserves`).
     pub burned: u64,
     /// Owed and not yet claimed.
     pub creator_fees: u64,
@@ -96,10 +106,11 @@ pub struct Pool {
     /// Every lamport that crossed the pool in trades, fees included.
     pub volume_sol: u64,
     pub opened_at: i64,
-    /// 0 until the curve graduates.
+    /// When the market cap first reached the line; 0 until then. Kept when it falls back under it.
     pub graduated_at: i64,
     pub fee_bps: u16,
     pub treasury_share_bps: u16,
+    /// 1 while the market cap on the full supply is at the line or above it, 0 under it.
     pub graduated: u8,
     pub bump: u8,
     pub _pad: [u8; 2],
@@ -117,7 +128,10 @@ pub struct Pool {
     pub opening_seats: u32,
     /// OPENING_NONE, OPENING_OPEN, OPENING_SETTLED or OPENING_REFUND.
     pub opening_state: u8,
-    pub _pad2: [u8; 3],
+    pub _pad2: u8,
+    /// POOL_SHARE_BPS at launch, in what were padding bytes: a coin launched before it reads 0, and keeps the whole fee
+    /// for its creator and the treasury.
+    pub pool_share_bps: u16,
     /// Room for what comes later, without moving any field above.
     pub _reserved: [u8; 16],
 }
@@ -136,13 +150,21 @@ pub struct Seat {
 impl Pool {
     pub const LEN: usize = 8 + core::mem::size_of::<Pool>();
 
+    /// The pool as the math reads it.
+    ///
+    /// A pool the first version graduated (`burned` > 0) dropped its virtual SOL and burned there, and went on as a
+    /// plain pool of its real reserves. It stays one: no virtual SOL (the field keeps it, for display), a line of 0 so
+    /// it is past it for good, and the whole fee owed as before. Read any other way, its price would jump 36% and its
+    /// last sells would ask for SOL that is not there.
     pub fn reserves(&self) -> Reserves {
+        let first_version = self.burned > 0;
         Reserves {
-            virtual_sol: self.virtual_sol,
+            virtual_sol: if first_version { 0 } else { self.virtual_sol },
             real_sol: self.real_sol,
             tokens: self.token_reserve,
-            graduation_sol: self.graduation_sol,
-            graduated: self.graduated != 0,
+            graduation_mcap: if first_version { 0 } else { self.graduation_mcap },
+            graduated: first_version || self.graduated != 0,
+            pool_share_bps: if first_version { 0 } else { self.pool_share_bps },
         }
     }
 
@@ -152,16 +174,44 @@ impl Pool {
         self.graduated = r.graduated as u8;
     }
 
-    /// Splits a trading fee between the treasury and the creator, and counts it as owed.
-    pub fn owe(&mut self, fee: u64) -> Result<()> {
-        let treasury = (fee as u128 * self.treasury_share_bps as u128 / crate::math::BPS as u128) as u64;
+    /// Notes the first time the market cap reached the line.
+    pub fn reached_the_line(&mut self, now: i64) {
+        if self.graduated_at == 0 {
+            self.graduated_at = now;
+        }
+    }
+
+    /// Splits what a trade owes, the fee less the pool's part, between the treasury and the creator, and counts it as
+    /// owed.
+    pub fn owe(&mut self, owed: u64) -> Result<()> {
+        let treasury = (owed as u128 * self.treasury_share_bps as u128 / crate::math::BPS as u128) as u64;
         self.treasury_fees = self.treasury_fees.checked_add(treasury).ok_or(crate::PoolError::MathOverflow)?;
-        self.creator_fees = self.creator_fees.checked_add(fee - treasury).ok_or(crate::PoolError::MathOverflow)?;
+        self.creator_fees = self.creator_fees.checked_add(owed - treasury).ok_or(crate::PoolError::MathOverflow)?;
         Ok(())
     }
 
     /// Lamports the pool must hold above its rent: the reserve, the fees owed, and the opening batch's SOL.
     pub fn owed_lamports(&self) -> Option<u64> {
         self.real_sol.checked_add(self.creator_fees)?.checked_add(self.treasury_fees)?.checked_add(self.opening_sol)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_pool_keeps_its_size_and_every_field_its_place() {
+        // what clients read by position: 8 bytes of discriminator, then the fields
+        let at = |offset: usize| 8 + offset;
+        assert_eq!(Pool::LEN, 8 + 336);
+        assert_eq!(at(core::mem::offset_of!(Pool, virtual_sol)), 168);
+        assert_eq!(at(core::mem::offset_of!(Pool, burned)), 208);
+        assert_eq!(at(core::mem::offset_of!(Pool, graduated)), 276);
+        assert_eq!(at(core::mem::offset_of!(Pool, opening_state)), 324);
+        // the pool's share, in what were the padding bytes after opening_state
+        assert_eq!(at(core::mem::offset_of!(Pool, _pad2)), 325);
+        assert_eq!(at(core::mem::offset_of!(Pool, pool_share_bps)), 326);
+        assert_eq!(at(core::mem::offset_of!(Pool, _reserved)), 328);
     }
 }

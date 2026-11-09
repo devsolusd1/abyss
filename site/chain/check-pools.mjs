@@ -151,7 +151,7 @@ const named = (list) => list.every((p) => { const w = names.get(p.mint.toBase58(
 // a pool's fields as plain text, so two reads can be compared whole: keys in base58, amounts as numbers
 const plain = (p) => JSON.stringify(p, (k, v) => (typeof v === "bigint" ? `${v}n` : v instanceof PublicKey ? v.toBase58() : v));
 const BOARD = ["mint", "name", "symbol", "virtualSol", "realSol", "tokens", "graduationSol", "graduationMcap", "burned", "creatorFees", "treasuryFees",
-  "creatorFeesPaid", "treasuryFeesPaid", "volume", "openedAt", "graduatedAt", "feeBps", "treasuryShareBps", "graduated", "opening", "price", "marketCap", "progress"];
+  "creatorFeesPaid", "treasuryFeesPaid", "volume", "openedAt", "graduatedAt", "feeBps", "treasuryShareBps", "graduated", "opening", "poolShareBps", "price", "marketCap", "lineSol", "progress"];
 const boardOf = (p) => plain(Object.fromEntries(BOARD.map((k) => [k, p[k]])));
 
 /* ---------- 1. read directly ---------- */

@@ -213,7 +213,7 @@ form > .blk:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
 <main class="l-main" id="top">
   <div class="l-sky" id="sky">
   <div class="wrap l-grid">
-    <!-- ===== the preview: the disk is the real SOL a first buy puts in, full size at graduation; the jets are graduation ===== -->
+    <!-- ===== the preview: the disk is the real SOL a first buy puts in, full size at the graduation line; the jets are lit while the market cap is over the line ===== -->
     <section class="l-stage" id="stageCol" aria-label="Preview of the new coin">
       <p class="kick" id="kick">new coin · preview</p>
       <h1 class="ph" id="pvName">Your coin</h1>
@@ -221,9 +221,9 @@ form > .blk:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
       <div class="stage" id="stage" role="img" aria-label="The new coin as a black hole."><canvas id="cv" aria-hidden="true"></canvas></div>
       <div class="nums" id="nums">
         <div class="n"><b id="nPx">0.0300</b><span class="l1">SOL / 1M tokens</span><span class="mute">at open</span></div>
-        <div class="n"><b id="nG">82.25</b><span class="l1">SOL to graduate</span><span class="mute">real, from buys</span></div>
+        <div class="n"><b id="nG">82.25</b><span class="l1">SOL to graduate</span><span class="mute">real, from launch</span></div>
         <div class="n"><b id="nM">420</b><span class="l1" id="nMl">SOL market cap</span><span class="mute" id="nMx">graduates, 14×</span></div>
-        <div class="n"><b id="nB">71.43M</b><span class="l1">tokens burn</span><span class="mute">at graduation</span></div>
+        <div class="n"><b id="nP">20%</b><span class="l1">of every fee</span><span class="mute">stays in the pool</span></div>
       </div>
       <p class="ctl" id="legend" aria-hidden="true">disk: empty until the first buy, full at graduation</p>
     </section>
@@ -578,11 +578,16 @@ function readSettings() {
   SET.ok = !msgs.virtualSol && !msgs.graduationMcap && !msgs.feeBps;
   if (SET.ok) { SET.v = s.v; SET.m = s.m; SET.fee = s.fee; SET.good = { v: s.v, m: s.m, fee: s.fee, vc: s.vc, mc: s.mc }; }
 }
+// the part of every fee a new coin keeps in its pool (state.rs POOL_SHARE_BPS), in basis points of the fee
+function poolShare() { return window.Chain && Chain.POOL_SHARE_BPS != null ? Chain.POOL_SHARE_BPS : 2000; }
 function split() {
-  // the fee's split, read from the config: the treasury's share, the creator gets the rest
+  // the fee's split, in percent of the fee: the pool's part first, then the rest between the treasury (its share, read
+  // from the config) and the creator, as the program shares it (Chain.feeParts)
   if (!CFG.cfg) return null;
-  var t = CFG.cfg.treasuryShareBps;
-  return { creator: (10000 - t) / 100, treasury: t / 100 };
+  var whole = 1e8, x = window.Chain && Chain.feeParts ? Chain.feeParts(BigInt(whole), { poolShareBps: poolShare(), treasuryShareBps: CFG.cfg.treasuryShareBps }) : null;
+  function of(n) { return +(Number(n) / whole * 100).toFixed(2); }
+  if (!x) { var p = poolShare() / 100, t = (100 - p) * CFG.cfg.treasuryShareBps / 10000; return { pool: p, treasury: +t.toFixed(2), creator: +(100 - p - t).toFixed(2) }; }
+  return { pool: of(x.pool), creator: of(x.creator), treasury: of(x.treasury) };
 }
 function gradSol(g) {
   if (window.Chain && Chain.graduationSol) return Chain.graduationSol(g.v, g.m);
@@ -642,9 +647,9 @@ function renderSettings() {
     : usd ? fCents(s.vc * MULT_LO) + ' to ' + fCents(s.vc * MULT_HI) : lamText(s.v * MULT_LO) + ' to ' + lamText(s.v * MULT_HI) + ' SOL');
   setText('#bFee', CFG.cfg ? minFee() / 100 + '% to ' + MAXFEE / 100 + '%' : 'up to ' + MAXFEE / 100 + '%');
   setMsg('#mV', ms.virtualSol || 'Sets the start: the price and market cap at open. In the pool it is the virtual SOL.', !!ms.virtualSol);
-  setMsg('#mM', ms.graduationMcap || (vOk ? MULT_LO + '× to ' + MULT_HI + '× the start. The coin graduates there.' : 'Checked once the start is within its bounds.'), !!ms.graduationMcap);
+  setMsg('#mM', ms.graduationMcap || (vOk ? MULT_LO + '× to ' + MULT_HI + '× the start. It sets the graduation line.' : 'Checked once the start is within its bounds.'), !!ms.graduationMcap);
   paintRate();
-  setMsg('#mFee', ms.feeBps || (sp ? 'Of each trade, in SOL: <b>' + sp.creator + '%</b> of it to the creator, ' + sp.treasury + '% to the platform.' : CFG.state === 'loading' ? 'Of each trade, in SOL. The lowest fee and the split are read from ' + N.place + '…' : 'Of each trade, in SOL.'), !!ms.feeBps);
+  setMsg('#mFee', ms.feeBps || (sp ? 'Of each trade, in SOL: <b>' + sp.creator + '%</b> of it to the creator, ' + sp.treasury + '% to the platform, ' + sp.pool + '% stays in the pool.' : CFG.state === 'loading' ? 'Of each trade, in SOL. The lowest fee and the split are read from ' + N.place + '…' : 'Of each trade, in SOL.'), !!ms.feeBps);
   $('#iV').classList.toggle('bad', !!ms.virtualSol); $('#iM').classList.toggle('bad', !!ms.graduationMcap); $('#iFee').classList.toggle('bad', !!ms.feeBps);
   steppers.forEach(function (b) { b.disabled = !!launched || stepOf(b.getAttribute('data-f'), +b.getAttribute('data-d')) == null; });
 }
@@ -731,7 +736,8 @@ function previewState() {
   if (pool) return BH.fromPool(pool).state;
   var g = SET.good, q = F.quote;
   if (F.opening) return openState(g);
-  if (q && q.exact) { var a = q.after; return { virtualSol: solNum(g.v), realSol: solNum(a.realSol), graduationSol: solNum(a.graduationSol), graduated: !!a.graduated }; }
+  // after the first buy the line is where the pool as it stands reaches it (Chain.lineSol): the pool's part of the fee lifts it a little
+  if (q && q.exact) { var a = q.after; return { virtualSol: solNum(g.v), realSol: solNum(a.realSol), graduationSol: solNum(Chain.lineSol(a)), graduated: !!a.graduated }; }
   if (q) return q.state;
   return openState(g);
 }
@@ -761,7 +767,7 @@ function syncHole(now) {
   if (now) apply(); else holeT = setTimeout(apply, 220);
 }
 function renderPreview(now) {
-  var g = SET.good, lk = lookOf(g);
+  var g = SET.good;
   syncHole(now);
   var nm = F.name.trim(), sy = F.symbol.trim(), n = nm.length;
   pvName.textContent = nm || 'Your coin'; pvName.title = nm;
@@ -775,7 +781,7 @@ function renderPreview(now) {
   setText('#nM', UNIT === 'usd' ? fUsdK(Number(capCents(g, 'm')) / 100) : fBig(solNum(g.m)));
   setText('#nMl', UNIT === 'usd' ? 'market cap' : 'SOL market cap');
   setText('#nMx', 'graduates, ' + numText(Math.round(Number(g.m) / Number(g.v) * 10) / 10) + '×');
-  setText('#nB', fTok(lk.burn));
+  setText('#nP', poolShare() / 100 + '%');
   renderLegend();
   describe();
 }
@@ -805,11 +811,11 @@ function describe() {
       + (!(F.first > 0) ? '' : F.seatRefund ? '; your seat of ' + fSol(F.first) + ' SOL alone is under the 0.01 SOL a batch needs to buy'
         : '; your seat of ' + fSol(F.first) + ' SOL buys at the settle, if the batch stays as it is');
   }
-  else if (st.graduated) t += (pool ? 'graduated' : 'the first buy graduates it') + ', so its jets are lit and the virtual SOL has dropped away; ' + fSol(R) + ' real SOL in it';
+  else if (st.graduated) t += (pool ? 'graduated' : 'the first buy graduates it') + ': its market cap is at the graduation line or over it, so its jets are lit; ' + fSol(R) + ' real SOL in it';
   else if (R > 0) t += 'its disk is the ' + fSol(R) + ' real SOL ' + (pool ? 'in its pool' : 'of the first buy') + ', of ' + fBig(st.graduationSol) + ' to graduate';
   else t += 'nothing in its pool yet, a thin ring; the disk grows with every buy, to full size at graduation';
   t += '. It opens at ' + fPx(solNum(g.v) / SUPPLY_TOK) + ' SOL per million tokens and graduates at a ' + capWords(g, 'm') + ' market cap'
-    + (UNIT === 'usd' ? ', ' + fBig(solNum(g.m)) + ' SOL at SOL’s price now.' : '.');
+    + (UNIT === 'usd' ? ' (' + fBig(solNum(g.m)) + ' SOL at SOL’s price now)' : '') + '; from launch, ' + fBig(solNum(gradSol(g))) + ' real SOL takes it there.';
   stageEl.setAttribute('aria-label', t);
 }
 // a market cap of the settings g (k: 'v' or 'm') in the fields' unit: the cents typed (or, for settings typed in SOL,
@@ -824,16 +830,16 @@ function quoteFirst(sol) {
   if (window.Chain && Chain.quoteBuy) {
     try {
       var lamports = BigInt(Math.round(sol * LAMP));
-      var q = Chain.quoteBuy({ virtualSol: g.v, realSol: 0n, tokens: Chain.SUPPLY, graduationSol: Chain.graduationSol(g.v, g.m), graduated: false }, lamports, g.fee);
-      return { exact: true, lamports: lamports, tokensOut: q.tokensOut, fee: q.fee, graduates: q.graduates, burned: q.burned, after: q.after };
+      var q = Chain.quoteBuy({ virtualSol: g.v, realSol: 0n, tokens: Chain.SUPPLY, graduationSol: Chain.graduationSol(g.v, g.m), graduationMcap: g.m, graduated: false, burned: 0n, poolShareBps: poolShare() }, lamports, g.fee);
+      return { exact: true, lamports: lamports, tokensOut: q.tokensOut, fee: q.fee, poolFee: q.poolFee, graduates: q.graduates, after: q.after };
     } catch (e) { /* fall back to the float model */ }
   }
-  // the same curve in floats, for the preview only (no chain layer, nothing can launch)
-  var V = solNum(g.v), G = solNum(gradSol(g)), fee = sol * g.fee / 10000, rest = sol - fee, T = SUPPLY_TOK, R = Math.min(rest, G);
-  var left = T * V / (V + R), out = T - left, burn = 0, grad = R >= G - 1e-12;
-  T = left; rest -= R;
-  if (grad) { burn = T * V / (V + R); T -= burn; if (rest > 0) { var l2 = T * R / (R + rest); out += T - l2; T = l2; R += rest; } }
-  return { exact: false, out: out, fee: fee, graduates: grad, burnedTok: burn, state: { virtualSol: V, realSol: R, graduationSol: G, graduated: grad } };
+  // the same curve in floats, for the preview only (no chain layer, nothing can launch): one leg on virtual + real SOL,
+  // then the rest and the pool's part of the fee in the real SOL. The market cap after it is (V + R)·S/T with T/S =
+  // V/(V + rest), and the line for the pool as it stands is where x² = M·k/S
+  var V = solNum(g.v), M = solNum(g.m), fee = sol * g.fee / 10000, rest = sol - fee, T = SUPPLY_TOK;
+  var out = T - T * V / (V + rest), R = rest + fee * poolShare() / 10000, kS = (V + R) * V / (V + rest), grad = (V + R) * (V + R) / kS >= M * (1 - 1e-12);
+  return { exact: false, out: out, fee: fee, graduates: grad, state: { virtualSol: V, realSol: R, graduationSol: Math.sqrt(M * kS) - V, graduated: grad } };
 }
 // the creator's seat as the whole batch: Chain.quoteSeat on the opening pool (a batch under 0.01 SOL buys nothing and
 // every seat takes its SOL back); without the chain layer, the float model's tokens and the same 0.01 SOL line
@@ -842,7 +848,7 @@ function quoteSeatAlone(sol, floatTok) {
   if (window.Chain && Chain.quoteSeat) {
     try {
       var lamports = BigInt(Math.round(sol * LAMP));
-      var s = Chain.quoteSeat({ virtualSol: g.v, graduationSol: Chain.graduationSol(g.v, g.m), feeBps: g.fee }, lamports, lamports);
+      var s = Chain.quoteSeat({ virtualSol: g.v, graduationSol: Chain.graduationSol(g.v, g.m), graduationMcap: g.m, feeBps: g.fee, burned: 0n, poolShareBps: poolShare() }, lamports, lamports);
       return { refund: s.refund, tokens: Number(s.tokens) / 1e6 };
     } catch (e) { /* fall back to the float model */ }
   }
@@ -904,8 +910,8 @@ function v() {
     var q = quoteFirst(sol); F.first = sol; F.quote = q;
     var outTok = q.exact ? Number(q.tokensOut) / 1e6 : q.out, fee = q.exact ? Number(q.fee) / LAMP : q.fee;
     var pct = outTok / SUPPLY_TOK * 100;
-    var html = 'You get <b>' + fTok(outTok) + '</b> tokens, ' + (pct < 0.01 ? 'under 0.01' : pct.toFixed(2)) + '% of the supply. Fee <b>' + fSol(fee) + '</b> SOL' + (sp ? '; ' + sp.creator + '% of it is owed to you as the creator, to claim from the pool.' : '.');
-    if (q.graduates) html += ' This buy is big enough to <b>graduate the coin inside the launch</b>: the ' + fBig(solNum(g.v)) + ' virtual SOL drops away and ' + fTok(q.exact ? Number(q.burned) / 1e6 : q.burnedTok) + ' tokens burn, so the price holds.';
+    var html = 'You get <b>' + fTok(outTok) + '</b> tokens, ' + (pct < 0.01 ? 'under 0.01' : pct.toFixed(2)) + '% of the supply. Fee <b>' + fSol(fee) + '</b> SOL' + (sp ? '; ' + sp.creator + '% of it is owed to you as the creator, to claim from the pool, and ' + sp.pool + '% stays in the pool.' : '.');
+    if (q.graduates) html += ' This buy is big enough to take the market cap to the graduation line inside the launch: the coin <b>starts graduated</b>, on the same curve.';
     html += '<small>' + (q.exact ? 'exactly ' + fmtUnits(q.tokensOut) + ' tokens, the program’s own math on the opening pool' : 'from the float model; the exact quote did not load') + '</small>';
     if (F.opening) {
       // a seat buys nothing on its own when it is under the batch's smallest total
@@ -980,16 +986,16 @@ $('#form').addEventListener('submit', function (e) { e.preventDefault(); });
 
 /* ================= what every coin gets, with these settings ================= */
 function renderGets() {
-  var g = SET.good, lk = lookOf(g), sp = split(), off = !SET.ok && !launched, OUT = 'the settings above are out of bounds';
+  var g = SET.good, sp = split(), off = !SET.ok && !launched, OUT = 'the settings above are out of bounds';
   var solNow = UNIT === 'usd' ? function (l) { return fBig(solNum(l)) + ' SOL at SOL’s price now'; } : null;
   var rows = [
     ['supply', '1,000,000,000 tokens'],
     ['mint and freeze', 'none: nobody can mint more or freeze a wallet'],
     ['name, symbol, link', 'written into the coin, fixed'],
-    off ? ['fee', '—', OUT] : ['fee', g.fee / 100 + '% of each trade, in SOL', sp ? sp.creator + '% of it to the creator, ' + sp.treasury + '% to the platform, read from ' + N.place : CFG.state === 'loading' ? 'its split is being read from ' + N.place : NOT_YET ? NOT_YET_TEXT : 'its split could not be read from ' + N.place],
-    ['pool', 'one, for life', 'no migration, no LP token, and no instruction takes the liquidity out'],
+    off ? ['fee', '—', OUT] : ['fee', g.fee / 100 + '% of each trade, in SOL', sp ? sp.creator + '% of it to the creator, ' + sp.treasury + '% to the platform, ' + sp.pool + '% stays in the pool; the platform\'s share read from ' + N.place : CFG.state === 'loading' ? 'its split is being read from ' + N.place : NOT_YET ? NOT_YET_TEXT : 'its split could not be read from ' + N.place],
+    ['pool', 'one curve, for life', 'no migration, no step down in depth, no LP to pull; ' + poolShare() / 100 + '% of every fee stays in the pool'],
     off ? ['opens at', '—', OUT] : ['opens at', 'a ' + capWords(g, 'v') + ' market cap', (solNow ? solNow(g.v) + ' · ' : '') + fPx(solNum(g.v) / SUPPLY_TOK) + ' SOL per 1M tokens'],
-    off ? ['graduates at', '—', OUT] : ['graduates at', 'a ' + capWords(g, 'm') + ' market cap', (solNow ? solNow(g.m) + '. It graduates ' : '') + 'inside the buy that gets there: the virtual SOL drops away and ' + fTok(lk.burn) + ' tokens burn, so the price holds, in the same pool'],
+    off ? ['graduates at', '—', OUT] : ['graduates at', 'a ' + capWords(g, 'm') + ' market cap', (solNow ? solNow(g.m) + '. ' : '') + 'On the whole supply, whatever the coin has traded before: it is graduated while its market cap stays at that line or over it. From launch, ' + fBig(solNum(gradSol(g))) + ' real SOL takes it there; the pool\'s part of each fee stays in the pool, so the more the coin trades, the more real SOL it takes to get there. Nothing changes at the line: the same curve before and after'],
     ['hooks', 'not in this version', null, 'Settings now. Hooks next.']
   ];
   $('#facts').innerHTML = rows.map(function (r) {
@@ -1411,7 +1417,7 @@ window.__launch = {
       usd: { unit: UNIT, price: USD, from: USD_FROM, state: USD_STATE, fields: [iV.value, iM.value], bounds: [$('#bV').textContent, $('#bM').textContent], rate: $('#rate').textContent },
       good: settingsOut(SET.good),
       hole: { V: lk.V, M: lk.M, fee: lk.fee, G: lk.G, reach: lk.reach, rOut: hole.hole.rOut, jet: hole.hole.jet, shown: hole.shown, busy: hole.busy, graduated: hole.graduated, state: hole.state },
-      nums: { px: $('#nPx').textContent, grad: $('#nG').textContent, mcap: $('#nM').textContent, burn: $('#nB').textContent, off: $('#nums').classList.contains('off') },
+      nums: { px: $('#nPx').textContent, grad: $('#nG').textContent, mcap: $('#nM').textContent, pool: $('#nP').textContent, off: $('#nums').classList.contains('off') },
       legend: $('#legend').textContent, buyMsg: $('#mBuy').textContent,
       presets: tiles.map(function (x) { return x.bt.getAttribute('aria-pressed'); }).join(''),
       px: PX, config: CFG.state, minFeeBps: minFee(), split: split(), hold: { text: holdText, disabled: hold.disabled }, gate: $('#gate').textContent, status: $('#status').textContent,

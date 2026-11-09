@@ -1,97 +1,81 @@
-// Checks the draft's worked example and the large-overshoot case.
+// The numbers of the one curve with the user's choices (30 SOL virtual, line at 420 SOL of market cap, 1e9 tokens),
+// next to what the first version did at the line. Usage: node numbers.js
 'use strict';
-const { Pool, LAMPORTS, TOKEN, BPS, ceilDiv } = require('./pool');
+const { Pool, first, LAMPORTS, TOKEN } = require('./pool');
 
 const sol = (l) => (Number(l) / 1e9).toFixed(4);
-const mtok = (b) => (Number(b) / 1e6 / 1e6).toFixed(4) + ' M';
-const pct = (a, b) => (100 * Number(a) / Number(b)).toFixed(3) + '%';
-// market cap on a given supply, in SOL: price x/T times supply
-const mcap = (x, T, supply) => (Number(x) * Number(supply) / Number(T) / 1e9).toFixed(3);
+const mtok = (b) => (Number(b) / 1e6 / 1e6).toFixed(2) + ' M';
+// price in SOL per million tokens, and market cap in SOL on a given supply
+const perMillion = (x, T) => (Number(x) / 1e9) / (Number(T) / 1e6) * 1e6;
+const mcap = (x, T, supply) => (Number(x) * Number(supply) / Number(T) / 1e9).toFixed(2);
+const S = 1_000_000_000n * TOKEN;
+const base = { V: 30n * LAMPORTS, S, Mg: 420n * LAMPORTS };
 
-const base = { V: 30n * LAMPORTS, S: 1_000_000_000n * TOKEN, Mg: 420n * LAMPORTS, feeBps: 100n };
+console.log('=== At the line, no fee ===');
+const p = new Pool({ ...base, feeBps: 0n });
+const r = p.buy(p.Rg);
+console.log('real SOL', sol(p.R), '| pool tokens', mtok(p.T), '| sold', mtok(r.out), '| x', sol(p.x()),
+  '| price', perMillion(p.x(), p.T).toFixed(4), 'SOL per million | market cap', mcap(p.x(), p.T, S), 'SOL | graduated', p.graduated);
 
-console.log('=== Draft example: V=30 SOL, Mg=420 SOL, S=1e9, fee 1% ===');
+console.log('\n=== 10 SOL at the line ===');
 {
-  const V = 30, M = 420, S = 1e9;
-  const xg = Math.sqrt(M * V);
-  console.log('float: x_g', xg.toFixed(6), 'R_g', (xg - V).toFixed(6), 'T_g', (V * S / xg / 1e6).toFixed(4), 'M',
-    'sold', ((S - V * S / xg) / 1e6).toFixed(4), 'M', 'burn', (V * S / xg * V / xg / 1e6).toFixed(4), 'M =', (100 * V / M).toFixed(4) + '%',
-    "T'", ((xg - V) * (V * S / xg) / xg / 1e6).toFixed(4), 'M');
-  const p = new Pool({ ...base });
-  console.log('int: Rg =', p.Rg, 'lamports =', sol(p.Rg), 'SOL');
-  // gross needed so that net == Rg at 1%
-  let g = ceilDiv(p.Rg * BPS, BPS - 100n);
-  while (g - ceilDiv(g * 100n, BPS) < p.Rg) g++;
-  const r = p.buy(g, 1000n);
-  const e = p.gradEvent;
-  console.log('one buy of', sol(g), 'SOL gross (fee', sol(r.fee), ') -> tokens out', mtok(r.out), 'crossed', r.crossed);
-  console.log('at graduation: x', sol(e.xBefore), 'R', sol(e.R), 'T', mtok(e.Tbefore), 'burn', mtok(e.burn), '(', pct(e.burn, base.S), ')',
-    "T'", mtok(e.Tafter));
-  console.log('mcap on S before burn', mcap(e.xBefore, e.Tbefore, base.S), 'SOL; after burn on S', mcap(e.R, e.Tafter, base.S),
-    '; on circulating supply S-burn', mcap(e.R, e.Tafter, base.S - e.burn));
-  console.log('price continuity: T\'*x - R*T =', e.Tafter * e.xBefore - e.R * e.Tbefore, '(must be in [0, x) =', e.xBefore, ')');
-  console.log('k before', e.xBefore * e.Tbefore, 'k after', e.R * e.Tafter, 'ratio', (Number(e.R * e.Tafter) / Number(e.xBefore * e.Tbefore)).toFixed(4));
-  // If every holder sells back after graduation: final price vs opening price
   const q = p.clone();
-  const held = base.S - q.T - q.burned;
-  const s = q.sell(held, 1000n);
-  console.log('everyone sells', mtok(held), 'after graduation -> pool R', sol(q.R), 'price/opening price =',
-    (Number(q.R) / Number(q.T) / (Number(base.V) / Number(base.S))).toFixed(4));
-  // Same on the curve (no graduation): selling everything back returns R to ~0
-  const c = new Pool({ ...base, Mg: 10_000n * LAMPORTS });
-  const b = c.buy(g, 1000n);
-  c.sell(b.out, 1000n);
-  console.log('curve only, buy then sell all back: R left', c.R, 'lamports, price/opening =',
-    (Number(c.x()) / Number(c.T) / (Number(base.V) / Number(base.S))).toFixed(9));
+  const before = perMillion(q.x(), q.T);
+  q.buy(10n * LAMPORTS);
+  const now = perMillion(q.x(), q.T);
+  // the first version: a plain pool of the real SOL and what was left after the burn, at the same price
+  const old = first.buy({ V: base.V, R: 0n, T: S, Rg: p.Rg, graduated: false }, p.Rg, 0n).after;
+  const oldBefore = perMillion(old.R, old.T);
+  const o = first.buy(old, 10n * LAMPORTS, 0n).after;
+  console.log('price moves', ((now / before - 1) * 100).toFixed(1) + '% on the curve;',
+    ((perMillion(o.R, o.T) / oldBefore - 1) * 100).toFixed(1) + '% in the first version\'s pool after the burn');
+  console.log('the first version burned', mtok(S - old.T - r.out), '| its market cap on what was left', mcap(old.R, old.T, S - (S - old.T - r.out)), 'SOL');
 }
 
-console.log('\n=== Many 1-SOL buys to graduation (last buy overshoots a little) ===');
+console.log('\n=== Everyone sells it all back from the line, in one sell ===');
+for (const [feeBps, shareBps] of [[0n, 2000n], [100n, 2000n], [100n, 0n]]) {
+  // to the line with no fee, so each starts from the same 82.25 SOL
+  const q = new Pool({ ...base, feeBps: 0n, shareBps });
+  const held = q.buy(q.Rg).out;
+  q.feeBps = feeBps;
+  const before = q.clone();
+  const s = q.sell(held);
+  console.log(`fee ${feeBps} bps, ${shareBps / 100n}% kept: sellers get ${sol(s.out)} of ${sol(before.R)} real SOL;`,
+    `left ${sol(q.R)} SOL, price / opening = ${(Number(q.x()) / Number(q.T) / (Number(base.V) / Number(S))).toFixed(6)}`);
+}
+
+console.log('\n=== A fifth of the fee in the pool: 1,000 round trips of 1 SOL at 1% ===');
 {
-  const p = new Pool({ ...base });
-  let n = 0, last;
-  while (p.phase === 'curve') { last = p.buy(1n * LAMPORTS, 1000n); n++; }
-  const e = p.gradEvent;
-  console.log('buys', n, 'R at grad', sol(e.R), 'overshoot', sol(e.R - p.Rg), 'burn', pct(e.burn, base.S), 'mcap on S', mcap(e.xBefore, e.Tbefore, base.S));
+  const q = new Pool({ ...base, feeBps: 100n });
+  q.buy(40n * LAMPORTS);
+  const start = q.R;
+  for (let i = 0; i < 1000; i++) q.sell(q.buy(LAMPORTS).out);
+  console.log('real SOL grew by', sol(q.R - start), 'SOL; owed to creator and treasury', sol(q.feesOwed()), 'SOL');
 }
 
-console.log('\n=== One 500 SOL buy at launch ===');
-for (const [name, extra, t] of [
-  ['overshoot, 1% fee', { gradMode: 'overshoot' }, 1000n],
-  ['overshoot, anti-sniper 50% at t=0', { gradMode: 'overshoot', snipeBps: 5000n, snipeSecs: 180n }, 0n],
-  ['route (cap curve leg, rest via AMM), 1%', { gradMode: 'route' }, 1000n],
-  ['refund (cap curve leg, refund rest), 1%', { gradMode: 'refund' }, 1000n],
-]) {
-  const p = new Pool({ ...base, ...extra });
-  const r = p.buy(500n * LAMPORTS, t);
-  const e = p.gradEvent;
-  console.log(`-- ${name}`);
-  console.log('  buyer gets', mtok(r.out), '(', pct(r.out, base.S), 'of supply ), fee', sol(r.fee), 'refund', sol(r.refund));
-  console.log('  at grad: R', sol(e.R), 'x', sol(e.xBefore), 'mcap on S', mcap(e.xBefore, e.Tbefore, base.S), 'SOL, burn', mtok(e.burn), '(', pct(e.burn, base.S), ')');
-  console.log("  continuity: T'*x - R*T =", e.Tafter * e.xBefore - e.R * e.Tbefore, '< x');
-  console.log('  after the buy: R', sol(p.R), 'T', mtok(p.T), 'price x/T (SOL per token)', (Number(p.R) / Number(p.T) * 1e6 / 1e9).toExponential(4),
-    'mcap on S-burn', mcap(p.R, p.T, base.S - p.burned));
-  const q = p.clone();
-  const back = q.sell(r.out, 1000n);
-  console.log('  buyer sells it all straight back: gets', sol(back.out), 'SOL of', sol(500n * LAMPORTS - r.refund), 'paid');
-}
-
-console.log('\n=== Who pays for an overshoot? Holders bought 80 SOL net on the curve, then one 500 SOL buy, then holders exit first ===');
-for (const mode of ['overshoot', 'route', 'refund']) {
-  const p = new Pool({ ...base, gradMode: mode });
-  let hIn = 0n, hTok = 0n;
-  while (p.R + LAMPORTS < 80n * LAMPORTS) { const r = p.buy(LAMPORTS, 1000n); hIn += LAMPORTS; hTok += r.out; }
-  const w = p.buy(500n * LAMPORTS, 1000n);
-  const hOut = p.sell(hTok, 1000n).out;
-  const wOut = p.sell(w.out, 1000n).out;
-  console.log(`${mode.padEnd(9)} holders paid ${sol(hIn)} got ${sol(hOut)} (pnl ${sol(hOut - hIn)}); whale paid ${sol(500n * LAMPORTS - w.refund)} for ${mtok(w.out)}, exits with ${sol(wOut)} (pnl ${sol(wOut - 500n * LAMPORTS + w.refund)}); burned ${pct(p.burned, base.S)}`);
-}
-console.log('\n=== Same, but the whale exits first ===');
-for (const mode of ['overshoot', 'route', 'refund']) {
-  const p = new Pool({ ...base, gradMode: mode });
-  let hIn = 0n, hTok = 0n;
-  while (p.R + LAMPORTS < 80n * LAMPORTS) { const r = p.buy(LAMPORTS, 1000n); hIn += LAMPORTS; hTok += r.out; }
-  const w = p.buy(500n * LAMPORTS, 1000n);
-  const wOut = p.sell(w.out, 1000n).out;
-  const hOut = p.sell(hTok, 1000n).out;
-  console.log(`${mode.padEnd(9)} whale pnl ${sol(wOut - 500n * LAMPORTS + w.refund)}; holders pnl ${sol(hOut - hIn)}`);
+// The line is the market cap on the whole supply. The pool's part of every fee joins the real SOL without taking tokens
+// out, so k grows and the price at the same real SOL (x²/k) is lower: the coin crosses at 420 whatever came before, and
+// it takes more real SOL to get there. Measured on the real SOL, as until 2026-11-09, the line came at a lower market
+// cap (419.6, 385.8, 290.2 and 149.3 SOL here for 1%).
+console.log('\n=== Where the line is crossed, after round trips of 10 SOL (buy, then sell it all) ===');
+for (const [feeBps, shareBps] of [[100n, 2000n], [300n, 2000n], [100n, 0n]]) {
+  const row = [];
+  for (const trips of [0, 500, 2000, 5000]) {
+    const q = new Pool({ ...base, feeBps, shareBps });
+    q.buy(10n * LAMPORTS);                  // the holders
+    let volume = 10n * LAMPORTS;
+    let by = null;                          // where the round trips alone carried it past the line
+    for (let i = 0; i < trips && !q.graduated; i++) {
+      const b = q.buy(10n * LAMPORTS);
+      if (q.graduated && by === null) by = i + 1;
+      const s = q.sell(b.out);
+      volume += 10n * LAMPORTS + s.out + s.fee;   // the buy, and the sale's gross
+    }
+    let before = null;                      // the market cap before the buy of 0.5 SOL that crossed
+    while (!q.graduated) { before = q.mcap(); q.buy(LAMPORTS / 2n); volume += LAMPORTS / 2n; }
+    row.push(`${q.mcap().toFixed(2)}` + (before == null ? '' : ` (${before.toFixed(2)} before the buy that crossed)`) +
+      ` with ${sol(q.R)} real SOL, after ${(Number(volume) / 1e9).toFixed(0)} SOL of volume` +
+      (by ? ` (the round trips alone took it there: the ${by}th's buy crossed, and the fees it kept held it)` : ''));
+  }
+  console.log(`fee ${feeBps} bps, ${shareBps / 100n}% kept:\n  ${row.join(';\n  ')}`);
 }

@@ -1,10 +1,12 @@
 //! One pool per coin, for the coin's whole life.
 //!
-//! A coin launches into a bonding curve priced against virtual SOL. When enough real SOL has
-//! come in, the curve graduates inside the buy that gets it there: the virtual SOL is dropped,
-//! the tokens above the current price are burned, and the same pool goes on as a plain
-//! constant-product pool. The coin never leaves this program, so whatever the pool does at
-//! launch it still does years later.
+//! A coin launches into a constant-product curve priced against virtual SOL, and trades on that
+//! one curve for good: the virtual SOL never leaves, nothing is burned, and a part of every fee
+//! stays in the pool. Graduation is a live mark, not a step: the coin is graduated while the
+//! curve's market cap on the full supply is at the one chosen at launch or above it. The coin
+//! never leaves this program, so whatever the pool does at launch it still does years later.
+//! Pools the first version graduated, by dropping the virtual SOL and burning, go on as it left
+//! them (`Pool::reserves`).
 //!
 //! A coin may instead open with a batch: for a window chosen at launch nobody buys, wallets put
 //! SOL into seats, and once the window is over one buy is made with all of it, every seat
@@ -13,11 +15,11 @@
 //! Coins carry no transfer hook in this version. The trading path already passes a hook's
 //! accounts along, for the version that adds one.
 //!
-//! Fees are taken in SOL and owed to the creator and to the treasury written into the pool at
-//! launch. There is no LP token, the liquidity stays for good, and no instruction lets anyone
-//! take a pool's SOL or tokens except by trading, claiming those fees, or taking back a seat in
-//! the opening batch: `withdraw` and `claim_seat` pay a seat's owner only that seat's own SOL,
-//! or its share of the batch's tokens.
+//! Fees are taken in SOL. The pool keeps its part (POOL_SHARE_BPS, written into it at launch);
+//! the rest is owed to the creator and to the treasury written into the pool at launch. There is
+//! no LP token to pull, and no instruction lets anyone take a pool's SOL or tokens except by
+//! trading, claiming those fees, or taking back a seat in the opening batch: `withdraw` and
+//! `claim_seat` pay a seat's owner only that seat's own SOL, or its share of the batch's tokens.
 //!
 //! See DESIGN.md for the reasoning and `reference/` for the same math in JavaScript.
 
@@ -135,6 +137,7 @@ pub mod dex {
         p.opened_at = now;
         p.fee_bps = args.fee_bps;
         p.treasury_share_bps = config.treasury_share_bps;
+        p.pool_share_bps = POOL_SHARE_BPS;
         p.bump = pool_bump;
         if args.opening_secs > 0 {
             p.opens_at = now + args.opening_secs as i64;
@@ -155,6 +158,7 @@ pub mod dex {
 
     /// Spends `sol_in` lamports, fee included, on the coin. Fails unless at least
     /// `min_tokens_out` arrive. A coin with a hook would take its accounts after the listed ones.
+    /// A buy that takes the market cap to the line from under it says so (`Graduated`), and only that.
     pub fn buy<'info>(ctx: Context<'info, Swap<'info>>, sol_in: u64, min_tokens_out: u64) -> Result<()> {
         let a = &ctx.accounts;
         let recipient = token::check_buyer_account(&a.trader_tokens, a.mint.key, &a.pool.key())?;
@@ -166,11 +170,10 @@ pub mod dex {
             let outcome = math::buy(p.reserves(), sol_in, p.fee_bps).map_err(PoolError::from)?;
             require!(outcome.tokens_out >= min_tokens_out, PoolError::Slippage);
             p.set_reserves(outcome.after);
-            p.owe(outcome.fee)?;
+            p.owe(outcome.owed())?;
             p.volume_sol = p.volume_sol.saturating_add(sol_in);
-            if outcome.burned > 0 {
-                p.burned = outcome.burned;
-                p.graduated_at = Clock::get()?.unix_timestamp;
+            if outcome.graduates {
+                p.reached_the_line(Clock::get()?.unix_timestamp);
             }
             let hook = (p.hook_program != Pubkey::default()).then_some(p.hook_program);
             (outcome, hook, p.mint, p.bump, a.trader.key() == p.creator)
@@ -196,14 +199,8 @@ pub mod dex {
             outcome.tokens_out,
             &[seeds],
         )?;
-        if outcome.burned > 0 {
-            token::burn(&vault, &mint, &pool, outcome.burned, seeds)?;
-            emit!(Graduated {
-                mint: mint_key,
-                real_sol: outcome.after.graduation_sol,
-                token_reserve: outcome.after.tokens,
-                burned: outcome.burned,
-            });
+        if outcome.graduates {
+            emit!(Graduated { mint: mint_key, real_sol: outcome.after.real_sol, token_reserve: outcome.after.tokens, burned: 0 });
         }
         check_solvent(&a.pool)?;
         emit!(TradeEvent {
@@ -218,6 +215,7 @@ pub mod dex {
             token_reserve: outcome.after.tokens,
             graduated: outcome.after.graduated,
             by_creator,
+            pool_fee: outcome.to_pool,
         });
         Ok(())
     }
@@ -231,7 +229,7 @@ pub mod dex {
             let outcome = math::sell(p.reserves(), tokens_in, p.fee_bps).map_err(PoolError::from)?;
             require!(outcome.sol_out >= min_sol_out, PoolError::Slippage);
             p.set_reserves(outcome.after);
-            p.owe(outcome.fee)?;
+            p.owe(outcome.owed())?;
             p.volume_sol = p.volume_sol.saturating_add(outcome.sol_out + outcome.fee);
             let hook = (p.hook_program != Pubkey::default()).then_some(p.hook_program);
             (outcome, hook, p.mint, a.trader.key() == p.creator)
@@ -263,6 +261,7 @@ pub mod dex {
             token_reserve: outcome.after.tokens,
             graduated: outcome.after.graduated,
             by_creator,
+            pool_fee: outcome.to_pool,
         });
         Ok(())
     }
@@ -339,7 +338,7 @@ pub mod dex {
     pub fn settle(ctx: Context<Settle>) -> Result<()> {
         let a = &ctx.accounts;
         let now = Clock::get()?.unix_timestamp;
-        let (outcome, mint_key, bump, total, seats) = {
+        let (outcome, mint_key, total, seats) = {
             let mut p = a.pool.load_mut()?;
             require!(p.opening_state == OPENING_OPEN, PoolError::NoOpening);
             require!(now >= p.opens_at, PoolError::OpeningNotOver);
@@ -349,11 +348,10 @@ pub mod dex {
             match &outcome {
                 Some(o) => {
                     p.set_reserves(o.after);
-                    p.owe(o.fee)?;
+                    p.owe(o.owed())?;
                     p.volume_sol = p.volume_sol.saturating_add(total);
-                    if o.burned > 0 {
-                        p.burned = o.burned;
-                        p.graduated_at = now;
+                    if o.graduates {
+                        p.reached_the_line(now);
                     }
                     p.opening_tokens = o.tokens_out;
                     p.opening_tokens_left = o.tokens_out;
@@ -363,14 +361,10 @@ pub mod dex {
                 // nothing bought: the SOL stays owed to the seats until each takes it back
                 None => p.opening_state = if total == 0 { OPENING_SETTLED } else { OPENING_REFUND },
             }
-            (outcome, p.mint, p.bump, total, p.opening_seats)
+            (outcome, p.mint, total, p.opening_seats)
         };
-        let seeds: &[&[u8]] = &[POOL_SEED, mint_key.as_ref(), &[bump]];
-        if let Some(o) = &outcome {
-            if o.burned > 0 {
-                token::burn(&a.vault.to_account_info(), &a.mint.to_account_info(), &a.pool.to_account_info(), o.burned, seeds)?;
-                emit!(Graduated { mint: mint_key, real_sol: o.after.graduation_sol, token_reserve: o.after.tokens, burned: o.burned });
-            }
+        if let Some(o) = outcome.as_ref().filter(|o| o.graduates) {
+            emit!(Graduated { mint: mint_key, real_sol: o.after.real_sol, token_reserve: o.after.tokens, burned: 0 });
         }
         check_solvent(&a.pool)?;
         emit!(Settled { mint: mint_key, sol: total, tokens: outcome.as_ref().map_or(0, |o| o.tokens_out), seats, refund: outcome.is_none() && total > 0 });
@@ -388,6 +382,7 @@ pub mod dex {
                 token_reserve: o.after.tokens,
                 graduated: o.after.graduated,
                 by_creator: false,
+                pool_fee: o.to_pool,
             });
         }
         Ok(())
@@ -567,7 +562,8 @@ pub struct LaunchArgs {
     pub uri: String,
     /// Virtual SOL, which is also the opening market cap on the full supply.
     pub virtual_sol: u64,
-    /// Market cap on the full supply at which the curve graduates.
+    /// Market cap on the full supply at which the coin counts as graduated: the line itself, held to the lamport after
+    /// every trade, whatever the coin has traded before.
     pub graduation_mcap: u64,
     pub fee_bps: u16,
     /// The most the creator agrees to pay as launch fee, in case the config changes first.
@@ -642,8 +638,8 @@ pub struct Swap<'info> {
     pub trader: Signer<'info>,
     #[account(mut, has_one = mint @ PoolError::WrongAccount, has_one = vault @ PoolError::WrongAccount)]
     pub pool: AccountLoader<'info, Pool>,
-    /// CHECK: the pool's mint, by `has_one`. Writable because the buy that graduates the
-    /// curve burns, which changes the supply.
+    /// CHECK: the pool's mint, by `has_one`. Writable, as it was when the first version burned
+    /// at graduation, so clients keep one account list; nothing writes to it now.
     #[account(mut)]
     pub mint: UncheckedAccount<'info>,
     /// CHECK: the pool's vault, by `has_one`.
@@ -690,7 +686,7 @@ pub struct Withdraw<'info> {
 pub struct Settle<'info> {
     #[account(mut, has_one = mint @ PoolError::WrongAccount, has_one = vault @ PoolError::WrongAccount)]
     pub pool: AccountLoader<'info, Pool>,
-    /// CHECK: the pool's mint, by `has_one`. Writable: a batch that graduates burns.
+    /// CHECK: the pool's mint, by `has_one`. Writable for the same account list as in `Swap`.
     #[account(mut)]
     pub mint: UncheckedAccount<'info>,
     /// CHECK: the pool's vault, by `has_one`.
@@ -758,6 +754,7 @@ pub struct Launched {
     pub creator: Pubkey,
     pub hook_program: Pubkey,
     pub virtual_sol: u64,
+    /// Real SOL that takes the coin, just launched, to its line; for reading only.
     pub graduation_sol: u64,
     pub fee_bps: u16,
     /// When the opening batch closes; 0 when the coin opened at once.
@@ -818,16 +815,23 @@ pub struct TradeEvent {
     pub fee: u64,
     pub real_sol: u64,
     pub token_reserve: u64,
+    /// After the trade: the market cap on the full supply is at the line or above it.
     pub graduated: bool,
     /// The trader is the pool's creator at the time.
     pub by_creator: bool,
+    /// The part of `fee` that stayed in the pool's real SOL; the creator and the treasury are owed the rest.
+    pub pool_fee: u64,
 }
 
+/// The market cap reached the line from under it, in a buy or a settle: once each time it crosses up. A sell never
+/// does: it never lifts the price. Nothing happens to the reserves or the price there.
 #[event]
 pub struct Graduated {
     pub mint: Pubkey,
+    /// The reserves after the trade that crossed.
     pub real_sol: u64,
     pub token_reserve: u64,
+    /// Always 0: the first version burned here, and the event keeps its format.
     pub burned: u64,
 }
 

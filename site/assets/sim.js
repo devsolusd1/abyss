@@ -5,10 +5,15 @@
  *
  *   var s = NoxSim.create({ name, symbol, virtualSol, graduationMcap (lamports, BigInt), feeBps,
  *                           wallet (lamports, 100 SOL), first (lamports: the visitor's buy at launch), seed, mood })
- *   s.pool       { virtualSol, realSol, tokens, graduationSol, graduated, burned, feeBps, volume, creatorFees, treasuryFees }
+ *   s.pool       { virtualSol, realSol, tokens, graduationSol, graduationMcap, graduated, poolShareBps, treasuryShareBps,
+ *                feeBps, volume, creatorFees, treasuryFees, poolFees }: graduated while the market cap is at the line
+ *                (graduationMcap) or over it; graduationSol the real SOL that takes it there from launch; poolFees the
+ *                fees' part that stayed in realSol
+ *   s.gradAt     when the market cap first reached the line (it stays, as the program's graduated_at does), or null
  *   s.t          seconds since launch on the simulation's clock
- *   s.trades     [{ n, t, w (wallet index), buy, sol, tokens, fee, price, mcap, graduates, burned }]: sol, tokens, fee and
- *                burned BigInt; price (SOL per whole token) and mcap (SOL) Numbers, after the trade
+ *   s.trades     [{ n, t, w (wallet index), buy, sol, tokens, fee, poolFee, price, mcap, graduates }]: sol, tokens, fee and
+ *                poolFee BigInt; price (SOL per whole token) and mcap (SOL) Numbers, after the trade; graduates: it took
+ *                the market cap up to the line
  *   s.wallets    [{ name, sol, tokens, spent, got, you, whale }]; index 0 is the visitor
  *   s.buy(w, lamports), s.sell(w, units)   a trade now: the trade, or { error }
  *   s.run(dt)    moves the clock dt seconds; the crowd trades on the way; gives the trades made
@@ -19,7 +24,7 @@
 (function () {
 'use strict';
 var PM = window.PoolMath;
-var SHARE = 5000n;                        // the platform's half of each fee, as the devnet config has it
+var SHARE = 5000;                         // the platform's half of each fee after the pool's part, as the devnet config has it
 var MIN_TRADE = 10000n;                   // lamports: below this the pages call a trade too small
 var MAX_WALLETS = 600;
 
@@ -56,8 +61,8 @@ function create(o) {
 
   var s = {
     name: o.name || 'MOTE', symbol: o.symbol || 'MOTE', seed: seed, t: 0, mood: MOODS[o.mood] ? o.mood : 'steady',
-    pool: { virtualSol: V, realSol: 0n, tokens: PM.SUPPLY, graduationSol: PM.graduationSol(V, M), graduated: false, burned: 0n,
-      feeBps: fee, graduationMcap: M, volume: 0n, creatorFees: 0n, treasuryFees: 0n },
+    pool: { virtualSol: V, realSol: 0n, tokens: PM.SUPPLY, graduationSol: PM.graduationSol(V, M), graduated: false,
+      poolShareBps: PM.POOL_SHARE_BPS, treasuryShareBps: SHARE, feeBps: fee, graduationMcap: M, volume: 0n, creatorFees: 0n, treasuryFees: 0n, poolFees: 0n },
     trades: [], wallets: [], gradAt: null, rand: rand
   };
   var fns = [], next = null, ema = 0;
@@ -68,12 +73,16 @@ function create(o) {
   for (var i = 0; i < 60; i++) newcomer();
   for (var j = 0; j < 4; j++) wallet(40 + rand() * 160, true);
 
-  function reserves() { var p = s.pool; return { virtualSol: p.virtualSol, realSol: p.realSol, tokens: p.tokens, graduationSol: p.graduationSol, graduated: p.graduated }; }
-  function priceNow() { return PM.priceOf(reserves(), s.pool.burned).price; }
+  function reserves() {
+    var p = s.pool;
+    return { virtualSol: p.virtualSol, realSol: p.realSol, tokens: p.tokens, graduationMcap: p.graduationMcap, graduated: p.graduated, poolShareBps: p.poolShareBps, treasuryShareBps: p.treasuryShareBps };
+  }
+  function priceNow() { return PM.priceOf(reserves()).price; }
   ema = priceNow();
-  function split(f) { var toT = f * SHARE / 10000n; s.pool.treasuryFees += toT; s.pool.creatorFees += f - toT; }
+  // the fee as the program shares it: the pool's part is in realSol already, the rest is owed to the creator and the platform
+  function split(f) { var x = PM.feeParts(f, s.pool); s.pool.poolFees += x.pool; s.pool.treasuryFees += x.treasury; s.pool.creatorFees += x.creator; }
   function record(tr) {
-    var pr = PM.priceOf(reserves(), s.pool.burned);
+    var pr = PM.priceOf(reserves());
     tr.n = s.trades.length; tr.t = s.t; tr.price = pr.price; tr.mcap = pr.marketCap;
     s.trades.push(tr);
     ema = ema * .9 + pr.price * .1;
@@ -84,7 +93,7 @@ function create(o) {
   s.quoteBuy = function (lamports) { return PM.quoteBuy(reserves(), BigInt(lamports), s.pool.feeBps); };
   s.quoteSell = function (units) { return PM.quoteSell(reserves(), BigInt(units), s.pool.feeBps); };
   s.price = priceNow;
-  s.marketCap = function () { return PM.priceOf(reserves(), s.pool.burned).marketCap; };
+  s.marketCap = function () { return PM.priceOf(reserves()).marketCap; };
 
   s.buy = function (w, lamports) {
     var W = s.wallets[w]; lamports = BigInt(lamports);
@@ -94,11 +103,11 @@ function create(o) {
     var q = s.quoteBuy(lamports);
     if (q.tokensOut <= 0n) return { error: 'Too small to trade.' };
     var p = s.pool, a = q.after;
-    p.realSol = a.realSol; p.tokens = a.tokens; p.graduated = a.graduated; p.burned += q.burned; p.volume += lamports;
+    p.realSol = a.realSol; p.tokens = a.tokens; p.graduated = a.graduated; p.volume += lamports;
     split(q.fee);
     W.sol -= lamports; W.tokens += q.tokensOut; W.spent += lamports;
-    if (q.graduates) s.gradAt = s.t;
-    return record({ w: w, buy: true, sol: lamports, tokens: q.tokensOut, fee: q.fee, graduates: q.graduates, burned: q.burned });
+    if (q.graduates && s.gradAt == null) s.gradAt = s.t;
+    return record({ w: w, buy: true, sol: lamports, tokens: q.tokensOut, fee: q.fee, poolFee: q.poolFee, graduates: q.graduates });
   };
   s.sell = function (w, units) {
     var W = s.wallets[w]; units = BigInt(units);
@@ -108,10 +117,10 @@ function create(o) {
     var q = s.quoteSell(units);
     if (q.solOut <= 0n) return { error: 'Too small to trade.' };
     var p = s.pool;
-    p.realSol = q.after.realSol; p.tokens = q.after.tokens; p.volume += q.solOut + q.fee;
+    p.realSol = q.after.realSol; p.tokens = q.after.tokens; p.graduated = q.after.graduated; p.volume += q.solOut + q.fee;
     split(q.fee);
     W.tokens -= units; W.sol += q.solOut; W.got += q.solOut;
-    return record({ w: w, buy: false, sol: q.solOut, tokens: units, fee: q.fee, graduates: false, burned: 0n });
+    return record({ w: w, buy: false, sol: q.solOut, tokens: units, fee: q.fee, poolFee: q.poolFee, graduates: false });
   };
 
   /* ---------- the crowd ---------- */

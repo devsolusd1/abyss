@@ -9,6 +9,8 @@ target="${DEX_TARGET:-$HOME/dex-target}"
 pool_so="$target/pool/deploy/dex.so"
 
 (cd pool && CARGO_TARGET_DIR="$target/pool" cargo test --lib)
+# The same math in JavaScript, with its property tests.
+(cd pool/reference && node props.js)
 (cd pool && CARGO_TARGET_DIR="$target/pool" cargo build-sbf --sbf-out-dir "$target/pool/deploy")
 (cd pool-tests && CARGO_TARGET_DIR="$target/pool-tests" POOL_SO="$pool_so" cargo test -- --nocapture)
 

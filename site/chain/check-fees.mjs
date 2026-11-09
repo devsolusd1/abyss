@@ -100,7 +100,7 @@ const MINT = Keypair.generate().publicKey;
 const POOL = Chain.poolAddress(MINT);
 const poolAs = (opening) => ({
   address: POOL, mint: MINT, vault: Chain.ata(POOL, MINT), feeBps: 100, virtualSol: 30_000_000_000n, realSol: 0n, tokens: Chain.SUPPLY,
-  graduationSol: 82_000_000_000n, graduated: false, creator: me.publicKey, treasury: TREASURY, creatorFees: 1000n, treasuryFees: 1000n,
+  graduationSol: 82_000_000_000n, graduationMcap: 420_000_000_000n, graduated: false, creator: me.publicKey, treasury: TREASURY, creatorFees: 1000n, treasuryFees: 1000n,
   opening: { state: "open", opensAt: 4_000_000_000, sol: 0n, totalSol: 0n, tokens: 0n, tokensLeft: 0n, seats: 1, ...opening },
 });
 

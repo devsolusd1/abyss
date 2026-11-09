@@ -1,6 +1,9 @@
 // Trades and claims for real on devnet through the site's own bundle (../vendor/chain.js), then checks every
 // number against the pool: a buy, a sell of exactly what it bought, the creator's claim and the platform's.
 // The wallet must be the coin's creator and its treasury, as the devnet wallet is for every devnet coin.
+// The numbers are the one curve's with 20% of each fee kept in the pool (Chain.quoteBuy, Chain.feeParts): they hold on
+// devnet once the program there is upgraded to it. Before that, on a coin launched before it (pool share 0) and away
+// from the graduation line, the old program gives the same numbers.
 //
 //   KEYPAIR=~/.config/solana/devnet.json node send-check.mjs              (simulates only)
 //   SEND=1 KEYPAIR=~/.config/solana/devnet.json node send-check.mjs       (sends)
@@ -63,8 +66,9 @@ async function run(label, built) {
 console.log(`wallet ${Chain.short(me)}  ${SEND ? "SENDING on devnet" : "dry run (SEND=1 sends)"}`);
 const pools = await Chain.listPools();
 const want = process.env.COIN;
-// a coin that trades now: no opening batch, or one that is over (a batch still open takes no buys), and not graduated
-const trades = (p) => !p.graduated && (!p.opening || p.opening.state === "settled" || p.opening.state === "refund");
+// a coin that trades now: no opening batch, or one that is over (a batch still open takes no buys); graduated or not,
+// it is the same curve
+const trades = (p) => !p.opening || p.opening.state === "settled" || p.opening.state === "refund";
 let pool = want ? pools.find((p) => p.mint.toString() === want || p.symbol === want) : pools.find((p) => trades(p) && p.creator.equals(me));
 if (!pool) { console.log("no coin to test on"); process.exit(1); }
 if (pool.opening?.state === "open") console.log(`         ${pool.symbol} is in its opening batch: the buy will be refused`);
@@ -87,12 +91,13 @@ if (buySig) {
   const nowHeld = (await Chain.readWallet(me, pool.mint)).tokens;
   bought = nowHeld - held;
   const paid = bal - await balance(), net = await feeOf(buySig);
-  const toT = q.fee * BigInt(pool.treasuryShareBps) / 10_000n;
+  const x = Chain.feeParts(q.fee, pool);
   line(bought === q.tokensOut, `got ${t(bought)} tokens, the quote said ${t(q.tokensOut)}`);
-  line(after.realSol === q.after.realSol && after.tokens === q.after.tokens, `the pool moved to exactly the quote: ${s(after.realSol)} SOL in, ${t(after.tokens)} tokens left`);
+  line(after.realSol === q.after.realSol && after.tokens === q.after.tokens && after.graduated === q.after.graduated,
+    `the pool moved to exactly the quote: ${s(after.realSol)} SOL in, ${t(after.tokens)} tokens left, graduated ${after.graduated}`);
   line(paid === BigInt(Math.round(BUY * 1e9)) + net, `the wallet paid ${s(paid)} SOL: the buy plus a network fee of ${s(net)}`);
-  line(after.treasuryFees - pool.treasuryFees === toT && after.creatorFees - pool.creatorFees === q.fee - toT,
-    `fee ${s(q.fee)} split ${s(q.fee - toT)} creator, ${s(toT)} treasury`);
+  line(after.treasuryFees - pool.treasuryFees === x.treasury && after.creatorFees - pool.creatorFees === x.creator && x.pool === q.poolFee,
+    `fee ${s(q.fee)} split ${s(x.creator)} creator, ${s(x.treasury)} treasury, ${s(x.pool)} kept in the pool's real SOL`);
   line(after.volume - pool.volume === BigInt(Math.round(BUY * 1e9)), `volume grew by the buy`);
   line((await solvent(after)).ok, "still solvent after the buy");
 }
@@ -111,7 +116,10 @@ if (SEND ? bought > 0n : held > 0n) {
     const got = await balance() - bal, net = await feeOf(sellSig);
     line(held - (await Chain.readWallet(me, pool.mint)).tokens === units, `${t(units)} tokens left the wallet`);
     line(got === sq.solOut - net, `the wallet got ${s(got + net)} SOL (the quote said ${s(sq.solOut)}) less a network fee of ${s(net)}`);
-    line(after.realSol === sq.after.realSol && after.tokens === sq.after.tokens, `the pool moved to exactly the quote: ${s(after.realSol)} SOL in`);
+    line(after.realSol === sq.after.realSol && after.tokens === sq.after.tokens, `the pool moved to exactly the quote: ${s(after.realSol)} SOL in (${s(sq.poolFee)} of the fee kept)`);
+    const xs = Chain.feeParts(sq.fee, before);
+    line(after.treasuryFees - before.treasuryFees === xs.treasury && after.creatorFees - before.creatorFees === xs.creator,
+      `its fee ${s(sq.fee)} split ${s(xs.creator)} creator, ${s(xs.treasury)} treasury, ${s(xs.pool)} kept in the pool`);
     line(after.realSol >= pool.realSol, `a round trip leaves the pool no poorer: ${s(after.realSol - pool.realSol)} SOL more than before the buy`);
     line((await solvent(after)).ok, "still solvent after the sell");
   }
@@ -145,6 +153,8 @@ if (SEND && buySig) {
   const trades = events.filter((e) => e.kind === "trade");
   const mine = trades.filter((e) => e.signature === buySig || e.signature === sellSig);
   line(mine.length === 2 && mine.some((e) => e.buy) && mine.some((e) => !e.buy), `the history shows the new buy and sell (${mine.map((e) => e.buy ? "buy" : "sell").join(", ")})`);
+  const myBuy = mine.find((e) => e.buy);
+  line(!!myBuy && myBuy.poolFee === q.poolFee, `the buy's event says ${myBuy?.poolFee == null ? "nothing (a program from before it)" : s(myBuy.poolFee)} of its fee stayed in the pool, the quote ${s(q.poolFee)}`);
   const claims = events.filter((e) => e.kind === "claim" && claimSigs.includes(e.signature));
   line(claims.length === claimSigs.length, `the history shows the ${claims.length} claim(s), paid to ${[...new Set(claims.map((e) => Chain.short(e.to)))].join(", ")}`);
   const final = await Chain.readPool(pool.mint);

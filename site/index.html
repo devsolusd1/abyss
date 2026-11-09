@@ -142,9 +142,9 @@ a.coin:hover .card, a.coin:focus-visible .card { background: var(--f-line2); }
     <div class="flow">
       <div class="card"><canvas id="h1" aria-hidden="true"></canvas><p class="no">01</p><h3>Buy</h3><p>Your SOL goes into the coin's pool. The disk grows with every buy.</p></div>
       <div class="link" aria-hidden="true"></div>
-      <div class="card"><canvas id="h2" aria-hidden="true"></canvas><p class="no">02</p><h3>Graduate</h3><p>At its market cap goal the virtual SOL drops away and tokens burn, so the price holds. The jets light up.</p></div>
+      <div class="card"><canvas id="h2" aria-hidden="true"></canvas><p class="no">02</p><h3>Graduate</h3><p>When its market cap reaches the one set at launch, the coin graduates. Nothing in the pool changes. The jets stay lit while it stays at that line or over it.</p></div>
       <div class="link" aria-hidden="true"></div>
-      <div class="card"><canvas id="h3" aria-hidden="true"></canvas><p class="no">03</p><h3>Trade for life</h3><p>The same pool keeps trading. No migration, and no instruction takes the liquidity out.</p></div>
+      <div class="card"><canvas id="h3" aria-hidden="true"></canvas><p class="no">03</p><h3>Trade for life</h3><p>One curve for life. No migration, no step down in depth, no LP to pull. 20% of every fee stays in the pool.</p></div>
     </div>
   </div>
 </section>
@@ -184,7 +184,7 @@ a.coin:hover .card, a.coin:focus-visible .card { background: var(--f-line2); }
     <div class="head">
       <div>
         <h2>On <span data-net="place">devnet</span>.</h2>
-        <p class="lead" id="coinLead">Real coins, read from <span data-net="place">devnet</span>. Only the team launches for now; a launchpad for creators comes later.</p>
+        <p class="lead" id="coinLead">Real coins, read from <span data-net="place">devnet</span>. Only the team launches for now; a launchpad for creators comes later.<span id="coinOld" hidden> Coins launched before the 20% rule give their whole fee to the creator and the platform.</span></p>
       </div>
       <p class="note" id="coinNote">reading <span data-net="place">devnet</span></p>
     </div>
@@ -211,7 +211,6 @@ if (window.NET && !NET.test) document.querySelector('meta[name=description]').co
 function num(n, d) { return Number(n).toLocaleString('en-US', { maximumFractionDigits: d, minimumFractionDigits: d }); }
 function fSol(v) { return v >= 100 ? num(v, 1) : v >= 1 || v <= 0 ? num(v, 2) : num(v, 3); }
 function fPct(bps) { return (bps / 100).toLocaleString('en-US', { maximumFractionDigits: 2 }) + '%'; }
-function big(n) { return n >= 1e6 ? num(n / 1e6, 2) + 'M' : num(n, 0); }
 function setText(sel, v) { var el = $(sel); if (el && el.textContent !== v) el.textContent = v; }
 
 /* ---------- marks ---------- */
@@ -219,10 +218,10 @@ BH.mark($('#sym'), 2); BH.mark($('#sym1'), 2); BH.favicon();
 
 /* ---------- the four settings ---------- */
 var SETUPS = [{ V: 30, M: 420, fee: 100 }, { V: 20, M: 180, fee: 200 }, { V: 200, M: 800, fee: 150 }, { V: 60, M: 420, fee: 300 }].map(BH.look);
-function mcap(lk, x) { return (lk.V + x) * (lk.V + x) / lk.V; }   // market cap with x real SOL in, on the curve
-// after graduation, as the chain counts it: on the supply left after the burn, M − V at graduation, then with the
-// square of the real SOL (a plain constant-product pool)
-function mcapAfter(lk, x) { var r = x / lk.G; return (lk.M - lk.V) * r * r; }
+// market cap with x real SOL in: one curve for life, the same before and after the graduation line. The fee's part
+// that stays in the pool is left out of this simulation, so k stays V·S and the market cap reaches the line chosen
+// (lk.M) exactly when the real SOL reaches lk.G
+function mcap(lk, x) { return (lk.V + x) * (lk.V + x) / lk.V; }
 
 /* ---------- the hero: a simulated coin; the strip at the top is its trades ---------- */
 var NAMES = ['MOTE', 'HALO', 'DUSK', 'ORBY', 'LUMA', 'PIXL', 'NOVA', 'EMBR'];
@@ -234,16 +233,16 @@ var cv = $('#hole'), PX = 4;
 var hero = BH.live(cv, {
   look: sim.lk, state: simState(), w: 168, h: 92,
   onLand: function () { readout(); },
-  onGraduate: function () { sim.gradAt = performance.now(); say('<b>' + sim.name + '</b> graduated · ' + big(sim.lk.burn) + ' tokens burned', 'grad'); readout(); }
+  onGraduate: function () { sim.gradAt = performance.now(); say('<b>' + sim.name + '</b> graduated · at a ' + num(sim.lk.M, 0) + ' SOL market cap', 'grad'); readout(); }
 });
 
 function readout() {
-  var lk = sim.lk, done = hero.graduated, shown = Math.min(hero.shown, lk.G);
+  var lk = sim.lk, done = hero.graduated, shown = hero.shown;
   setText('#rName', sim.name);
-  setText('#rCap', '◎ ' + num(done ? mcapAfter(lk, hero.shown) : mcap(lk, shown), 0));
+  setText('#rCap', '◎ ' + num(mcap(lk, shown), 0));
   setText('#rGoal', done ? 'market cap · graduated' : 'of ' + num(lk.M, 0) + ' market cap');
   $('#rBar').style.width = (done ? 100 : Math.min(100, shown / lk.G * 100)) + '%';
-  setText('#rHint', done ? 'one pool, trading for life' : 'tap the hole to buy');
+  setText('#rHint', done ? 'one curve, trading for life' : 'tap the hole to buy');
 }
 
 var tape = $('#tape');
@@ -262,6 +261,7 @@ function sell(amount) {
   amount = Math.min(amount, sim.x * .25);
   if (amount < .05) return;
   sim.x -= amount;
+  if (sim.x < sim.lk.G) sim.grad = false;              // graduated while the market cap is at the line: a sell can end it
   say('◎' + num(amount, 2) + ' sold ' + sim.name, 'sell');
   hero.show(simState()); readout();
 }
@@ -276,7 +276,8 @@ function pick(i) {
   sim.lk = SETUPS[i]; next();
   [].forEach.call(document.querySelectorAll('.setup'), function (b, j) { b.setAttribute('aria-pressed', String(i === j)); });
 }
-// mostly buys, some sells; a graduated coin keeps trading for a while, then a new coin opens
+// mostly buys, some sells; a graduated coin keeps trading for a while, then a new coin opens (one that falls under the
+// line again trades on until it is back over it)
 function market() {
   setTimeout(function () {
     if (!document.hidden && !window.__frozen) {
@@ -339,9 +340,9 @@ function showCoins(list) {
 }
 function examples() {
   return [12, 47, 95].map(function (solIn, i) {
-    var lk = SETUPS[0], g = Math.min(solIn, lk.G), st = { virtualSol: lk.V, realSol: g, graduationSol: lk.G, graduated: solIn >= lk.G };
-    // SOL per token on the curve; graduation leaves it where it was (0.42 per 1M for 30 / 420)
-    return { name: 'Example ' + (i + 1), symbol: 'not real', price: (lk.V + g) * (lk.V + g) / lk.V / 1e9, state: st, look: lk, href: null };
+    var lk = SETUPS[0], st = { virtualSol: lk.V, realSol: solIn, graduationSol: lk.G, graduated: solIn >= lk.G };
+    // SOL per token on the one curve, the same before and after the line (0.42 per 1M at it for 30 / 420)
+    return { name: 'Example ' + (i + 1), symbol: 'not real', price: (lk.V + solIn) * (lk.V + solIn) / lk.V / 1e9, state: st, look: lk, href: null };
   });
 }
 function withTimeout(p, ms) { return Promise.race([p, new Promise(function (_, no) { setTimeout(function () { no(new Error('timeout')); }, ms); })]); }
@@ -365,6 +366,9 @@ function withTimeout(p, ms) { return Promise.race([p, new Promise(function (_, n
       return { name: coinName(p), symbol: String(p.symbol || '').trim() || '—', price: Number(p.price) || 0, state: f.state, look: f.look, href: '/coin?mint=' + encodeURIComponent(String(p.mint)) };
     });
     setText('#coinNote', list.length + ' coin' + (list.length === 1 ? '' : 's') + ', read when this page opened');
+    // a coin launched before its pool kept a part of the fee reads 0 there: the card above says 20%, so say it
+    var old = $('#coinOld');
+    if (old) old.hidden = !pools.slice(0, 12).some(function (p) { return Chain.poolShareOf(p) === 0; });
     showCoins(list);
   }).catch(function (e) { fail(NET.Place + (e && e.message === 'timeout' ? ' did not answer in 8 s.' : ' did not answer.')); });
 })();

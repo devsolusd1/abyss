@@ -43,7 +43,7 @@ Sem o grind, o primeiro modo seco do deploy faz o endereço com `NEW_PROGRAM=1`.
 
 | O quê | SOL | Volta? |
 |---|---|---|
-| Aluguel do programa: binário de 490.736 bytes mais 25 % de espaço | cerca de 3,12 | não: fica no programa |
+| Aluguel do programa: binário de 486.808 bytes (a curva única, com a linha no market cap; eram 490.736 com a queima) mais 25 % de espaço | cerca de 3,09 (5.080 lamports por byte, o preço medido) | não: fica no programa |
 | Dos quais o espaço a mais (`ROOM_PCT=25`, cerca de 120 KB) | 0,62 | não |
 | Cada 64 KB de espaço a mais | 0,333 | não |
 | Aluguel da conta do programa | 0,0008 | não |
@@ -188,6 +188,8 @@ export CLUSTER=mainnet KEYPAIR=~/nox-keys/mainnet-deploy.json     # e o RPC_URL,
 ## Um upgrade depois
 
 O programa sobe antes do site. O Anchor aceita bytes a mais nos argumentos, então um site novo falando com um programa velho pode criar coisas erradas sem dar erro (o DESIGN.md conta o caso do `launch` com lote).
+
+**Não há volta para 671ae17** depois do upgrade, assim que uma pool lançada depois dele negocia, e não só depois que uma passa da linha. A parte da taxa que fica no pool faz o SOL real passar de `graduation_sol` antes do market cap chegar à linha. Nesse estado o binário antigo recusa toda compra (`MathOverflow`); abaixo de `graduation_sol`, ele queima e gradua a moeda com o market cap abaixo do escolhido, e ela fica na regra de legado para sempre; passada a linha (`graduated` = 1, `burned` = 0), ele a lê só com o SOL real, sem o virtual, e o preço cai na hora uns 27% na linha (a fração `V/(V+R)`). O DESIGN.md (testes, `upgrade-test.sh`) tem os números. Uma correção de emergência parte do código novo, nunca de um binário antigo.
 
 1. Mude, teste (`programs/test.sh`), commite, faça o push.
 2. **Teste o upgrade a partir do que está no ar.** O binário no ar leva o ID da mainnet no `declare_id!` e recusa rodar em qualquer outro endereço (`DeclaredProgramIdMismatch`), e os testes carregam o programa em `CbAjrr…`. Por isso o `solana program dump` não serve aqui: o que vai no `POOL_SO_LIVE` é o mesmo commit, compilado de novo para o endereço dos testes. Antes de compilar o commit novo:
