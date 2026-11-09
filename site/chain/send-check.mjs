@@ -35,6 +35,7 @@ const line = (ok, text) => { if (!ok) failed++; console.log(`${ok ? "  ok  " : "
 const s = (lamports) => Chain.sol(lamports).toFixed(9);
 const t = (units) => Chain.tokens(units).toLocaleString("en-US", { maximumFractionDigits: 6 });
 const balance = async () => BigInt(await conn.getBalance(me, "confirmed"));
+const lamportsOf = async (address) => BigInt((await conn.getAccountInfo(address, "confirmed"))?.lamports ?? 0);
 const feeOf = async (sig) => BigInt((await conn.getTransaction(sig, { commitment: "confirmed", maxSupportedTransactionVersion: 0 })).meta.fee);
 
 /**
@@ -81,6 +82,7 @@ let sellSig = null;
 
 /* ---------- buy ---------- */
 let bal = await balance();
+const accountBefore = await lamportsOf(Chain.ata(me, pool.mint));
 let held = (await Chain.readWallet(me, pool.mint)).tokens;
 const buy = await Chain.buildBuy({ pool, owner: me, sol: BUY });
 const q = buy.quote;
@@ -90,12 +92,14 @@ if (buySig) {
   after = await Chain.readPool(pool.mint);
   const nowHeld = (await Chain.readWallet(me, pool.mint)).tokens;
   bought = nowHeld - held;
-  const paid = bal - await balance(), net = await feeOf(buySig);
+  // a first buy of this coin opens the wallet's token account, whose rent stays the wallet's
+  const paid = bal - await balance(), net = await feeOf(buySig), rent = await lamportsOf(Chain.ata(me, pool.mint)) - accountBefore;
   const x = Chain.feeParts(q.fee, pool);
   line(bought === q.tokensOut, `got ${t(bought)} tokens, the quote said ${t(q.tokensOut)}`);
   line(after.realSol === q.after.realSol && after.tokens === q.after.tokens && after.graduated === q.after.graduated,
     `the pool moved to exactly the quote: ${s(after.realSol)} SOL in, ${t(after.tokens)} tokens left, graduated ${after.graduated}`);
-  line(paid === BigInt(Math.round(BUY * 1e9)) + net, `the wallet paid ${s(paid)} SOL: the buy plus a network fee of ${s(net)}`);
+  line(paid === BigInt(Math.round(BUY * 1e9)) + net + rent,
+    `the wallet paid ${s(paid)} SOL: the buy plus a network fee of ${s(net)}${rent ? ` and ${s(rent)} of rent for its new token account` : ""}`);
   line(after.treasuryFees - pool.treasuryFees === x.treasury && after.creatorFees - pool.creatorFees === x.creator && x.pool === q.poolFee,
     `fee ${s(q.fee)} split ${s(x.creator)} creator, ${s(x.treasury)} treasury, ${s(x.pool)} kept in the pool's real SOL`);
   line(after.volume - pool.volume === BigInt(Math.round(BUY * 1e9)), `volume grew by the buy`);
