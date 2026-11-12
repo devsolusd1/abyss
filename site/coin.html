@@ -73,6 +73,16 @@
 .c-btn:focus-visible::before { box-shadow: inset 0 0 0 2px var(--f-bg), inset 0 0 0 4px var(--f-yellow); }
 .c-note { font-size: 11px; line-height: 1.6; color: var(--f-mute); margin-top: 12px; min-height: 1.6em; overflow-wrap: anywhere; }
 .c-note a { color: var(--f-cream); }
+/* quick trades, under a dashed line: fixed amounts, one tap each; the wallet's own window is the confirmation. The
+   chip of the trade under way stays lit while the others wait */
+.c-quick { margin-top: 14px; padding-top: 14px; border-top: 1px dashed var(--f-line); }
+.c-qr { display: flex; align-items: center; gap: 10px; font-size: 11px; color: var(--f-mute); }
+.c-qr + .c-qr { margin-top: 8px; }
+.c-qr[hidden], .in-batch .c-quick { display: none; }
+.c-ql { flex: none; width: 6.8em; }
+.c-qr .chips { flex: 1; flex-wrap: nowrap; }
+.c-qr .chips button { flex: 1; padding-left: 4px; padding-right: 4px; font-variant-numeric: tabular-nums; }
+.c-qr .chips button.go, .c-qr .chips button.go:disabled { opacity: 1; background: var(--f-yellow); color: var(--f-bg); box-shadow: none; }
 /* the fees this wallet can claim, under a dashed line */
 .c-claim { margin-top: 14px; padding-top: 14px; border-top: 1px dashed var(--f-line); }
 #claimC:not([hidden]) + #claimT { margin-top: 16px; }   /* a gap only between two blocks shown */
@@ -99,9 +109,13 @@
 .f dd .mute { display: block; font-size: 11px; }
 .f a { text-underline-offset: 4px; }
 
-/* ---------- every trade: the candles in an outlined card (as on /sim), then the list ---------- */
+/* ---------- every trade: the candles on a black panel in a trading terminal's look (assets/coin-chart.js, on
+   TradingView's Lightweight Charts), then the list on the same panel ---------- */
 #trades { padding-top: clamp(32px, 5vw, 64px); padding-bottom: 0; }
-.s-chart { margin: clamp(28px, 4vw, 44px) 0 0; padding: 14px 16px 14px; }
+.s-chart { --card-bg: #000; --t-text: #d1d4dc; --t-mute: #787b86; --t-edge: #1e222d; --t-up: #26a69a; --t-down: #ef5350;
+  --t-font: -apple-system, BlinkMacSystemFont, 'Trebuchet MS', Roboto, Ubuntu, sans-serif;
+  background: #2a2e39; margin: clamp(28px, 4vw, 44px) 0 0; padding: 12px 14px 16px; color: var(--t-text); }
+.s-fig { margin: 0; }
 .chips { display: inline-flex; flex-wrap: wrap; gap: 4px; }
 .chips button { min-width: 30px; padding: 7px 9px 6px; font-size: 11px; line-height: 1; color: var(--f-mute); box-shadow: inset 0 0 0 1px var(--f-line); -webkit-user-select: none; user-select: none; touch-action: manipulation; }
 .chips button:hover:not(:disabled) { color: var(--f-cream); box-shadow: inset 0 0 0 1px var(--f-line2); }
@@ -110,22 +124,40 @@
 .chips button:disabled { opacity: .35; cursor: default; }
 .s-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
 .s-bar .sp { flex: 1; }
-.s-read { margin-top: 12px; min-height: 1.65em; font-size: 11px; color: var(--f-mute); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.s-read b { font-weight: 500; color: var(--f-cream); }
-.s-read b.up { color: var(--f-yellow); }
-.s-read b.down { color: var(--f-lilac); }
-.s-cv { margin-top: 6px; }
-.s-cv canvas { cursor: crosshair; image-rendering: auto; }
-.s-cv canvas.dragging { cursor: grabbing; }
-.s-key { display: flex; flex-wrap: wrap; gap: 4px 18px; margin-top: 10px; font-size: 10px; color: var(--f-mute); }
+/* the toolbar on the black: grey words, the one chosen lit, no outlines */
+.s-chart .chips { gap: 2px; }
+.s-chart .chips button { color: var(--t-mute); box-shadow: none; }
+.s-chart .chips button:hover:not(:disabled) { color: var(--t-text); background: var(--t-edge); box-shadow: none; }
+.s-chart .chips button[aria-pressed="true"] { color: #fff; background: #2a2e39; }
+.s-chart .chips button:disabled { opacity: 1; color: #4a4e5a; cursor: not-allowed; }   /* an interval with too many candles: there, but off */
+.s-chart .q { color: var(--t-mute); }
+.s-chart .q:hover, .s-chart .q:focus-visible { color: var(--t-text); }
+.s-bar #latest[hidden] { display: inline-block; visibility: hidden; }   /* its room kept: the chart does not jump when it shows */
+/* the legend: the candle under the pointer (or the newest) over the chart's top left, as on a terminal */
+.s-cv { position: relative; margin-top: 10px; }
+.s-cv #chart { position: relative; }
+.s-cv #chart:focus-visible { outline-offset: 2px; }
+.s-read { position: absolute; z-index: 3; left: 8px; top: 6px; max-width: calc(100% - 300px); margin: 0; pointer-events: none; display: flex; flex-wrap: wrap; gap: 0 12px;
+  font: 400 12px/1.6 var(--t-font); color: var(--t-mute); font-variant-numeric: tabular-nums; }
+.s-read:empty { display: none; }
+.s-read span { white-space: nowrap; }
+.s-read .ohlc { white-space: normal; }               /* it breaks between two prices, each kept whole */
+.s-read .t { color: var(--t-text); font-weight: 600; }
+.s-read b { font-weight: 400; color: var(--t-text); margin-left: 3px; }
+.s-read .up { color: var(--t-up); }
+.s-read .down { color: var(--t-down); }
+.s-key { display: flex; flex-wrap: wrap; gap: 4px 18px; margin-top: 10px; font-size: 10px; color: var(--t-mute); }
 .s-key span { display: inline-flex; align-items: center; gap: 7px; }
 .s-key span[hidden] { display: none; }
+.s-key .kc { display: inline; }                       /* the library's attribution notice, as its licence asks, in one run of words */
+.s-key a { color: var(--t-mute); text-underline-offset: 3px; }
+.s-key a:hover { color: var(--t-text); }
 .s-key i { display: inline-block; width: 8px; height: 8px; }
-.s-key .ku { background: var(--f-yellow); }
-.s-key .kd { background: var(--f-lilac); }
-.s-key .kg { width: 10px; height: 2px; background: var(--f-cream); box-shadow: 4px 0 0 var(--f-bg); }
-.s-key .kq { width: 10px; height: 2px; background: var(--f-lilac); box-shadow: 4px 0 0 var(--f-bg); }
-.s-key .kf { width: 10px; height: 2px; background: var(--f-violet); box-shadow: 4px 0 0 var(--f-bg); }
+.s-key .ku { background: var(--t-up); }
+.s-key .kd { background: var(--t-down); }
+.s-key .kg { width: 10px; height: 2px; background: #f4e4a1; box-shadow: 4px 0 0 #000; }
+.s-key .kq { width: 10px; height: 2px; background: #b296cf; box-shadow: 4px 0 0 #000; }
+.s-key .kf { width: 10px; height: 2px; background: #8e6cc4; box-shadow: 4px 0 0 #000; }
 .born-facts { grid-template-rows: repeat(2, auto); }
 .born-list { margin-top: clamp(28px, 4vw, 44px); }
 .born-list td:nth-child(4) { white-space: normal; text-align: left; }
@@ -134,7 +166,7 @@
 .born-list .who { color: var(--f-yellow); font-size: 11px; }
 .born-list .mute { display: block; font-size: 11px; white-space: normal; }
 #born[hidden] { display: none; }
-.s-key .km { width: auto; height: auto; font-style: normal; color: var(--f-cream); font-size: 9px; }
+.s-key .km { width: auto; height: auto; font-style: normal; color: #f4e4a1; font-size: 9px; }
 .trades { width: 100%; margin-top: clamp(28px, 4vw, 44px); border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
 .trades tr.more { display: none; }                  /* the oldest rows, until "show all" */
 .trades.all tr.more { display: table-row; }
@@ -156,6 +188,22 @@
 .trades tr.grad td { color: var(--f-yellow); }
 .trades tr.grad .k { box-shadow: none; background: var(--f-cream); }
 .trades tr.on td { color: var(--f-cream); background: var(--f-deep); }   /* the trades in the candle under the pointer, and the other way round */
+/* the list on the chart's black: a buy in green, a sell in red, the rest grey; the graduation stays yellow */
+.s-chart .trades { margin-top: 26px; }
+.s-chart .trades th { color: var(--t-mute); border-bottom-color: var(--t-edge); }
+.s-chart .trades td { color: var(--t-mute); }
+.s-chart .trades tr.buy td { color: var(--t-up); }
+.s-chart .trades tr.sell td { color: var(--t-down); }
+.s-chart .trades tr.buy td:first-child, .s-chart .trades tr.sell td:first-child { color: var(--t-mute); }
+.s-chart .trades tr.buy .k { background: var(--t-up); }
+.s-chart .trades tr.sell .k { box-shadow: none; background: var(--t-down); }
+.s-chart .trades tr.ev td { color: var(--t-mute); }
+.s-chart .trades tr.ev .k { box-shadow: inset 0 0 0 2px var(--t-mute); }
+.s-chart .trades tr.grad td { color: #f4e4a1; }
+.s-chart .trades tr.grad .k { box-shadow: none; background: #f4e4a1; }
+.s-chart .trades tr.on td { background: var(--t-edge); }
+.s-chart .trades tr.on td:first-child { color: var(--t-text); }
+.s-chart .c-empty, .s-chart .c-more { color: var(--t-mute); }
 .c-empty { margin-top: 18px; font-size: 11px; color: var(--f-mute); }
 .foot { margin-top: clamp(72px, 12vw, 140px); }
 
@@ -164,6 +212,10 @@
 .nocoin .c-grid { grid-template-columns: minmax(0, 1fr); }
 .nocoin .tick { visibility: hidden; }
 
+/* under 1040 px the legend would take three lines, past the candles' top margin: it goes over the chart, not on it */
+@media (max-width: 1039px) {
+  .s-read { position: static; max-width: none; margin-top: 8px; }
+}
 /* the panel goes under the hole on a tablet held upright or narrower; a small laptop keeps it beside */
 @media (max-width: 900px) {
   .c-grid { grid-template-columns: minmax(0, 1fr); }
@@ -182,8 +234,12 @@
   .trades { font-size: 11px; }
   .trades th, .trades td { padding-left: 10px; }
   .trades td:nth-child(2) { white-space: normal; }   /* "platform claim" goes on two lines rather than past the screen */
-  .s-chart { padding: 12px 12px 12px; }
-  .s-read { white-space: normal; }
+  .s-chart { padding: 10px 10px 12px; }
+  .s-read { font-size: 11px; gap: 0 10px; }
+  .s-cv { margin-top: 4px; }
+  .s-chart .trades { font-size: 10px; }               /* the five columns inside the panel's padding */
+  .s-chart .trades th, .s-chart .trades td { padding-left: 6px; }
+  .s-chart .trades .k { margin-right: 6px; }
   .chips button { padding: 9px 10px 8px; }
   /* the toolbar in two rows: the intervals, then what is shown and the zoom */
   .s-bar .sp { display: none; }
@@ -196,11 +252,14 @@
   .trades { font-size: 10px; }
   .trades th, .trades td { padding-left: 6px; }
   .trades .k { margin-right: 6px; }
+  .s-chart .trades { width: calc(100% + 16px); margin-left: -8px; margin-right: -8px; }   /* to the panel's edges */
+  .s-chart .trades th, .s-chart .trades td { padding-left: 4px; }
 }
 @media (max-width: 560px) { .tick .tag { padding-left: 16px; } }
 </style>
 <script defer src="/assets/bh.js"></script>
-<script defer src="/assets/chart.js"></script>
+<script defer src="/vendor/lightweight-charts-5.3.0.js"></script>
+<script defer src="/assets/coin-chart.js"></script>
 <script defer src="/net.js"></script>
 <script defer src="/vendor/chain.js"></script>
 <script defer src="/assets/wallet.js"></script>
@@ -269,6 +328,11 @@
       <p class="c-quote" id="quote" aria-live="polite">Reading the pool…</p>
       <button type="button" class="c-btn" id="hold"><span id="holdTxt">Connect a wallet to buy</span><i id="holdFill" aria-hidden="true"></i></button>
       <p class="c-note" id="note" aria-live="polite"></p>
+      <!-- quick trades: a tap reads the pool, quotes, simulates and asks the wallet, as the hold button does; hidden while an opening batch is open -->
+      <div class="c-quick" id="quick">
+        <div class="c-qr"><span class="c-ql">quick buy</span><span class="chips" role="group" aria-label="Quick buy, in SOL" id="qBuy"><button type="button" data-sol="0.1">◎0.1</button><button type="button" data-sol="0.5">◎0.5</button><button type="button" data-sol="1">◎1</button><button type="button" data-sol="2">◎2</button></span></div>
+        <div class="c-qr" id="qSellRow" hidden><span class="c-ql">quick sell</span><span class="chips" role="group" aria-label="Quick sell, a share of the tokens you hold" id="qSell"><button type="button" data-pct="25">25%</button><button type="button" data-pct="50">50%</button><button type="button" data-pct="100">100%</button></span></div>
+      </div>
       <!-- the fees this wallet can claim: only for the coin's creator, or its treasury -->
       <div class="c-claim" id="claim" hidden>
         <div id="claimC" hidden><p class="c-cl" id="claimCTxt"></p><button type="button" class="btn sm" id="claimCBtn">Claim</button></div>
@@ -279,12 +343,13 @@
   </div>
 </section>
 
-<!-- ===== every trade: as candles (assets/chart.js), then as a list, newest first ===== -->
+<!-- ===== every trade: as candles (assets/coin-chart.js), then as a list, newest first, on one black panel ===== -->
 <section class="sec" id="trades" aria-labelledby="tradesH">
   <div class="wrap">
     <h2 id="tradesH">Every trade.</h2>
     <p class="lead">Read from <span data-net="place">devnet</span>: the price after each trade, as candles, then the trades themselves.</p>
-    <figure class="card s-chart">
+    <div class="card s-chart">
+    <figure class="s-fig">
       <div class="s-bar">
         <div class="chips" role="group" aria-label="One candle per" id="tfs">
           <button type="button" data-tf="0">trade</button><button type="button" data-tf="60">1m</button><button type="button" data-tf="900">15m</button><button type="button" data-tf="3600">1h</button><button type="button" data-tf="14400">4h</button><button type="button" data-tf="86400">1d</button>
@@ -302,10 +367,9 @@
         </div>
         <button type="button" class="q" id="latest" hidden>latest →</button>
       </div>
-      <p class="s-read" id="read"></p>
-      <div class="s-cv"><canvas id="chart" tabindex="0" role="img" aria-label="The coin's price in candles"></canvas></div>
+      <div class="s-cv"><p class="s-read" id="read"></p><div id="chart" tabindex="0" role="img" aria-label="The coin's price in candles"></div></div>
       <figcaption class="s-key">
-        <span><i class="ku"></i>closed up</span><span><i class="kd"></i>closed down</span><span><i class="kg"></i>graduation</span><span><i class="kq"></i>after the trade you are typing</span><span id="keyFloor" title="The price if every token outside the pool were sold back to it"><i class="kf"></i>pool floor</span><span id="keyMine" hidden><i class="km">▲▼</i>your wallet's trades</span><span>drag sideways to look back · − and + zoom</span><span id="keyUsd" hidden></span>
+        <span><i class="ku"></i>closed up</span><span><i class="kd"></i>closed down</span><span><i class="kg"></i>graduation</span><span><i class="kq"></i>after the trade you are typing</span><span id="keyFloor" title="The price if every token outside the pool were sold back to it"><i class="kf"></i>pool floor</span><span id="keyMine" hidden><i class="km">▲▼</i>your wallet's trades</span><span>drag sideways to look back · pinch, ctrl+wheel or − + to zoom · double-click an axis to fit it</span><span id="keyUsd" hidden></span><span class="kc">chart: <a href="https://www.tradingview.com/" target="_blank" rel="noopener">TradingView Lightweight Charts™</a>, Copyright (c) 2025 TradingView, Inc.</span>
       </figcaption>
     </figure>
     <table class="trades" id="tradeList">
@@ -314,6 +378,7 @@
     </table>
     <p class="c-empty" id="histNote">Reading the trades…</p>
     <button type="button" class="q c-more" id="moreRows" hidden></button>
+    </div>
   </div>
 </section>
 
@@ -343,7 +408,7 @@
 
 <footer class="wrap foot">
   <a class="brand" href="#top" aria-label="Nox, top of the page"><canvas id="sym1" aria-hidden="true"></canvas><b>nox</b></a>
-  <p><span id="netFoot">devnet only · devnet SOL has no value · </span><a id="progLink" href="#" target="_blank" rel="noopener">program</a></p>
+  <p><span id="netFoot">devnet only · devnet SOL has no value · </span><a id="progLink" href="#" target="_blank" rel="noopener">program</a> · <a href="https://x.com/noxdexfun" target="_blank" rel="noopener">x.com/noxdexfun</a></p>
 </footer>
 
 <script>
@@ -372,7 +437,7 @@ function fail(title, html) {
   var m = $('#msg'); m.innerHTML = html || ''; m.hidden = !html;
   var qe = $('#quote'); qe.textContent = 'Trading needs the pool, and it could not be read.'; qe._html = null;
 }
-if (!window.BH || !window.NoxChart) { fail('The page did not load all its parts.', '<a href="' + esc(location.pathname + location.search) + '">Reload</a>'); return; }
+if (!window.BH || !window.NoxCoinChart) { fail('The page did not load all its parts.', '<a href="' + esc(location.pathname + location.search) + '">Reload</a>'); return; }
 try { main(); } catch (e) { report(e); fail('Something broke while drawing this coin.', '<a href="/coins">See all coins</a>'); }
 
 function main() {
@@ -818,19 +883,20 @@ $('#rows').addEventListener('mouseleave', function () { hover(-1); });
 $('#rows').addEventListener('focusin', function (e) { var r = e.target.closest('tr'); if (r) hover(+r.getAttribute('data-i')); });
 $('#rows').addEventListener('focusout', function () { hover(-1); });
 
-/* ================= the chart: the price after each trade, as candles (assets/chart.js) ================= */
+/* ================= the chart: the price after each trade, as candles (assets/coin-chart.js) ================= */
 // one candle per trade, or per minute, 15 minutes, hour, 4 hours or day of the clock. Until one is chosen the
 // interval is picked from the trades: by the clock when at least a fifth of the candles would hold a trade, else one
 // per trade (a devnet coin's few trades, days apart, would be a row of empty dashes by the clock). The trade being
 // typed in the panel shows as a lilac dashed level: where it would leave the price
-var chartCv = $('#chart'), latestBtn = $('#latest'), readEl = $('#read');
+var chartEl = $('#chart'), latestBtn = $('#latest'), readEl = $('#read');
+var LV = { goal: '#f4e4a1', quote: '#b296cf', floor: '#8e6cc4', floorWord: '#b296cf' };   // the levels' colours, as in the key under the chart
 var TF = null, SERIES = 'mcap', LOG = false, CANDLES = [];
 // dollars: SOL's price now (/api/price), the same for every candle; until it is in, or when it cannot be read, SOL
 var UNIT = 'usd', USD = null, USD_FROM = '', USD_AT = 0;          // USD_AT: when the server read it (a price over 10 min old is none)
 function inUsd() { return UNIT === 'usd' && USD > 0; }
 var TFS = [60, 900, 3600, 14400, 86400], MAX_CANDLES = 3000;
-function chartH() { var w = document.documentElement.clientWidth; return w >= 1040 ? 380 : w >= 760 ? 340 : 280; }
-var chart = new NoxChart(chartCv, { height: chartH,
+function chartH() { var w = document.documentElement.clientWidth; return w >= 1040 ? 440 : w >= 760 ? 380 : 320; }
+var chart = new NoxCoinChart(chartEl, { height: chartH,
   onHover: function (k) { renderRead(); rowsOn(k >= 0 && CANDLES[k] ? CANDLES[k].ev : hi >= 0 ? [hi] : []); },
   onView: function () { latestBtn.hidden = chart.following; } });
 function pad2(n) { return (n < 10 ? '0' : '') + n; }
@@ -852,9 +918,10 @@ function autoTf() {
   }
   return 0;
 }
-// the price after a trade per 1M tokens, or the market cap on the tokens then in existence (only a coin that graduated
-// under the program's first rules burned any, at its graduation)
-function valOf(p, supply) { var v = SERIES === 'price' ? p * 1e6 : p * supply; return inUsd() ? v * USD : v; }
+// the price after a trade per token, as a trading terminal shows it (the rest of the page counts per 1M), or the market
+// cap on the tokens then in existence (only a coin that graduated under the program's first rules burned any, at its
+// graduation)
+function valOf(p, supply) { var v = SERIES === 'price' ? p : p * supply; return inUsd() ? v * USD : v; }
 function supplyAt(e) { return units(Chain.SUPPLY - (e.graduated ? POOL.burned : 0n)); }
 // the value just before a trade, from the trade itself: the first candle's open when the launch is older than the
 // history read. A buy's sol is paid in with its fee, a sell's is received after it; the pool's part of the fee stayed
@@ -879,19 +946,36 @@ function fmtUsd(v) {
   if (r(a, 1) >= 100) return '$' + d(v, 1);
   if (r(a, 2) >= 1) return '$' + d(v, 2);
   if (r(a, 4) >= .01) return '$' + d(v, 4);
-  return '$' + v.toPrecision(3);
+  return '$' + (a < 1e-3 ? tiny(v, 4) : v.toPrecision(3));
 }
-// the chart's line labels in dollars: in K or M by the label's own size, as the price tag beside them, with the
-// decimals the step between the lines needs
-function tickUsd(v, step) {
-  if (step == null) return fmtUsd(v);
-  var a = Math.abs(v), u = a >= 1e6 ? 1e6 : a >= 1e4 ? 1e3 : 1, s = step / u, dec = Math.max(0, Math.ceil(-Math.log10(s) - 1e-9));
-  if (Math.abs(s / Math.pow(10, -dec) - 2.5) < 1e-6) dec++;
-  return '$' + (v / u).toFixed(Math.min(8, dec)) + (u === 1e6 ? 'M' : u === 1e3 ? 'K' : '');
+// a small number as a trading terminal writes it: the zeros after the point counted in a subscript, 0.0₅4812 for
+// 0.000004812, with sig significant digits; under four zeros it is written out
+var SUBS = '₀₁₂₃₄₅₆₇₈₉';
+function tiny(v, sig) {
+  var a = Math.abs(v), s = v < 0 ? '−' : '';
+  if (!(a > 0)) return '0';
+  var e = a.toExponential(Math.max(1, sig) - 1).split('e'), z = -Number(e[1]) - 1;   // the zeros after the point, after rounding
+  if (z < 4) return s + a.toFixed(Math.max(0, z) + sig);
+  return s + '0.0' + String(z).replace(/\d/g, function (n) { return SUBS[n]; }) + e[0].replace('.', '');
+}
+// the chart's axis labels: in dollars in K or M by the label's own size, as the price tag beside them, with the
+// decimals the step between the lines needs (one more for a step of 2.5), so every line ends on the same decimal; a
+// tiny price with its zeros in a subscript and its digits down to that decimal. On a log scale (step null) each is
+// written as the tags are
+function tickDec(s) { var dec = Math.max(0, Math.ceil(-Math.log10(s) - 1e-9)); return Math.abs(s / Math.pow(10, -dec) - 2.5) < 1e-6 ? dec + 1 : dec; }
+function tickV(v, step) {
+  if (step == null) return fmtV(v);
+  var a = Math.abs(v), cur = inUsd() ? '$' : '';
+  if (a < 1e-3 && (a > 0 || step < 1e-3)) {           // nothing, on such an axis, is 0
+    var dec = Math.min(15, tickDec(step)), n = Math.round(a * Math.pow(10, dec));   // the value in units of that decimal
+    return cur + (n ? tiny(v, Math.min(8, String(n).length)) : '0');
+  }
+  var u = inUsd() ? (a >= 1e6 ? 1e6 : a >= 1e4 ? 1e3 : 1) : 1;
+  return cur + (v / u).toFixed(Math.min(8, tickDec(step / u))) + (u === 1e6 ? 'M' : u === 1e3 ? 'K' : '');
 }
 function fmtV(v) {
   if (inUsd()) return fmtUsd(v);
-  return SERIES === 'price' ? (v >= 1 ? v.toFixed(3) : v >= .001 ? v.toFixed(4) : v.toPrecision(3)) : fSol(v);
+  return SERIES === 'price' ? (v >= 1 ? v.toFixed(3) : v >= .001 ? v.toFixed(4) : tiny(v, 4)) : fSol(v);
 }
 function buildCandles(tf) {
   var out = [], marks = [], evs = [], prev = null, cur = null, k = -1, t0 = null;
@@ -922,16 +1006,6 @@ function buildCandles(tf) {
     while (out.length <= nowB && out.length < MAX_CANDLES) out.push({ t: t0 + out.length * tf, o: prev, h: prev, l: prev, c: prev, v: 0, n: 0, ev: [] });
   }
   return { list: out, marks: marks, events: evs };
-}
-// the hour under a candle, and the date where a day starts (and on the first label, when the candles span days)
-function timeLabel(tf, list) {
-  var long = list.length > 1 && list[list.length - 1].t - list[0].t > 86400;
-  function day(t) { var d = new Date(t * 1000); return d.getFullYear() * 512 + d.getMonth() * 32 + d.getDate(); }
-  return function (t, prev) {
-    var d = new Date(t * 1000);
-    if (tf >= 86400 || (prev == null ? long : day(prev) !== day(t))) return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
-    return pad2(d.getHours()) + ':' + pad2(d.getMinutes());
-  };
 }
 function paintTfs(tf) {
   var s = EVENTS ? span() : null;
@@ -967,35 +1041,41 @@ function drawChart(view) {
   paintTfs(tf);
   if (shownTf != null && tf !== shownTf) chart.fit();    // the interval picked itself anew (more trades read): a new set of candles
   // the goal is the graduation line: the market cap chosen at launch, whatever the coin has traded
-  var C = buildCandles(tf), M = lam(POOL.graduationMcap), g = (SERIES === 'price' ? M / 1000 : M) * (inUsd() ? USD : 1), lines = [];
+  var C = buildCandles(tf), S = units(Chain.SUPPLY), g = valOf(lam(POOL.graduationMcap) / S, S), lines = [];
   CANDLES = C.list;
   var off = anchorAt(view, tf);
   shownTf = tf;
   // the pool's floor, in what the chart shows: soft, so a floor far under the price does not squash the candles
-  var fp = floorPrice(POOL), fv = (SERIES === 'price' ? fp * 1e6 : fp * units(Chain.SUPPLY - POOL.burned)) * (inUsd() ? USD : 1);
-  if (fv > 0) lines.push({ v: fv, label: 'pool floor: ' + fmtV(fv), col: HEX[4], word: HEX[5], soft: true });
+  var fv = valOf(floorPrice(POOL), units(Chain.SUPPLY - POOL.burned));
+  if (fv > 0) lines.push({ v: fv, label: 'pool floor: ' + fmtV(fv), title: 'pool floor', col: LV.floor, word: LV.floorWord, soft: true });
   var kf = $('#keyFloor'), kt = 'The price if every token outside the pool were sold back to it: ' + floorWords(POOL);
   if (kf.title !== kt) kf.title = kt;
-  if (Q && Q.q && Q.after) { var qv = (SERIES === 'price' ? Q.after.price * 1e6 : Q.after.mcap) * (inUsd() ? USD : 1); lines.push({ v: qv, label: 'after this ' + Q.side + ': ' + fmtV(qv), col: HEX[5] }); }
+  if (Q && Q.q && Q.after) { var qv = (SERIES === 'price' ? Q.after.price : Q.after.mcap) * (inUsd() ? USD : 1); lines.push({ v: qv, label: 'after this ' + Q.side + ': ' + fmtV(qv), title: 'after this ' + Q.side, col: LV.quote }); }
   $('#keyMine').hidden = !C.marks.length;
-  chart.set({ candles: C.list, marks: C.marks, events: C.events, lines: lines, log: LOG, fmt: fmtV, tick: inUsd() ? tickUsd : null, tfmt: timeLabel(tf, C.list),
-    goal: POOL.graduated ? null : { v: g, label: 'graduation at ' + fmtV(g) } }, off != null ? { off: off } : null);
+  chart.set({ candles: C.list, marks: C.marks, events: C.events, lines: lines, log: LOG, fmt: fmtV, tick: tickV, stamp: stamp, kind: SERIES + (inUsd() ? '$' : ''),
+    goal: POOL.graduated ? null : { v: g, label: 'graduation at ' + fmtV(g), title: 'graduation', col: LV.goal } }, off != null ? { off: off } : null);
   chart.select(hi >= 0 ? candleOf(hi) : -1);
-  // the canvas's name says what it shows, and changes only with that (the read line above it has the numbers), so a
-  // screen reader on it is not told again at every trade
+  // the chart's name says what it shows, and changes only with that (the legend on it has the numbers), so a screen
+  // reader on it is not told again at every trade
   var cur = inUsd() ? 'US dollars at SOL\'s price now' : 'SOL';
-  var al = 'Candles of ' + nameOf(POOL) + '\'s ' + (SERIES === 'price' ? 'price, in ' + cur + ' per 1M tokens' : 'market cap, in ' + cur) + ', ' + (tf ? 'one per ' + tfName(tf) : 'one per trade') + '. The line above it reads the candle in focus.';
-  if (chartCv.getAttribute('aria-label') !== al) chartCv.setAttribute('aria-label', al);
+  var al = 'Candles of ' + nameOf(POOL) + '\'s ' + (SERIES === 'price' ? 'price, in ' + cur + ' per token' : 'market cap, in ' + cur) + ', ' + (tf ? 'one per ' + tfName(tf) : 'one per trade') + '. The line on it reads the candle in focus.';
+  if (chartEl.getAttribute('aria-label') !== al) chartEl.setAttribute('aria-label', al);
   renderRead();
 }
 function tfName(tf) { return tf === 60 ? 'minute' : tf === 900 ? '15 minutes' : tf === 3600 ? 'hour' : tf === 14400 ? '4 hours' : 'day'; }
+var TF_SHORT = { 0: 'trade', 60: '1m', 900: '15m', 3600: '1h', 14400: '4h', 86400: '1d' };
+// the legend, as a terminal has it: the pair, the interval and the series, then the candle under the pointer (or the
+// newest): open, high, low, close in its colour, its change, its volume, its time. The four prices and the change go
+// on a second line on a narrow phone rather than past the panel's edge
 function renderRead() {
   var k = chart.hover >= 0 ? chart.hover : CANDLES.length - 1, c = CANDLES[k];
   if (!c) { readEl.textContent = EVENTS && HIST && HIST.complete ? 'No trades yet: the chart starts with the first.' : ''; return; }
-  var ch = c.o > 0 ? c.c / c.o - 1 : 0;
-  readEl.innerHTML = '<b>' + esc(stamp(c.t)) + '</b>' + (chart.hover >= 0 ? '' : ' latest') +
-    ' · O <b>' + fmtV(c.o) + '</b> H <b>' + fmtV(c.h) + '</b> L <b>' + fmtV(c.l) + '</b> C <b>' + fmtV(c.c) + '</b> <b class="' + (ch >= 0 ? 'up' : 'down') + '">' + pctS(ch) + '</b> · ' +
-    (c.n ? fSol(c.v) + ' SOL in ' + c.n + ' trade' + (c.n === 1 ? '' : 's') : 'no trades');
+  var ch = c.o > 0 ? c.c / c.o - 1 : 0, cls = ch > 0 ? 'up' : ch < 0 ? 'down' : '', sym = String(POOL.symbol || '').trim() || nameOf(POOL);
+  function b(l, v, more) { return '<span>' + l + '<b class="' + cls + '">' + esc(fmtV(v)) + '</b>' + (more || '') + '</span>'; }
+  var vol = inUsd() ? fmtUsd(c.v * USD) : fSol(c.v) + ' SOL';
+  readEl.innerHTML = '<span class="t">' + esc(sym) + '/' + (inUsd() ? 'USD' : 'SOL') + ' · ' + (TF_SHORT[shownTf] || '') + ' · ' + (SERIES === 'price' ? 'price' : 'market cap') + '</span>'
+    + '<span class="ohlc">' + b('O', c.o) + ' ' + b('H', c.h) + ' ' + b('L', c.l) + ' ' + b('C', c.c, ' <b class="' + cls + '">' + pctS(ch) + '</b>') + '</span>'
+    + '<span>' + (c.n ? 'Vol<b>' + esc(vol) + '</b> · ' + c.n + ' trade' + (c.n === 1 ? '' : 's') : 'no trades') + ' · ' + esc(stamp(c.t)) + (chart.hover >= 0 ? '' : ', latest') + '</span>';
 }
 function press(sel, attr, value) { Array.prototype.forEach.call(document.querySelectorAll(sel + ' [' + attr + ']'), function (b) { b.setAttribute('aria-pressed', String(b.getAttribute(attr) === String(value))); }); }
 $('#tfs').addEventListener('click', function (e) { var b = e.target.closest('[data-tf]'); if (b && !b.disabled) { TF = +b.getAttribute('data-tf'); chart.fit(); drawChart(); } });
@@ -1040,8 +1120,8 @@ document.addEventListener('visibilitychange', function () { if (!document.hidden
 $('#logBtn').addEventListener('click', function () { LOG = !LOG; this.setAttribute('aria-pressed', String(LOG)); drawChart(); });
 $('#zIn').addEventListener('click', function () { chart.zoom(1); });
 $('#zOut').addEventListener('click', function () { chart.zoom(-1); });
-latestBtn.addEventListener('click', function () { chartCv.focus(); chart.latest(); });   // the button hides itself: focus goes to the chart
-chartCv.addEventListener('keydown', function (e) {
+latestBtn.addEventListener('click', function () { chartEl.focus(); chart.latest(); });   // the button hides itself: focus goes to the chart
+chartEl.addEventListener('keydown', function (e) {
   var k = e.key;
   if (k === 'ArrowLeft' || k === 'ArrowRight') { e.preventDefault(); chart.pan(k === 'ArrowLeft' ? 1 : -1); }
   else if (k === '+' || k === '=') { e.preventDefault(); chart.zoom(1); }
@@ -1070,14 +1150,17 @@ function shortOf(lamports) {
   if (!WAL || lamports + fee <= WAL.sol) return null;
   return { msg: 'Your wallet has ' + fSol(lam(WAL.sol)) + ' SOL, and the network fee takes up to ' + lam(fee) + ' of it.', bad: true };
 }
-function makeQuote() {
+// x, optional: a quick trade's own side and amount ({ side: 'buy', sol } or { side: 'sell', units }) in place of the
+// panel's; it never goes into an opening batch
+function makeQuote(x) {
   if (!POOL || !window.Chain) return { msg: POOL ? 'The trading code did not load.' : 'Reading the pool…' };
-  var ph = batchPhase();
+  var ph = batchPhase(), sd = x ? x.side : side;
   if (ph === 'due') return { msg: 'The opening batch has closed: buying opens once someone settles it, above.' };
   if (ph === 'last') return { msg: 'The opening batch\'s last minute: no more SOL goes into seats. SOL already in one can still come back out, above.' };
+  if (ph === 'open' && x) return { msg: 'The opening batch is open: SOL goes into seats, above, until it closes.' };
   if (ph === 'open' && side !== 'buy') return { msg: 'Nobody holds this coin yet: its first tokens come out when the opening batch settles.' };
-  var v = parseAmt(amt.value);
-  if (!(v > 0)) return { msg: side === 'buy' ? 'Type how much SOL to spend.' : 'Type how many tokens to sell. 5m means five million.' };
+  var v = x ? (sd === 'buy' ? x.sol : units(x.units)) : parseAmt(amt.value);
+  if (!(v > 0)) return x ? { msg: WAL && WAL.tokens > 0n ? 'Too small to trade.' : 'This wallet holds none of these tokens.', bad: true } :{ msg: side === 'buy' ? 'Type how much SOL to spend.' : 'Type how many tokens to sell. 5m means five million.' };
   if (ph === 'open') {
     var lc = BigInt(Math.round(v * 1e9)), seat0 = mySeat();
     if (lc < Chain.OPENING.minCommit) return { msg: 'A seat in the batch takes at least 0.001 SOL.', bad: true };
@@ -1087,7 +1170,7 @@ function makeQuote() {
     return { side: 'commit', sol: v, lamports: lc, q: Chain.quoteSeat(POOL, mine, total), mine: mine, total: total, after: null };
   }
   var fee = POOL.feeBps, r = reservesOf(POOL);
-  if (side === 'buy') {
+  if (sd === 'buy') {
     var lamports = BigInt(Math.round(v * 1e9));
     if (lamports < 10000n) return { msg: 'Too small to trade.', bad: true };
     var low2 = shortOf(lamports);
@@ -1096,7 +1179,7 @@ function makeQuote() {
     if (q.tokensOut <= 0n) return { msg: 'Too small to trade.', bad: true };
     return { side: 'buy', sol: v, q: q, minOut: q.tokensOut * (10000n - SLIP) / 10000n, after: afterOf(q.after) };
   }
-  var u = (maxUnits != null && amt.value === maxText) ? maxUnits : BigInt(Math.round(v * 1e6));
+  var u = x ? x.units : (maxUnits != null && amt.value === maxText) ? maxUnits : BigInt(Math.round(v * 1e6));
   var outside = Chain.SUPPLY - POOL.burned - POOL.tokens;    // burned: only a coin from the program's first rules
   if (u <= 0n) return { msg: 'Too small to trade.', bad: true };
   if (WAL && u > WAL.tokens) return { msg: WAL.tokens > 0n ? 'You hold ' + tok(units(WAL.tokens)) + ' of these tokens.' : 'This wallet holds none of these tokens.', bad: true };
@@ -1136,6 +1219,7 @@ function paintHold() {
   paintBatch();
   var w = window.Wallet && Wallet.current, ph = batchPhase(), verb = ph === 'open' ? 'commit' : side;
   if (claimEl) paintClaim();                           // the claim buttons wait while a trade goes out, and the other way round
+  paintQuick();
   holdBtn.classList.toggle('connect', !w);
   holdBtn.classList.toggle('busy', busy);
   if (busy) { holdLabel('Working…'); holdBtn.disabled = true; holdBtn.classList.remove('ready'); return; }
@@ -1149,6 +1233,7 @@ function paintHold() {
 function paintHoldings() {
   var w = window.Wallet && Wallet.current, el = $('#holdings');
   maxBtn.disabled = !(w && WAL);
+  paintQuick();
   if (!w) { el.textContent = 'Connect a wallet to see what you hold.'; return; }
   if (!WAL) { el.textContent = 'Reading your wallet…'; return; }
   el.innerHTML = 'You hold <b>' + fSol(lam(WAL.sol)) + '</b> SOL and <b>' + tok(units(WAL.tokens)) + '</b> of this coin.';
@@ -1204,9 +1289,10 @@ async function connectWallet() {
   if (Wallet.ready) await Wallet.ready();
   // no wallet here: Wallet.missing says so, and on a phone links to this page opened inside Phantom or Solflare
   if (!Wallet.list().length) { note('', true); Wallet.missing(noteEl); return; }
-  // with more than one wallet, the picker opens under the button just pressed (the hold button or a batch button);
-  // wallet.js knows which, since a press on the hold button leaves focus where it was
-  Wallet.connect().catch(function (err) {
+  // with more than one wallet, the picker opens under the button just pressed (the hold button, a batch button or a
+  // quick one); wallet.js knows which, since a press on the hold button leaves focus where it was. A quick trade waits
+  // for the answer: the wallet, or null when the picker closed unchosen or it did not connect
+  return Wallet.connect().catch(function (err) {
     // no wallet app on the phone was reached: why, and the links, here too
     if (err && err.missing) { note('', true); Wallet.missing(noteEl); return; }
     note(err && err.message ? err.message : 'The wallet did not connect.', true);
@@ -1227,7 +1313,9 @@ function sendError(e) {
   if (/blockhash|expired/i.test(m)) return 'It took too long to sign and expired. Nothing was sent; try again.';
   return 'It did not go through: ' + (m || 'unknown error') + '.';
 }
-async function execute() {
+// x, optional: a quick trade (makeQuote's x), or { pct } for a quick sell of that share of what the wallet holds once it
+// is read again; with none, the amount typed in the panel
+async function execute(x) {
   var w = window.Wallet && Wallet.current;
   if (busy || !w || !POOL) return;
   busy = true; paintHold();
@@ -1235,16 +1323,24 @@ async function execute() {
   try {
     note('Reading the pool again for an exact quote…');
     try { var fresh = await withTimeout(Chain.readPool(POOL.mint), 12000); if (fresh) { PINNED = false; applyPool(fresh); } } catch (e) { /* quote on what we have */ }
-    var q = makeQuote();
+    if (x && x.pct) {
+      // a share of what it holds now: on a failed read the last one could be 20 s old, and nothing goes
+      if (!(await readWal()) || !WAL || Wallet.current !== w) { note('Could not read your wallet from ' + place + '. Nothing was sent.', true); return; }
+      x = { side: 'sell', units: WAL.tokens * BigInt(x.pct) / 100n };
+    }
+    var q = makeQuote(x);
     if (!q.q) { note(q.msg, true); return; }
     var built = q.side === 'commit' ? await Chain.buildCommit({ pool: POOL, owner: w.publicKey, sol: q.lamports })
-      : side === 'buy'
+      : q.side === 'buy'
       ? await Chain.buildBuy({ pool: POOL, owner: w.publicKey, sol: q.sol, slippageBps: Number(SLIP) })
       : await Chain.buildSell({ pool: POOL, owner: w.publicKey, tokens: q.units, slippageBps: Number(SLIP) });
     note('Asking ' + place + ' whether it would go through…');
     var sim = await withTimeout(Chain.simulate(built, w.publicKey), 15000);
     if (!sim.ok) { note(Place + ' says it would fail: ' + sim.error + '. Nothing was sent.', true); return; }
-    note(Place + ' says it goes through. Confirm in ' + (w.label || w.name || 'your wallet') + '.');
+    // a quick trade says what it is, since the panel's quote is for the amount typed there
+    var what = !x ? '' : q.side === 'buy' ? ': ' + fSol(q.sol) + ' SOL for about ' + tok(units(q.q.tokensOut)) + ' tokens'
+      : ': ' + tok(units(q.units)) + ' tokens for about ' + fSol(lam(q.q.solOut)) + ' SOL';
+    note(Place + ' says it goes through' + what + '. Confirm in ' + (w.label || w.name || 'your wallet') + '.');
     sig = await Chain.send(built, w);
     noteHTML('Done: ' + link('tx', sig, 'the signature ' + esc(shortKey(sig))) + '. Reading the new pool…');
     await refresh(true);
@@ -1254,6 +1350,39 @@ async function execute() {
     else note(sendError(e), true);
   } finally { busy = false; paintHold(); }
 }
+
+/* quick trades: a tap on a fixed amount trades it at once, through execute(): the pool read again, the quote, the
+   simulation, and the wallet's own window, which is the confirmation. Same slippage, same words, one at a time (busy).
+   With no wallet the tap connects one first (the picker opens under the chip) and goes on only if one came in */
+var linking = false;                                   // a wallet connecting for a quick trade: other taps wait
+function paintQuick() {
+  var box = $('#quick'), w = window.Wallet && Wallet.current, sells = !!(w && WAL && WAL.tokens > 0n), off = busy || linking || !POOL;
+  if (!box) return;
+  Array.prototype.forEach.call(box.querySelectorAll('button'), function (b) {
+    if (b.disabled !== off) b.disabled = off;
+    if (!off && b.classList.contains('go')) b.classList.remove('go');
+  });
+  var row = $('#qSellRow'); if (row.hidden === sells) row.hidden = !sells;
+}
+async function quick(x, b) {
+  if (busy || linking || !POOL) return;
+  if (!(window.Wallet && Wallet.current)) {
+    // the wallet the picker gave, not just any now in: a kept one reconnecting by itself while the picker was closed
+    // unchosen is no yes. A wallet that never answers lets the chips go after two minutes
+    var got = null;
+    linking = true; b.classList.add('go'); paintQuick();
+    try { got = await withTimeout(connectWallet(), 120000); }
+    catch (e) { if (e && e.message === 'timeout') note('The wallet did not answer. Nothing was sent.', true); else report(e); }
+    finally { linking = false; paintQuick(); }
+    if (!got || Wallet.current !== got) return;        // closed unchosen, refused, no wallet here or no answer: nothing is sent
+  }
+  b.classList.add('go');
+  await execute(x);
+}
+$('#qBuy').addEventListener('click', function (e) { var b = e.target.closest('[data-sol]'); if (b && !b.disabled) quick({ side: 'buy', sol: +b.getAttribute('data-sol') }, b).catch(report); });
+$('#qSell').addEventListener('click', function (e) { var b = e.target.closest('[data-pct]'); if (b && !b.disabled) quick({ pct: +b.getAttribute('data-pct') }, b).catch(report); });
+Array.prototype.forEach.call(document.querySelectorAll('#qBuy [data-sol]'), function (b) { b.title = 'Buy with ' + b.getAttribute('data-sol') + ' SOL now; your wallet asks you to confirm'; });
+Array.prototype.forEach.call(document.querySelectorAll('#qSell [data-pct]'), function (b) { b.title = 'Sell ' + b.getAttribute('data-pct') + '% of the tokens you hold now; your wallet asks you to confirm'; });
 
 /* ================= the opening batch (Chain.buildCommit, buildWithdraw, buildSettle, buildSeatClaim) ================= */
 // A coin launched with a batch takes no buys until the batch settles. SOL goes into seats, one per wallet, until the
@@ -1608,15 +1737,18 @@ function backfill(wait) {
   }, wait || 400);
 }
 function setHistNote(t) { var n = $('#histNote'); n.textContent = t; n.hidden = !t; }
+// true when WAL is now this wallet as read just now (a quick sell counts on it); false when the read failed and WAL is
+// the last one, or the wallet changed meanwhile
 async function readWal() {
-  var w = window.Wallet && Wallet.current;
-  if (!w || !POOL) { WAL = null; paintHoldings(); return; }
+  var w = window.Wallet && Wallet.current, ok = false;
+  if (!w || !POOL) { WAL = null; paintHoldings(); return false; }
   var was = WAL;
-  try { var r = await withTimeout(Chain.readWallet(w.publicKey, POOL.mint), 12000); if (Wallet.current === w) WAL = r; }
-  catch (e) { if (!WAL) $('#holdings').textContent = 'Could not read your wallet from ' + place + '. Trying again in 20 s.'; return; }
+  try { var r = await withTimeout(Chain.readWallet(w.publicKey, POOL.mint), 12000); if (Wallet.current === w) { WAL = r; ok = true; } }
+  catch (e) { if (!WAL) $('#holdings').textContent = 'Could not read your wallet from ' + place + '. Trying again in 20 s.'; return false; }
   paintHoldings();
   // the quote depends on the wallet only through its SOL and its tokens
   if (!was || !WAL || was.sol !== WAL.sol || was.tokens !== WAL.tokens) renderQuote();
+  return ok;
 }
 // one read at a time. A forced read asked for during another one (after a trade, while older trades are still being
 // read in) cuts that one's round of trades short, waits for it and then reads again, so what it shows is the pool after
@@ -1761,7 +1893,7 @@ window.__coin = {
     var h = hole.hole;
     return { look: LOOK, state: ST, shown: hole.shown, busy: hole.busy, graduated: hole.graduated, jet: h.jet, rOut: h.rOut, theta: h.theta, blobs: h.blobs.length,
       px: PX, canvas: [heroCv.width, heroCv.height, heroCv.style.width, heroCv.style.height], events: EVENTS ? EVENTS.length : null, lastRead: lastRead, pinned: PINNED,
-      busyTrade: busy, tape: tape.children.length, candles: CANDLES.length, tf: TF, shownTf: shownTf, zoom: chart.z, off: chart.off, chartSize: [chartCv.width, chartCv.height],
+      busyTrade: busy, tape: tape.children.length, candles: CANDLES.length, tf: TF, shownTf: shownTf, zoom: chart.z, off: chart.off, chartSize: [chartEl.clientWidth, chartEl.clientHeight],
       hist: HIST, histReading: !!histRun, histStale: histStale, series: SERIES, unit: inUsd() ? 'usd' : 'sol', usd: USD,
       overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth };
   },

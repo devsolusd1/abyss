@@ -1,0 +1,17 @@
+TradingView Lightweight Charts™
+Copyright (с) 2025 TradingView, Inc. https://www.tradingview.com/
+
+---
+
+The text above is the NOTICE file of the TradingView/lightweight-charts repository at the tag v5.3.0
+(https://github.com/tradingview/lightweight-charts/blob/v5.3.0/NOTICE), copied unchanged; the npm package carries
+no NOTICE file of its own.
+
+lightweight-charts-5.3.0.js is dist/lightweight-charts.standalone.production.js from the npm package
+lightweight-charts@5.3.0 (https://www.npmjs.com/package/lightweight-charts), unchanged, licensed under the Apache
+License 2.0 (lightweight-charts-LICENSE.txt beside it). It incorporates parts of tslib ((c) Microsoft Corporation),
+under the BSD Zero Clause License.
+
+The package README asks for this attribution notice and a link to https://www.tradingview.com/ on the page that shows
+the chart. The coin page keeps the chart's own TradingView logo (the attributionLogo option, on by default), which
+links there, and says under the chart which library draws it, with this notice.

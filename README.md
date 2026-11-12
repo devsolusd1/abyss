@@ -55,8 +55,11 @@ and keeps no part of the fee; one that had not graduated follows the one curve, 
   (the simulator: launch a coin in the browser and trade it against a made-up crowd, with play SOL).
   - `assets/bh.js` draws the black hole.
   - `assets/nox.css` is the look the pages share.
+  - `coin.html`'s chart is `assets/coin-chart.js` on TradingView's Lightweight Charts 5.3.0 (`vendor/lightweight-charts-5.3.0.js`,
+    the npm package's standalone build, Apache-2.0; its licence and notice beside it, the TradingView logo kept on the
+    chart), on a black panel; its trade panel has quick buy (0.1 to 2 SOL) and quick sell (25, 50, 100%) chips, one tap each.
   - `assets/pool-math.js` is the program's math without the chain code; `assets/sim.js` is the simulated market and
-    `assets/chart.js` the pixel candle chart. `node site/chain/check-pool-math.mjs` checks the math against `chain/src`,
+    `assets/chart.js` the pixel candle chart of `/sim`. `node site/chain/check-pool-math.mjs` checks the math against `chain/src`,
     the curve's numbers for a 30 / 420 coin, and what random markets do to it (k never falls, the price never goes under
     the opening one, nobody gains by trading alone). `node site/chain/check-math-rs.mjs` checks the three copies of the
     math the site runs (`chain/src`, `vendor/chain.js`, `assets/pool-math.js`) against the program's own `math.rs`,
