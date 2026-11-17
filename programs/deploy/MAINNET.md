@@ -18,6 +18,13 @@ Duas regras valem para o roteiro inteiro:
   ```
 
   Ela paga tudo e é a autoridade de upgrade até a passagem para a multisig. Depois disso não manda em mais nada: não pode ser o `launcher` nem a tesouraria (o `init-config.mjs` recusa).
+- **Ou uma carteira que você já tem.** Se ela já é um arquivo de chave nesta máquina, fora de qualquer repositório, o `KEYPAIR` aponta para ele. Se é uma conta da Phantom: Configurações, Gerenciar contas, a conta, Mostrar chave privada; depois, no seu terminal (o mesmo cuidado de cima):
+
+  ```
+  read -rsp 'Chave privada: ' PK && echo && printf %s "$PK" | node programs/deploy/import-key.mjs ~/nox-keys/mainnet-deploy.json; unset PK
+  ```
+
+  A chave entra pela entrada padrão, sem aparecer na tela nem ficar no histórico. Ele grava só essa conta (nunca a frase de recuperação da carteira), num arquivo que só você lê, recusa sobrescrever um arquivo e recusa um caminho dentro de um repositório. No fim, mostra o endereço, para você conferir com o que a carteira mostra. Valem as mesmas regras: ela não pode ser o `launcher` nem a tesouraria. Até a passagem para a multisig, quem tiver essa chave pode trocar o programa e levar o SOL de todas as pools. Uma conta que você conecta em muitos sites é um risco maior que uma usada só para isso.
 - **Uns 4 SOL nela, e 5 para ter folga.** O que fica preso no programa é o aluguel do espaço do binário: cerca de 3,1 SOL hoje, com a folga de 25 % para upgrades maiores (a tabela abaixo). O buffer não é pago duas vezes: o CLI cobra o aluguel do buffer no começo, e no fim o loader devolve esse SOL e paga com ele o aluguel do programa. A folga cobre as taxas, as novas tentativas e a multisig. Só um deploy que cai e recomeça com **outro** buffer pede o aluguel de novo; por isso o script usa sempre o mesmo.
 - **Um nó pago** da mainnet (Helius, Triton, QuickNode). A URL leva a chave: os scripts nunca a imprimem. Para ela não ir para o histórico do shell:
 

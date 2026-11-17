@@ -43,7 +43,8 @@ and keeps no part of the fee; one that had not graduated follows the one curve, 
 - `programs/examples`: `devnet.mjs` launches and trades a test coin (it only simulates unless `SEND=1`),
   and the records of the coins launched on devnet.
 - `programs/deploy`: the mainnet kit, and `MAINNET.md`, its steps in Portuguese. `build.sh` builds a commit for a new
-  program id, `deploy.sh` deploys it once (resumable from its buffer), `init-config.mjs` makes the config with launches
+  program id, `deploy.sh` deploys it once (resumable from its buffer), `import-key.mjs` makes the deploy wallet's key file from a
+  wallet you already have (its private key piped in, never shown), `init-config.mjs` makes the config with launches
   closed, `multisig.mjs` makes a Squads v4 multisig, has each member sign a harmless proposal, hands the upgrade
   authority and the config's admin to its vault in one transaction, then runs upgrades and config changes by vote and
   timelock; `check-deploy.mjs` reads it all back (the bytes on chain against the build, the config, the multisig),
