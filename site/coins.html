@@ -335,7 +335,8 @@ function labelOf(c) {
 function renderText(c) {
   var h = txtHtml(c);
   if (h !== c.lastTxt) { c.txt.innerHTML = h; c.lastTxt = h; }
-  c.el.href = '/coin?mint=' + encodeURIComponent(c.mint);
+  var to = '/coin?mint=' + encodeURIComponent(c.mint);
+  c.el.href = N.link ? N.link(to) : to;                 // off devnet the link says the cluster, for a new tab or a share
   c.el.setAttribute('aria-label', labelOf(c));
 }
 
@@ -396,7 +397,7 @@ function ghostSlots(n, empty) {
   var html = '';
   for (var i = 0; i < n; i++) {
     html += '<div class="coin ghost' + (empty ? ' empty' : '') + '"' + (empty ? '' : ' aria-hidden="true"') + '><div class="card"><canvas aria-hidden="true"></canvas><div class="txt">' +
-      (empty ? '<b class="nm">' + (N.test ? 'No coins on ' : 'No Nox coins on ') + esc(N.place) + ' yet.</b><span class="sy">The team launches the coins for now.</span><a class="q" href="/launch">the launch page</a>'
+      (empty ? '<b class="nm">No coins on ' + esc(N.place) + ' yet.</b><span class="sy">The team launches the coins for now.</span><a class="q" href="/launch">the launch page</a>'
         : '<span class="bar" style="width:' + (48 + (i * 17) % 30) + '%"></span><span class="bar" style="width:70%"></span><span class="bar" style="width:' + (36 + (i * 11) % 24) + '%"></span>') +
       '</div></div></div>';
   }

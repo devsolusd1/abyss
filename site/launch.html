@@ -384,14 +384,15 @@ function lamText(l) {
 }
 function numText(x) { return String(+Number(x).toFixed(9)); }   // a SOL amount for a field
 /* rent the launch leaves in the coin's accounts, measured on devnet 2026-10-22 by simulating
-   launches: mint, pool and vault with empty metadata, plus 6,960 lamports per metadata byte,
+   launches: mint, pool and vault with empty metadata, plus 5,080 lamports per metadata byte
+   (the rent per byte on devnet and mainnet, read again 2026-11-18: 650,240 for an empty account),
    plus the creator's token account when there is a first buy. Network fee: one signature (the
    coin's address is the program's, so only the creator signs), and a priority fee the chain
    layer prices as it prepares the transaction, PRIORITY_MAX at most: counted in full until a
    simulation says what it takes */
-var RENT_BASE = 6065640, RENT_BYTE = 6960, RENT_ATA = 1513840, NET_FEE = 5000;
+var RENT_BASE = 6065640, RENT_BYTE = 5080, RENT_ATA = 1513840, NET_FEE = 5000;
 var PRIORITY_MAX = window.Chain && Chain.PRIORITY ? Chain.PRIORITY.maxLamports : 100000;
-var RENT_SEAT = 6960 * (128 + 81);                     // a seat in the opening batch: 81 bytes, back when it is claimed
+var RENT_SEAT = RENT_BYTE * (128 + 81);                // a seat in the opening batch: 81 bytes, back when it is claimed
 
 /* ================= the form's state ================= */
 var F = { name: '', symbol: '', uri: '', firstRaw: '', first: 0, firstOk: true, quote: null, opening: 0, seatRefund: false };   // opening: the batch's seconds, 0 for none; seatRefund: the creator's seat alone would buy nothing
@@ -992,7 +993,7 @@ function renderGets() {
     ['supply', '1,000,000,000 tokens'],
     ['mint and freeze', 'none: nobody can mint more or freeze a wallet'],
     ['name, symbol, link', 'written into the coin, fixed'],
-    off ? ['fee', '—', OUT] : ['fee', g.fee / 100 + '% of each trade, in SOL', sp ? sp.creator + '% of it to the creator, ' + sp.treasury + '% to the platform, ' + sp.pool + '% stays in the pool; the platform\'s share read from ' + N.place : CFG.state === 'loading' ? 'its split is being read from ' + N.place : NOT_YET ? NOT_YET_TEXT : 'its split could not be read from ' + N.place],
+    off ? ['fee', '—', OUT] : ['fee', g.fee / 100 + '% of each trade, in SOL', sp ? sp.creator + '% of it to the creator, ' + sp.treasury + '% to the platform, ' + sp.pool + '% stays in the pool; the platform\'s share read from ' + N.place : CFG.state === 'loading' ? 'its split is being read from ' + N.place : NOT_YET ? NOT_YET_TEXT : CFG.state === 'none' ? 'its split comes from the launch config, which is not on ' + N.place + ' yet' :'its split could not be read from ' + N.place],
     ['pool', 'one curve, for life', 'no migration, no step down in depth, no LP to pull; ' + poolShare() / 100 + '% of every fee stays in the pool'],
     off ? ['opens at', '—', OUT] : ['opens at', 'a ' + capWords(g, 'v') + ' market cap', (solNow ? solNow(g.v) + ' · ' : '') + fPx(solNum(g.v) / SUPPLY_TOK) + ' SOL per 1M tokens'],
     off ? ['graduates at', '—', OUT] : ['graduates at', 'a ' + capWords(g, 'm') + ' market cap', (solNow ? solNow(g.m) + '. ' : '') + 'On the whole supply, whatever the coin has traded before: it is graduated while its market cap stays at that line or over it. From launch, ' + fBig(solNum(gradSol(g))) + ' real SOL takes it there; the pool\'s part of each fee stays in the pool, so the more the coin trades, the more real SOL it takes to get there. Nothing changes at the line: the same curve before and after'],
@@ -1048,7 +1049,7 @@ function renderGate(res) {
   if (CFG.state === 'loading') { g.textContent = 'Reading who may launch from ' + N.place + '…'; setHold('Hold to launch', false); return; }
   if (CFG.state === 'error' || CFG.state === 'none') {
     g.textContent = CFG.state === 'none' ? 'The program on ' + N.place + ' has no launch config yet, so nothing can launch.' : N.Place + ' did not answer, so this page cannot tell who may launch. The preview works anyway.';
-    setHold('Hold to launch', false);
+    setHold(CFG.state === 'none' ? 'Launch unavailable' : 'Hold to launch', false);
     if (CFG.state === 'error') { gateKey.hidden = false; gateKey.textContent = 'Try again'; gateKey.onclick = loadConfig; }
     return;
   }
@@ -1205,6 +1206,8 @@ async function go() {
     if (e && e.problems) status('Stopped before building: <b>' + esc(m) + '</b>.');
     else if (/reject|denied|declin|cancel/i.test(m)) status('You declined in the wallet. Nothing was sent.');
     else if (m === 'timeout') status(N.Place + ' did not answer in time. Nothing was sent; try again.');
+    // sent, and then the node stopped answering: the coin may be there, and launching again would make another
+    else if (e && e.signature && e.unconfirmed) status('It was sent, but ' + N.place + ' did not confirm it in time. <a href="' + link + '" target="_blank" rel="noopener">Check the transaction ↗</a> before launching again.');
     else status('It did not go through: <b>' + esc(ex && ex !== 'The transaction would fail' ? ex : m.slice(0, 160)) + '</b>.' + (link ? ' <a href="' + link + '" target="_blank" rel="noopener">The transaction ↗</a>' : ''));
     if (check) window.__lastCheck = { ok: false, error: m.slice(0, 200) };
   } finally {
@@ -1241,7 +1244,7 @@ function success(built, sig) {
     '<div><p>coin address (the mint)</p><code>' + mint + '</code>' + (mx ? '<a href="' + mx + '" target="_blank" rel="noopener">on the explorer ↗</a>' : '') + '</div>' +
     '<div><p>its pool, for life</p><code>' + poolKey + '</code>' + (px ? '<a href="' + px + '" target="_blank" rel="noopener">on the explorer ↗</a>' : '') + '</div>' +
     '<div><p>the launch transaction</p><code>' + sig + '</code>' + (tx ? '<a href="' + tx + '" target="_blank" rel="noopener">on the explorer ↗</a>' : '') + '</div>';
-  $('#doneOpen').href = '/coin?mint=' + encodeURIComponent(mint);
+  $('#doneOpen').href = N.link ? N.link('/coin?mint=' + encodeURIComponent(mint)) : '/coin?mint=' + encodeURIComponent(mint);   // off devnet it says the cluster: the link to share
   var k = $('#kick'); k.textContent = 'live on ' + N.place; k.classList.add('live');
   try { $('#done-h').focus({ preventScroll: false }); } catch (e) {}
   (async function readBack() {

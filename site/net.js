@@ -1,6 +1,8 @@
 // Which cluster and program the site talks to. Loaded before vendor/chain.js, and read by it,
 // so switching cluster needs no rebuild. `?net=devnet` or `?net=mainnet` on any page overrides
-// the default for the rest of that visit (sessionStorage), `?net=` alone goes back to it.
+// the default for the rest of that visit (sessionStorage), `?net=` alone goes back to it. Off the
+// default, the page's address and its links to the site's pages carry `net=` too (NET.link), so a
+// link copied, shared or opened in another tab or browser (a wallet's own) opens on the same cluster.
 //
 // Calls go through the site's own server (/api/rpc, /api/history: api/ and server/ at the repo root), which holds the
 // node's address and key; a page served from a file, or `?rpc=direct`, talks to the public node instead. When the
@@ -29,12 +31,13 @@
       cluster: "mainnet",
       label: "mainnet", place: "Solana", Place: "Solana", test: false,
       publicRpc: "",                                     // the public mainnet node is not for apps: the site's server only
-      program: "AX2TA9YPyQ3axJ2jVdC4bcDD8a9FHDkHY6tK7rtsnox", // filled in once the program is deployed there
+      program: "AX2TA9YPyQ3axJ2jVdC4bcDD8a9FHDkHY6tK7rtsnox", // deployed 2026-11-18
       explorer: (what, id) => `https://explorer.solana.com/${what}/${id}`,
     },
   };
   const known = (k) => typeof k === "string" && Object.prototype.hasOwnProperty.call(NETS, k);
-  let pick = "devnet", asked = null;
+  const DEFAULT = "devnet";
+  let pick = DEFAULT, asked = null;
   try {
     const qs = new URLSearchParams(location.search);
     if (qs.has("net")) asked = qs.get("net");
@@ -46,6 +49,17 @@
     try { const kept = sessionStorage.getItem("nox.net"); if (known(kept)) pick = kept; } catch (e) {}
   }
   const net = { ...NETS[pick] };
+  // a path on this site, with `net=` when the cluster is not the default: "/coin?mint=…" -> "/coin?mint=…&net=mainnet"
+  net.link = (href) => {
+    const s = String(href);
+    if (pick === DEFAULT || s.charAt(0) !== "/" || s.charAt(1) === "/" || /[?&]net=/.test(s)) return s;
+    const at = s.indexOf("#"), path = at < 0 ? s : s.slice(0, at), hash = at < 0 ? "" : s.slice(at);
+    return path + (path.indexOf("?") < 0 ? "?" : "&") + "net=" + pick + hash;
+  };
+  // the address says the cluster too (a visit that kept it from an earlier page), so a link copied from it opens there
+  if (pick !== DEFAULT && asked !== pick) {
+    try { const u = new URL(location.href); u.searchParams.set("net", pick); history.replaceState(history.state, "", u.pathname + u.search + u.hash); } catch (e) {}
+  }
   let direct = false, origin = null;
   try {
     direct = new URLSearchParams(location.search).get("rpc") === "direct";
@@ -70,6 +84,11 @@
     document.querySelectorAll("[data-net-only]").forEach((el) => {
       if (el.getAttribute("data-net-only") !== net.cluster) { el.hidden = true; el.style.display = "none"; }
       else if (el.hidden) el.hidden = false;           // written hidden, so it does not flash on the other cluster
+    });
+    // the pages' own links (the menu, the footers) keep the cluster too; the ones a page writes later use NET.link
+    if (pick !== DEFAULT) document.querySelectorAll('a[href^="/"]').forEach((a) => {
+      const h = a.getAttribute("href"), to = net.link(h);
+      if (to !== h) a.setAttribute("href", to);
     });
   }
   net.fill = fill;

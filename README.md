@@ -68,7 +68,9 @@ and keeps no part of the fee; one that had not graduated follows the one curve, 
     from before the pool's part and from the first rules, opening batches, and buys of exactly the line's real SOL into
     coins just launched, to the lamport.
   - `net.js` picks the cluster and the program (`?net=mainnet` for the rest of a visit), and gives the pages the
-    words that follow the cluster (`NET.place` is "devnet" or "Solana").
+    words that follow the cluster (`NET.place` is "devnet" or "Solana"). Off devnet, the page's address and its links
+    to the site's pages carry `net=` too (`NET.link`), so a coin's link copied, shared or opened in a wallet's own
+    browser opens on the same cluster.
   - `chain/` is the chain layer, bundled into `vendor/chain.js` with `npm install && npm run build`. `npm run build:mwa`
     bundles Solana Mobile's Mobile Wallet Adapter (`chain/src/mwa.mjs`, through `build-mwa.mjs`) into `vendor/mwa.js`,
     which `assets/wallet.js` loads only in Android's own browser with no wallet in it: the wallet apps on the phone
@@ -102,13 +104,16 @@ and keeps no part of the fee; one that had not graduated follows the one curve, 
 - `site/prototypes`: the design rounds; `round7` is the black hole.
 - `api/` and `server/`: the site's own server, two Vercel functions.
   - `/api/rpc?cluster=…` passes the pages' JSON-RPC calls to the cluster's node, so a paid node's key never reaches a
-    browser. Only the calls the site makes pass; transactions only when every instruction goes to the pool program,
-    the compute budget or the token account program (plus Lighthouse and Memo, which wallets add as they sign, only
-    beside a pool instruction); each address has a share of calls; the program's account list
-    is shared between visitors for 3 s.
+    browser. Only the calls the site makes pass, one at a time (the site sends no batches), and `getProgramAccounts`
+    only as the site asks for the coin list; transactions only with an instruction for the pool program and every
+    other one for the compute budget, the token account program, or Lighthouse and Memo (which wallets add as they
+    sign); each address has a share of calls; the program's account list is shared between visitors for 3 s, and a
+    call the node is answering already is not sent again; what the node's side sends that is not JSON (an error page)
+    becomes the server's own error.
   - `/api/history?cluster=…&pool=…` answers a pool's latest 100 transactions with their event lines in one call, for
     every visitor at once (kept in memory, cached at the edge for a moment).
-  - `/api/pools?cluster=…` gives the coin list for every visitor at once: the program's pools read every 4 s, each
+  - `/api/pools?cluster=…` gives the coin list for every visitor at once: the program's pools read every 4 s (every
+    15 s on mainnet, where each read costs the paid node's credits), each
     coin's name read once (a launched coin's metadata cannot change), `limit=` for the newest few, `board=1` for the
     numbers only, and `after=` for the next page; `sort=volume` puts the most traded first (no next page: with it,
     `after=` is refused), and `/coin` with no coin asks it for one, `limit=1&sort=volume`.

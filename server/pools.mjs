@@ -34,7 +34,10 @@ import { createHash } from "node:crypto";
 import { clusterOf, callerOf, foreign, Limiter, base58, json, OutOfTime, publicTurn, backOff } from "./config.mjs";
 import { call, callMany, NodeError } from "./history.mjs";
 
-const LIST_MS = 4000;                                    // how often this instance reads the program's account list
+// how often this instance reads the program's account list, and how long the edge keeps a whole answer: on mainnet
+// each read is a getProgramAccounts on the paid node (10 credits on Helius), and the coin board asks every 30 s anyway
+const LIST_MS = { devnet: 4000, mainnet: 15_000 };
+const listMs = (cluster) => LIST_MS[cluster.name] ?? 4000;
 const WAIT_MS = 2000;                                    // how long an answer waits for a new read when it has a list
 const STALE_MS = 60_000;                                 // how old a list may be and still be given when the node fails
 const RETRY_MS = 3000;                                   // after a read that failed or was refused, no new one before this
@@ -118,7 +121,7 @@ async function readList(cluster, until) {
  */
 async function listOf(cluster, until) {
   const name = cluster.name, kept = lists.get(name);
-  if (kept && Date.now() - kept.at < LIST_MS) return kept;
+  if (kept && Date.now() - kept.at < listMs(cluster)) return kept;
   const usable = kept && Date.now() - kept.at < STALE_MS, cool = cooling.get(name);
   let job = reading.get(name);
   if (!job && cool && Date.now() < cool.until) {
@@ -273,7 +276,7 @@ export async function handlePools(request, env = {}) {
     const { text, complete } = await answerOf(cluster, snap, limit, board, sort, a && { openedAt: Number(a[1]), mint: a[2] }, until);
     return new Response(text, { status: 200, headers: {
       "content-type": "application/json",
-      "cache-control": complete ? "public, max-age=0, s-maxage=4, stale-while-revalidate=10" : "public, max-age=0, s-maxage=1",
+      "cache-control": complete ? `public, max-age=0, s-maxage=${Math.round(listMs(cluster) / 1000)}, stale-while-revalidate=10` : "public, max-age=0, s-maxage=1",
     } });
   } catch (err) {
     console.error("pools:", err);                       // the details stay in the server's log: they can name the node

@@ -1289,8 +1289,11 @@ export async function send(built, wallet) {
  * Waits for a sent transaction by asking for its status once a second (no websocket: the site's server is plain HTTP).
  * It is sent again, up to three times, while it has not landed, and given up once its blockhash has expired. One that
  * landed and failed throws with the program's reason in words (`reason`): the node's own check passed it before it was
- * sent, so it lost a race on the way (the batch's clock edges, a settle someone else sent first).
+ * sent, so it lost a race on the way (the batch's clock edges, a settle someone else sent first). Each ask has
+ * CONFIRM_ASK_MS, and the whole wait CONFIRM_MS (the blockhash runs out well before): when the node stops answering it
+ * throws with the signature and `unconfirmed`, as it may have landed.
  */
+const CONFIRM_MS = 120_000, CONFIRM_ASK_MS = 15_000;
 async function confirm(signature, lastValidBlockHeight, raw, tx) {
   const failed = (err) => {
     let reason = explain({ err }, tx);
@@ -1302,24 +1305,26 @@ async function confirm(signature, lastValidBlockHeight, raw, tx) {
     return Object.assign(new Error(`The transaction failed on chain: ${reason}`), { signature, reason });
   };
   const landed = (st) => st && (st.confirmationStatus === "confirmed" || st.confirmationStatus === "finalized");
+  const ask = (p) => bounded(p, CONFIRM_ASK_MS), until = Date.now() + CONFIRM_MS;
   let resent = 0;
   for (let i = 1; ; i++) {
     await sleep(1000);
+    if (Date.now() > until) throw Object.assign(new Error("The transaction was not confirmed in time"), { signature, unconfirmed: true });
     let st = null;
-    try { st = (await conn().getSignatureStatuses([signature])).value[0]; } catch { /* asked again in a second */ }
+    try { st = (await ask(conn().getSignatureStatuses([signature]))).value[0]; } catch { /* asked again in a second */ }
     if (st?.err) throw failed(st.err);
     if (landed(st)) return;
     if (i % 4 !== 0) continue;
     let height = 0;
-    try { height = await conn().getBlockHeight("confirmed"); } catch { /* asked again later */ }
+    try { height = await ask(conn().getBlockHeight("confirmed")); } catch { /* asked again later */ }
     if (height > lastValidBlockHeight) {
       // one last look, in the node's history too, before calling it lost
-      try { st = (await conn().getSignatureStatuses([signature], { searchTransactionHistory: true })).value[0]; } catch { st = null; }
+      try { st = (await ask(conn().getSignatureStatuses([signature], { searchTransactionHistory: true }))).value[0]; } catch { st = null; }
       if (st?.err) throw failed(st.err);
       if (landed(st)) return;
       throw Object.assign(new Error("The transaction expired before it landed"), { signature });
     }
-    if (resent < 3) { resent++; try { await conn().sendRawTransaction(raw, { skipPreflight: true, maxRetries: 0 }); } catch { /* it may have landed */ } }
+    if (resent < 3) { resent++; try { await ask(conn().sendRawTransaction(raw, { skipPreflight: true, maxRetries: 0 })); } catch { /* it may have landed */ } }
   }
 }
 

@@ -9,18 +9,21 @@ import { createRequire } from "node:module";
 import { createHash } from "node:crypto";
 import { handleRpc, programsOf } from "./rpc.mjs";
 import { handleHistory } from "./history.mjs";
-import { CLUSTERS, addressBytes, publicPace, PUBLIC_GAP } from "./config.mjs";
+import { CLUSTERS, addressBytes, publicPace, PUBLIC_GAP, base58 as b58 } from "./config.mjs";
 
 let failed = 0;
 const line = (ok, text) => { if (!ok) failed++; console.log(`${ok ? "  ok  " : "  FAIL"} ${text}`); };
 const PROGRAM = CLUSTERS.devnet.program;
+// how much shorter than PUBLIC_GAP two calls to a fake node may arrive apart: a call on a new connection reaches it a
+// few ms later than one on an open connection (a call not kept to the pace arrives a few ms after the last)
+const PACE_SLACK = 25;
 /** The first bytes of one of the program's accounts: Anchor's mark of its kind, then its first field (a pool's mint). */
 const accountData = (kind, first = Buffer.alloc(32, 1)) => Buffer.concat([createHash("sha256").update(`account:${kind}`).digest().subarray(0, 8), first]).toString("base64");
 
 /* ---------- the program ids here and in site/net.js agree ---------- */
 const netJs = readFileSync(new URL("../site/net.js", import.meta.url), "utf8");
 line(netJs.includes(`program: "${PROGRAM}"`), "site/net.js names the same devnet program as server/config.mjs");
-line(/mainnet:[\s\S]*?program: "([^"]*)"/.exec(netJs)?.[1] === CLUSTERS.mainnet.program, "and the same (still empty) mainnet program");
+line(/mainnet:[\s\S]*?program: "([^"]*)"/.exec(netJs)?.[1] === CLUSTERS.mainnet.program, "and the same mainnet program");
 
 /* ---------- a fake node ---------- */
 // limit: getTransaction calls a second, past it each one gets a 429 in its answer (a paid plan's rate). busy: a
@@ -88,6 +91,9 @@ const rpc = (body, { origin, who, cluster = "devnet", method = "POST", env = ENV
   return handleRpc(new Request(`${SITE}/api/rpc?cluster=${cluster}`, { method, headers, body: method === "POST" ? JSON.stringify(body) : undefined }), env);
 };
 const call = (method, params = [], id = 1) => ({ jsonrpc: "2.0", id, method, params });
+/** The pool list as the site asks the door for it (site/chain poolsFromNode, as web3.js 1.99 sends it). */
+const listing = (commitment = "confirmed") => call("getProgramAccounts", [PROGRAM, { encoding: "base64", commitment,
+  filters: [{ dataSize: 344 }, { memcmp: { offset: 0, bytes: b58(createHash("sha256").update("account:Pool").digest().subarray(0, 8)), encoding: "base58" } }] }]);
 
 /* ---------- the door ---------- */
 {
@@ -109,9 +115,10 @@ const call = (method, params = [], id = 1) => ({ jsonrpc: "2.0", id, method, par
   line(r.status === 503, "mainnet has no node yet (no RPC_URL_MAINNET, no public fallback)");
   r = await rpc(Array.from({ length: 11 }, (_, i) => call("getSlot", [], i)));
   line(r.status === 400, "a batch of 11 is refused");
+  node.calls = [];
   r = await rpc([call("getSlot", [], 1), call("getBalance", ["x"], 2)]);
   const b = await r.json();
-  line(r.status === 200 && Array.isArray(b) && b.length === 2, "a batch of 2 passes as a batch");
+  line(r.status === 400 && !Array.isArray(b) && b.error?.code === -32600 && node.calls.length === 0, `a batch of 2 is refused too, one call at a time (the site sends none): ${r.status}, "${b.error?.message}", nothing asked`);
   r = await handleRpc(new Request(`${SITE}/api/rpc?cluster=devnet`, { method: "POST", headers: { "content-type": "application/json" }, body: "x".repeat(40_000) }), ENV);
   line(r.status === 413, "a body over 32 KB is refused");
   r = await handleRpc(new Request(`${SITE}/api/rpc?cluster=devnet`, { method: "POST", headers: { "content-type": "application/json" }, body: "{" }), ENV);
@@ -207,12 +214,12 @@ const call = (method, params = [], id = 1) => ({ jsonrpc: "2.0", id, method, par
   sends = [];
   for (let i = 0; i < 12; i++) sends.push(await send(checked, "9.9.9.6", true));
   line(sends.every((s) => s === 200) && await send(signed(), "9.9.9.6") === 429, `a transaction and 11 resends of it with their preflight take 12 shares: the next transaction gets 429 (${sends.join(" ")})`);
-  // ten copies of one transaction in one batch: the first and four free, then five shares
+  // ten copies of one transaction in one batch: refused, and no share taken
   const copies = signed(), batch = Array.from({ length: 10 }, (_, i) => call("sendTransaction", [copies, { encoding: "base64", skipPreflight: true, maxRetries: 0 }], i));
   r = await rpc(batch, { who: "9.9.9.5" });
   sends = [];
-  for (let i = 0; i < 7; i++) sends.push(await send(signed(), "9.9.9.5"));
-  line(r.status === 200 && sends.filter((s) => s === 200).length === 6 && sends.at(-1) === 429, `ten copies in one batch take six shares: six more transactions pass, then 429 (${sends.join(" ")})`);
+  for (let i = 0; i < 13; i++) sends.push(await send(signed(), "9.9.9.5"));
+  line(r.status === 400 && sends.filter((s) => s === 200).length === 12 && sends.at(-1) === 429, `ten copies in one batch are refused (${r.status}) and take no share: 12 transactions pass after it, then 429 (${sends.join(" ")})`);
 }
 
 /* ---------- transactions: what a wallet adds as it signs ---------- */
@@ -242,6 +249,11 @@ const call = (method, params = [], id = 1) => ({ jsonrpc: "2.0", id, method, par
   line(await send(tx(guard, ...built.tx.instructions), "9.9.8.1") === 200, "and with the guard first");
   line(await send(tx(built.tx.instructions[0], guard, memo), "9.9.8.2") === 403, "a guard and a memo with only a compute budget, no pool instruction, are refused");
   line(await send(tx(memo), "9.9.8.2") === 403, "a memo alone is refused");
+  // the site's own programs without the pool's: a compute budget, an account opening, or both (any mint's), are no transaction of the site
+  const [budget, opening] = built.tx.instructions;
+  line(programsOf(tx(opening))?.join() === "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL" && await send(tx(opening), "9.9.8.5") === 403 && await sim(tx(opening), "9.9.8.5") === 403,
+    "an account opening alone is refused, sent or simulated");
+  line(await send(tx(budget), "9.9.8.5") === 403 && await send(tx(budget, opening), "9.9.8.5") === 403, "and so are a compute budget alone, and a compute budget with an account opening");
   const transfer = web3.SystemProgram.transfer({ fromPubkey: owner, toPubkey: web3.Keypair.generate().publicKey, lamports: 1 });
   line(await send(tx(...built.tx.instructions, guard, transfer), "9.9.8.3") === 403, "a buy with a guard and a SOL transfer is refused");
   const other = new web3.TransactionInstruction({ programId: web3.Keypair.generate().publicKey, keys: [], data: Buffer.alloc(0) });
@@ -253,14 +265,42 @@ const call = (method, params = [], id = 1) => ({ jsonrpc: "2.0", id, method, par
 /* ---------- shared answers ---------- */
 {
   node.calls = [];
-  const gpa = call("getProgramAccounts", [PROGRAM, { encoding: "base64" }]);
+  const gpa = listing();
   await rpc(gpa); await rpc(gpa); await rpc({ ...gpa, id: 7 });
   line(node.calls.filter((m) => m === "getProgramAccounts").length === 1, "the program's accounts: three pages, one call to the node");
-  const r = await rpc({ ...gpa, id: 9 });
+  let r = await rpc({ ...gpa, id: 9 });
   line((await r.json()).id === 9, "and each page gets its own id back");
+  // the pool list only as the site asks for it: every other form would be its own read of the whole program
+  const [, cfg] = gpa.params, [size, mark] = cfg.filters, other = (c) => call("getProgramAccounts", [PROGRAM, c]);
+  const odd = [
+    ["no settings", call("getProgramAccounts", [PROGRAM])], ["no filters", other({ encoding: "base64" })],
+    ["a slice", other({ ...cfg, dataSlice: { offset: 0, length: 8 } })], ["a context", other({ ...cfg, withContext: true })],
+    ["base58", other({ ...cfg, encoding: "base58" })], ["another size", other({ ...cfg, filters: [{ dataSize: 81 }, mark] })],
+    ["another mark", other({ ...cfg, filters: [size, { memcmp: { ...mark.memcmp, bytes: "11111111" } }] })],
+    ["a third filter", other({ ...cfg, filters: [size, mark, { dataSize: 344 }] })], ["a mark further in", other({ ...cfg, filters: [size, { memcmp: { ...mark.memcmp, offset: 1 } }] })],
+  ];
+  const codes = [];
+  for (const [, c] of odd) codes.push((await rpc(c)).status);
+  line(codes.every((s) => s === 403), `getProgramAccounts in any other form is refused: ${odd.map(([w], i) => `${w} ${codes[i]}`).join(", ")}`);
+  // the same call from several pages at once, before any answer is kept: one call to the node, each page its own id
+  node.calls = [];
+  const together = await Promise.all([1, 2, 3].map((id) => rpc({ ...listing("finalized"), id }).then((x) => x.json())));
+  line(node.calls.filter((m) => m === "getProgramAccounts").length === 1 && together.map((x) => x.id).join() === "1,2,3" && together.every((x) => x.result === "getProgramAccounts answered"),
+    `three pages asking the same at the same moment: ${node.calls.filter((m) => m === "getProgramAccounts").length} call to the node, each its own id`);
   node.calls = [];
   await rpc(call("getAccountInfo", ["x"])); await rpc(call("getAccountInfo", ["x"]));
   line(node.calls.filter((m) => m === "getAccountInfo").length === 2, "a single account is always read fresh (a pool after a trade)");
+  // what the node's side sends that is not JSON (an error page, which can name the node's host) is not passed on
+  const page = createServer((req, res) => { page.n = (page.n ?? 0) + 1; res.writeHead(page.n === 1 ? 503 : 429, { "content-type": "text/html" }).end("<html>gateway error at node-host.example</html>"); });
+  await new Promise((ok) => page.listen(0, "127.0.0.1", ok));
+  const penv = { RPC_URL_DEVNET: `http://127.0.0.1:${page.address().port}` };
+  r = await rpc(call("getSlot", [], 4), { env: penv });
+  let t = await r.text();
+  line(r.status === 502 && !t.includes("node-host") && JSON.parse(t).id === 4, `an error page from the node's side: ${r.status}, "${JSON.parse(t).error?.message}", none of its text`);
+  r = await rpc(call("getSlot", [], 5), { env: penv });
+  t = await r.text();
+  line(r.status === 429 && !t.includes("node-host") && JSON.parse(t).error?.code === 429, `a 429 with such a page stays a 429, in JSON (${r.status}, "${JSON.parse(t).error?.message}")`);
+  page.close();
 }
 
 /* ---------- the history ---------- */
@@ -330,7 +370,7 @@ function makeSigs(n, tag) {
   // 7 s for the whole answer: the wait for the mark, the pool check and the listing, then three transactions
   line(r.status === 200 && !b.complete && b.have >= 2 && b.have <= 4 && took < 7500, `the public node, first answer: ${b.have} of ${b.total} in ${(took / 1000).toFixed(1)} s, not complete`);
   const gaps = node.times.slice(1).map((t, i) => t - node.times[i]);
-  line(node.calls[0] === "getAccountInfo" && node.calls[1] === "getSignaturesForAddress" && node.times[0] >= mark - 5 && gaps.every((g) => g >= PUBLIC_GAP - 5),
+  line(node.calls[0] === "getAccountInfo" && node.calls[1] === "getSignaturesForAddress" && node.times[0] >= mark - 5 && gaps.every((g) => g >= PUBLIC_GAP - PACE_SLACK),
     `every call takes its turn, the pool check and the listing too: the first at the mark, then ${Math.min(...gaps)} ms apart at least`);
   line(/s-maxage=1/.test(r.headers.get("cache-control")), "an answer still filling is kept only 1 s at the edge");
   line(publicPace.devnet > t0, "and its calls set the public node's one mark, which the birth keeps too");
@@ -504,7 +544,7 @@ function makeSigs(n, tag) {
   const mid = createServer((req, res) => { mid.n = (mid.n ?? 0) + 1; res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ jsonrpc: "2.0", id: 1, result: "y".repeat(400 * 1024) })); });
   await new Promise((ok) => mid.listen(0, "127.0.0.1", ok));
   const env = { RPC_URL_DEVNET: `http://127.0.0.1:${mid.address().port}` };
-  const gpa = call("getProgramAccounts", [PROGRAM, { encoding: "base64", filters: [{ dataSize: 1 }] }]);
+  const gpa = listing("processed");                     // a key no other check has used
   await rpc(gpa, { env }); await rpc(gpa, { env });
   line(mid.n === 2, `a 400 KB account list is passed on but not kept (${mid.n} calls for 2 asks)`);
   mid.close();
@@ -1019,7 +1059,7 @@ function makeSigs(n, tag) {
     publicPace.devnet = mark;
     ({ j } = await birth(POOL8, { RPC_URL_DEVNET: "" }));
     const gaps = chain.calls.slice(1).map((x, i) => x.t - chain.calls[i].t);
-    line(j.complete && chain.calls[0]?.method === "getAccountInfo" && chain.calls[0].t >= mark - 5 && chain.calls.length === 3 && gaps.every((g) => g >= PUBLIC_GAP - 5),
+    line(j.complete && chain.calls[0]?.method === "getAccountInfo" && chain.calls[0].t >= mark - 5 && chain.calls.length === 3 && gaps.every((g) => g >= PUBLIC_GAP - PACE_SLACK),
       `and with the mark near: its ${chain.calls.length} calls, the first at the mark, then ${Math.min(...gaps)} ms apart at least`);
     publicPace.devnet = 0;
     CLUSTERS.devnet.publicRpc = real;
@@ -1149,9 +1189,21 @@ function makeSigs(n, tag) {
   const post = await handlePools(new Request(`${SITE}/api/pools?cluster=devnet`, { method: "POST", body: "{}" }), env);
   line(post.status === 405, "POST is refused");
   const main = await handlePools(new Request(`${SITE}/api/pools?cluster=mainnet`), env), other = await handlePools(new Request(`${SITE}/api/pools?cluster=testnet`), env);
-  line(main.status === 503 && other.status === 400, `mainnet has no program yet (${main.status}), an unknown cluster is refused (${other.status})`);
+  line(main.status === 503 && other.status === 400, `mainnet without a node here: ${main.status}; an unknown cluster is refused (${other.status})`);
 
   let from = 100_000;
+  // mainnet: the list is read at most every 15 s (each read is a getProgramAccounts on the paid node), and the edge
+  // keeps a whole answer as long. These pools are the devnet program's, so mainnet's list is empty
+  {
+    const menv = { RPC_URL_MAINNET: LIST_UP };
+    const askMain = async () => { const r = await handlePools(new Request(`${SITE}/api/pools?cluster=mainnet&board=1`, { headers: { "x-forwarded-for": `10.5.${++ip % 250}.1` } }), menv); return { r, j: await r.json() }; };
+    makeChain(3, from); from += 13; zero();
+    const a = await askMain(); shift += 14_000;
+    const b = await askMain(); shift += 1100;
+    const c = await askMain();
+    line(a.r.status === 200 && a.j.total === 0 && /s-maxage=15\b/.test(a.r.headers.get("cache-control")) && b.j.at === a.j.at && c.j.at > a.j.at && ln.gpa === 2,
+      `mainnet: ${a.r.headers.get("cache-control")}; 14 s on the same list, 15.1 s on a new one (${ln.gpa} account lists for 3 asks)`);
+  }
   for (const n of [400, 2000, 7000]) {
     const long = n === 7000;                             // the largest list with the longest metadata
     makeChain(n, from, long); from += n + 10;
@@ -1240,7 +1292,7 @@ function makeSigs(n, tag) {
     shift += 61_000; zero(); publicPace.devnet = 0;
     const a = await ask("&board=1", { RPC_URL_DEVNET: "" });
     const gaps = ln.times.slice(1).map((t, i) => t - ln.times[i]);
-    line(a.r.status === 200 && a.j.pools.length === 150 && a.j.pools.every((row) => typeof row[1] === "string") && ln.requests === 3 && gaps.every((g) => g >= PUBLIC_GAP - 5),
+    line(a.r.status === 200 && a.j.pools.length === 150 && a.j.pools.every((row) => typeof row[1] === "string") && ln.requests === 3 && gaps.every((g) => g >= PUBLIC_GAP - PACE_SLACK),
       `the public node: the list and 2 calls of mints, ${Math.min(...gaps)} ms apart at least, all named`);
     publicPace.devnet = 0;
     CLUSTERS.devnet.publicRpc = real;

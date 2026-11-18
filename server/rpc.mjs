@@ -1,17 +1,20 @@
 // The site's door to Solana: /api/rpc?cluster=devnet|mainnet. Pages send their JSON-RPC calls here and this forwards
 // them to the cluster's node (server/config.mjs), so a paid node's key never reaches a browser. What passes:
-//   - only the calls the site itself makes (CALLS), with the settings it sends (CONFIG); getProgramAccounts only on
-//     the pool program;
-//   - transactions (sent or simulated) only when every instruction goes to the pool program, the compute budget or
-//     the associated token account program, so the door is not a free relay for anything else; or to a program a
-//     wallet adds as it signs (WALLET_ADDS), next to an instruction for the pool program;
+//   - only the calls the site itself makes (CALLS), with the settings it sends (CONFIG), one call at a time (the site
+//     sends no batches); getProgramAccounts only as the site asks for the coin list (poolListing), so every page asks
+//     the same and is answered from what is shared;
+//   - transactions (sent or simulated) only when one instruction goes to the pool program and every other to the
+//     compute budget, the associated token account program or a program a wallet adds as it signs (WALLET_ADDS), so
+//     the door is not a free relay for anything else (every transaction the site makes calls the pool program);
 //   - per caller, a share of calls per window, and fewer of the heavy ones (best effort: each instance counts its own).
 //     The share of sends counts transactions, not calls: a page sends one again while it waits for it to land, and
 //     those resends (the same bytes, with no preflight, as the page sends them) take no more of it, a few times;
-//   - answers up to MAX_ANSWER bytes.
+//   - answers up to MAX_ANSWER bytes, and only JSON: anything else the node's side sends (an error page, which can
+//     name its host) becomes this server's own error, its detail in the log.
 // The program's account list, the mints it names (the coin board, the landing) and the recent priority fees for a set
 // of accounts (asked before each send) are shared between callers for a few seconds, and a transaction once read is
-// kept for a while: the node is asked once for what many pages want. What is kept is bounded in bytes, and only small
+// kept for a while: the node is asked once for what many pages want, and a call the node is answering already is not
+// sent again (the same call from another page waits for that answer). What is kept is bounded in bytes, and only small
 // answers are kept.
 
 import { createHash } from "node:crypto";
@@ -27,7 +30,7 @@ const CONFIG = {
   getAccountInfo: ["commitment", "encoding", "dataSlice", "minContextSlot"],
   getMultipleAccounts: ["commitment", "encoding", "dataSlice", "minContextSlot"],
   getBalance: ["commitment", "minContextSlot"],
-  getProgramAccounts: ["commitment", "encoding", "dataSlice", "filters", "withContext", "minContextSlot"],
+  getProgramAccounts: ["commitment", "encoding", "filters"],   // and only as poolListing has it
   getSignaturesForAddress: ["commitment", "limit", "before", "until", "minContextSlot"],
   getTransaction: ["commitment", "encoding", "maxSupportedTransactionVersion"],
   getLatestBlockhash: ["commitment", "minContextSlot"],
@@ -41,7 +44,6 @@ const CONFIG = {
   getRecentPrioritizationFees: [],                       // only a list of accounts, no settings
 };
 const MAX_BODY = 32 * 1024;
-const MAX_BATCH = 10;
 const MAX_TX = 1700;                                     // base64 of the largest transaction (1232 bytes) is 1644
 const MAX_ANSWER = 4 * 1024 * 1024;                      // Vercel answers up to about 4.5 MB
 const KEEP_ANSWER = 256 * 1024;                          // only answers this small are kept
@@ -69,9 +71,29 @@ class Kept {
   }
 }
 const shared = new Kept(SHARED_MS, 16 * 1024 * 1024), txs = new Kept(TX_MS, 24 * 1024 * 1024);
+const flying = new Map();                                // key -> the shareable result of the same call, on its way from the node
 
 const rpcError = (id, code, message) => ({ jsonrpc: "2.0", id: typeof id === "number" || typeof id === "string" ? id : null, error: { code, message } });
 const isObject = (x) => x !== null && typeof x === "object" && !Array.isArray(x);
+
+/*
+ * getProgramAccounts as the site sends it (site/chain poolsFromNode, through web3.js): the program's Pool accounts,
+ * whole, in base64, by a Pool's size and Anchor's mark of one. Anything else (a slice, other filters, a context) would
+ * be its own key in what is shared, each one a full read of the program on the node.
+ */
+const POOL_LEN = 8 + 336;
+const POOL_MARK = base58(createHash("sha256").update("account:Pool").digest().subarray(0, 8));
+const COMMITMENTS = ["processed", "confirmed", "finalized"];
+const only = (o, keys) => isObject(o) && Object.keys(o).every((k) => keys.includes(k));
+function poolListing(p) {
+  const c = p[1];
+  if (p.length !== 2 || !only(c, ["encoding", "commitment", "filters"]) || c.encoding !== "base64") return false;
+  if (c.commitment !== undefined && !COMMITMENTS.includes(c.commitment)) return false;
+  if (!Array.isArray(c.filters) || c.filters.length !== 2) return false;
+  const [size, mark] = c.filters, m = mark?.memcmp;
+  return only(size, ["dataSize"]) && size.dataSize === POOL_LEN && only(mark, ["memcmp"]) && only(m, ["offset", "bytes", "encoding"])
+    && m.offset === 0 && m.bytes === POOL_MARK && (m.encoding === undefined || m.encoding === "base58");
+}
 
 const ALLOWED = (cluster) => [cluster.program, COMPUTE_BUDGET, ATA_PROGRAM].map(addressBytes).filter(Boolean);
 /*
@@ -113,22 +135,22 @@ export function programsOf(b64) {
   } catch { return null; }
 }
 /**
- * True when every instruction of the transaction goes to one of the site's programs, or to one a wallet adds
- * (WALLET_ADDS) when another instruction goes to the pool program.
+ * True when an instruction of the transaction goes to the pool program and every other one to one of the site's
+ * programs or to one a wallet adds (WALLET_ADDS). A compute budget or an account opening alone is not the site's:
+ * every transaction it makes calls the pool program.
  */
 function onlyOurs(b64, cluster) {
   const programs = programsOf(b64);
   if (!programs || !programs.length) return false;
   const allowed = ALLOWED(cluster), pool = addressBytes(cluster.program);
-  let added = false, pooled = false;
+  let pooled = false;
   for (const p of programs) {
     const k = addressBytes(p);
     if (!k) return false;
-    if (allowed.some((a) => same(a, k))) { if (pool && same(pool, k)) pooled = true; continue; }
-    if (!WALLET_ADDS.some((a) => same(a, k))) return false;
-    added = true;
+    if (pool && same(pool, k)) pooled = true;
+    else if (!allowed.some((a) => same(a, k)) && !WALLET_ADDS.some((a) => same(a, k))) return false;
   }
-  return pooled || !added;
+  return pooled;
 }
 
 /** A serialized transaction's first signature (the one the cluster knows it by), as base58, or null when it has none. */
@@ -171,7 +193,10 @@ function refuse(call, cluster) {
   const cfg = p.length && isObject(p[p.length - 1]) ? p[p.length - 1] : null;
   if (cfg && !Object.keys(cfg).every((k) => CONFIG[call.method].includes(k))) return `Settings this site does not send in ${call.method}`;
   switch (call.method) {
-    case "getProgramAccounts": if (p[0] !== cluster.program) return "Only the pool program's accounts"; break;
+    case "getProgramAccounts":
+      if (p[0] !== cluster.program) return "Only the pool program's accounts";
+      if (!poolListing(p)) return "Only the pool list, as this site asks for it";
+      break;
     case "getMultipleAccounts": if (!Array.isArray(p[0]) || p[0].length > 100 || !p[0].every((k) => typeof k === "string")) return "Up to 100 accounts"; break;
     case "getSignatureStatuses": if (!Array.isArray(p[0]) || p[0].length > 20 || !p[0].every((k) => typeof k === "string")) return "Up to 20 signatures"; break;
     case "getSignaturesForAddress": if (Number(cfg?.limit ?? 1000) > 100) return "Up to 100 signatures"; break;
@@ -224,8 +249,29 @@ async function upstream(cluster, body) {
     return { status: res.status, text: Buffer.concat(parts).toString("utf8") };
   } finally { clearTimeout(timer); }
 }
-const passOn = (up) => new Response(up.text, { status: up.status, headers: { "content-type": "application/json", "cache-control": "no-store" } });
 const lost = (id, err) => json(rpcError(id, -32603, err?.large ? "The node's answer was too large" : "The node did not answer"), 502);
+/**
+ * The node's answer for the page, as it came when it is JSON. Anything else (an error page of the node's provider or
+ * its CDN, which can name the node's host) becomes this server's own error: a 429 stays one, the rest is a 502. Only
+ * the status goes to the log, never the text or the URL.
+ */
+function passOn(up, id) {
+  let ok = false;
+  try { const r = JSON.parse(up.text); ok = r !== null && typeof r === "object"; } catch { /* not JSON */ }
+  if (ok) return new Response(up.text, { status: up.status, headers: { "content-type": "application/json", "cache-control": "no-store" } });
+  console.error(`rpc: the node answered HTTP ${up.status} with something that is not JSON`);
+  if (up.status === 429) return json(rpcError(id, 429, "The node is busy; slow down"), 429, { "retry-after": "5" });
+  return lost(id);
+}
+/** An answer's result when other pages may have it too (a 200 with a result; a transaction only once it is there). */
+function shareable(up, store) {
+  if (up.status !== 200) return undefined;
+  try {
+    const r = JSON.parse(up.text);
+    if (r && "result" in r && !r.error && (store === shared || r.result)) return r.result;
+  } catch { /* not JSON: not shared */ }
+  return undefined;
+}
 
 export async function handleRpc(request, env = {}) {
   try {
@@ -240,36 +286,35 @@ export async function handleRpc(request, env = {}) {
     if (text.length > MAX_BODY) return json(rpcError(null, -32600, "Too large"), 413);
     let body;
     try { body = JSON.parse(text); } catch { return json(rpcError(null, -32700, "Not JSON"), 400); }
-    const batch = Array.isArray(body), list = batch ? body : [body];
-    if (!list.length || list.length > MAX_BATCH) return json(rpcError(null, -32600, `1 to ${MAX_BATCH} calls at once`), 400);
     // the share is taken before anything is looked at, so refused calls cost their sender too
-    if (!calls.take(who, list.length)) return json(rpcError(list[0]?.id, 429, "Too many calls from here; slow down"), 429, { "retry-after": "5" });
-    for (const call of list) {
-      const why = refuse(call, cluster);
-      if (why) return json(rpcError(call?.id, -32601, why), 403);
-    }
-    for (const call of list) {
-      if (call.method === "getProgramAccounts" && !heavy.take(who)) return json(rpcError(call.id, 429, "Too many account lists from here"), 429, { "retry-after": "5" });
-      if (call.method === "sendTransaction" && !takeSend(who, call.params[0], call.params[call.params.length - 1])) return json(rpcError(call.id, 429, "Too many transactions from here"), 429, { "retry-after": "30" });
-      if (call.method === "simulateTransaction" && !sims.take(who)) return json(rpcError(call.id, 429, "Too many simulations from here"), 429, { "retry-after": "15" });
-    }
+    const batch = Array.isArray(body);
+    if (!calls.take(who, batch ? Math.max(1, body.length) : 1)) return json(rpcError(batch ? null : body?.id, 429, "Too many calls from here; slow down"), 429, { "retry-after": "5" });
+    // one call at a time: the site's pages send no batches, and a batch would pass by what is shared
+    if (batch) return json(rpcError(null, -32600, "One call at a time"), 400);
+    const why = refuse(body, cluster);
+    if (why) return json(rpcError(body?.id, -32601, why), 403);
+    if (body.method === "getProgramAccounts" && !heavy.take(who)) return json(rpcError(body.id, 429, "Too many account lists from here"), 429, { "retry-after": "5" });
+    if (body.method === "sendTransaction" && !takeSend(who, body.params[0], body.params[body.params.length - 1])) return json(rpcError(body.id, 429, "Too many transactions from here"), 429, { "retry-after": "30" });
+    if (body.method === "simulateTransaction" && !sims.take(who)) return json(rpcError(body.id, 429, "Too many simulations from here"), 429, { "retry-after": "15" });
 
-    if (batch) {
-      try { return passOn(await upstream(cluster, body)); } catch (err) { return lost(null, err); }
-    }
-    // one call that another page asked for a moment ago is answered from memory
+    // a call that another page asked for a moment ago is answered from memory, and one on its way already waits for it
     const key = keyOf(cluster, body), store = body.method === "getTransaction" ? txs : shared;
     const hit = key ? store.get(key) : null;
     if (hit) return json({ jsonrpc: "2.0", id: body.id ?? null, result: hit.result });
-    let up;
-    try { up = await upstream(cluster, body); } catch (err) { return lost(body.id, err); }
-    if (key && up.status === 200) {
-      try {
-        const r = JSON.parse(up.text);
-        if (r && "result" in r && !r.error && (store === shared || r.result)) store.put(key, up.text, r.result);
-      } catch { /* passed on as it came */ }
+    const under = key ? flying.get(key) : null;
+    if (under) {
+      const result = await under;                        // never fails: undefined when its answer is not one to share
+      if (result !== undefined) return json({ jsonrpc: "2.0", id: body.id ?? null, result });
     }
-    return passOn(up);
+    const job = upstream(cluster, body);
+    if (key && !under) {
+      const share = job.then((up) => { const result = shareable(up, store); if (result !== undefined) store.put(key, up.text, result); return result; }, () => undefined)
+        .finally(() => { if (flying.get(key) === share) flying.delete(key); });
+      flying.set(key, share);
+    }
+    let up;
+    try { up = await job; } catch (err) { return lost(body.id, err); }
+    return passOn(up, body.id);
   } catch {
     return json(rpcError(null, -32603, "Something went wrong here"), 500);
   }

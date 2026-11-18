@@ -1310,6 +1310,8 @@ function sendError(e) {
   if (/insufficient/i.test(m)) return 'Not enough SOL for it and its network fee.';
   // sent, and resent, but never in a block before its blockhash ran out: nothing happened and no fee was paid
   if (e && e.signature && !e.reason && /expired before it landed/i.test(m)) return 'It was sent but did not land in time, so nothing happened and no fee was paid. Try again.';
+  // sent, and then the node stopped answering: it may have landed, so look before sending another
+  if (e && e.signature && e.unconfirmed) return 'It was sent, but ' + place + ' did not confirm it in time. Check it on the explorer before trying again.';
   if (/blockhash|expired/i.test(m)) return 'It took too long to sign and expired. Nothing was sent; try again.';
   return 'It did not go through: ' + (m || 'unknown error') + '.';
 }
@@ -1802,11 +1804,13 @@ async function boot() {
     if (mintParam) {
       try { new Chain.PublicKey(mintParam); } catch (e) { fail('That is not a coin address.', 'The link has <code>' + esc(mintParam.slice(0, 60)) + '</code>. <a href="/coins">See all coins</a>'); return; }
       p = await withTimeout(Chain.readPool(mintParam), 15000);
-      if (!p) { fail('No coin at this address on ' + place + '.', '<a href="/coins">See all coins</a> · <a href="/coin">the busiest one</a>'); return; }
+      // a link from the other cluster that lost its net= (typed, or cut short): the same coin there, one tap away
+      var there = N && N.test ? 'mainnet' : 'devnet';
+      if (!p) { fail('No coin at this address on ' + place + '.', '<a href="/coins">See all coins</a> · <a href="/coin">the busiest one</a> · <a href="/coin?mint=' + encodeURIComponent(mintParam) + '&amp;net=' + there + '">look on ' + there + '</a>'); return; }
     } else {
       // the most traded coin, the newest between equals: one pool, which the site's server picks from its own list
       var pools = await withTimeout(Chain.listPools({ limit: 1, sort: 'volume' }), 15000);
-      if (!pools.total) { fail(say('No coins on devnet yet.', 'No Nox coins on Solana yet.'), 'Only the team launches for now. <a href="/coins">The coin board</a>'); return; }
+      if (!pools.total) { fail(say('No coins on devnet yet.', 'No coins on Solana yet.'), 'Only the team launches for now. <a href="/coins">The coin board</a>'); return; }
       if (!pools.length) throw new Error('The list came without its coins');   // coins there, none sent: as if it did not answer
       p = pools[0]; busiest = true;
     }
