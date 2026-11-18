@@ -8,7 +8,7 @@
 
 export const CLUSTERS = {
   devnet: { rpcEnv: "RPC_URL_DEVNET", publicRpc: "https://api.devnet.solana.com", program: "CbAjrrCk8WEyh9uTQ1cNJWxNGJk2ipJtxK5p8yBwnURK", programEnv: "PROGRAM_DEVNET" },
-  mainnet: { rpcEnv: "RPC_URL_MAINNET", publicRpc: "", program: "", programEnv: "PROGRAM_MAINNET" },
+  mainnet: { rpcEnv: "RPC_URL_MAINNET", publicRpc: "", program: "AX2TA9YPyQ3axJ2jVdC4bcDD8a9FHDkHY6tK7rtsnox", programEnv: "PROGRAM_MAINNET" },
 };
 
 /** A node URL from the environment: quotes around it dropped, and only http(s); anything else counts as none. */

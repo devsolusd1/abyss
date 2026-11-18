@@ -29,7 +29,7 @@
       cluster: "mainnet",
       label: "mainnet", place: "Solana", Place: "Solana", test: false,
       publicRpc: "",                                     // the public mainnet node is not for apps: the site's server only
-      program: "",                                       // filled in once the program is deployed there
+      program: "AX2TA9YPyQ3axJ2jVdC4bcDD8a9FHDkHY6tK7rtsnox", // filled in once the program is deployed there
       explorer: (what, id) => `https://explorer.solana.com/${what}/${id}`,
     },
   };
